@@ -168,9 +168,14 @@ class DcAicaSound {
                 : (previous ^ voice.regs[0]) & 0x5ff != 0)
             : (index != 1 || !voice.noiseSelected) &&
                 previous != voice.regs[index]);
+    // A write that clears KYONB together with the source prepares a key-off
+    // and the next setup of the channel (one game writes 0 to a held ADPCM
+    // voice before the KYONEX strobe).
     final retireSource = voice.active &&
         sourceChanged &&
-        (voice.state == 3 || control & 15 == 0);
+        (voice.state == 3 ||
+            control & 15 == 0 ||
+            (index == 0 && voice.regs[0] & 0x4000 == 0));
     try {
       if (voice.active && !retireSource) {
         final wasNoise =
@@ -203,7 +208,7 @@ class DcAicaSound {
       rethrow;
     }
     if (retireSource) {
-      // The game reuses channels under master mute or after key-off, before the release envelope has finished.
+      // The game reuses channels under master mute, after key-off or while it clears KYONB, before the release envelope has finished.
       // Provisionally retire the old decoder instead of applying new source registers to its history.
       // Held ADPCM voices still reject source replacement; precise release tails are pending.
       voice.active = false;

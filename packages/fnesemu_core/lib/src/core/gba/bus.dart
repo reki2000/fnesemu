@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
-
+import '../../util/state.dart';
 import 'apu.dart';
 import 'cart.dart';
 import 'dma.dart';
@@ -21,7 +21,12 @@ class Bus {
   late final Dma dma;
   late final Apu apu;
 
-  Bus() {
+  /// The work RAM buffers can be supplied by the caller (the JIT
+  /// adapter allocates them so the runtime can map them); the bus
+  /// allocates its own otherwise.
+  Bus({Uint8List? ewram, Uint8List? iwram})
+      : ewram = ewram ?? Uint8List(0x40000),
+        iwram = iwram ?? Uint8List(0x8000) {
     irq = Irq();
     timers = Timers(irq);
     dma = Dma(this, irq);
@@ -31,8 +36,8 @@ class Bus {
 
   // on-chip memory
   final bios = Uint8List(0x4000); // 16KB BIOS (loaded externally; HLE later)
-  final ewram = Uint8List(0x40000); // 256KB external work RAM
-  final iwram = Uint8List(0x8000); // 32KB internal work RAM
+  final Uint8List ewram; // 256KB external work RAM
+  final Uint8List iwram; // 32KB internal work RAM
   final paletteRam = Uint8List(0x400); // 1KB
   final vram = Uint8List(0x18000); // 96KB
   final oam = Uint8List(0x400); // 1KB
@@ -54,6 +59,49 @@ class Bus {
   // set when BG2X/Y (index 0) or BG3X/Y (index 1) is written; the PPU reloads
   // its internal affine reference point from the register before the next line.
   final affineRefDirty = [false, false];
+
+  void saveState(StateWriter w) {
+    w.section('gba-bus');
+    w.bytes(ewram);
+    w.bytes(iwram);
+    w.bytes(io);
+    w.bytes(paletteRam);
+    w.bytes(vram);
+    w.bytes(oam);
+    w.ints([vcount]);
+    for (final b in [hblank, vblank, halted, affineRefDirty[0], affineRefDirty[1]]) {
+      w.boolean(b);
+    }
+    irq.saveState(w);
+    timers.saveState(w);
+    dma.saveState(w);
+    apu.saveState(w);
+    cart.backup.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-bus');
+    s.bytesInto(ewram);
+    s.bytesInto(iwram);
+    s.bytesInto(io);
+    s.bytesInto(paletteRam);
+    s.bytesInto(vram);
+    s.bytesInto(oam);
+    final v = s.ints();
+    if (v.length != 1) throw const StateMismatch('gba bus state layout');
+    final flags = [for (var i = 0; i < 5; i++) s.boolean()];
+    vcount = v[0];
+    hblank = flags[0];
+    vblank = flags[1];
+    halted = flags[2];
+    affineRefDirty[0] = flags[3];
+    affineRefDirty[1] = flags[4];
+    irq.loadState(s);
+    timers.loadState(s);
+    dma.loadState(s);
+    apu.loadState(s);
+    cart.backup.loadState(s);
+  }
 
   void loadBios(Uint8List data) {
     final n = data.length < bios.length ? data.length : bios.length;

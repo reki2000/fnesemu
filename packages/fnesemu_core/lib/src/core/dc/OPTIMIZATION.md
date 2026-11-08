@@ -355,9 +355,9 @@ Reading the supplied measurement checkpoints shows CCR `0x105` in the normal BIO
 
 The cache reader still resolves an external location before checking a hit, and uncached reads may resolve it again in the external reader. Fills and writeback create temporary byte buffers; scalar stores also construct byte arrays. These are software-path costs, rather than modeled cache-miss wait states. Investigate a guarded ordinary-RAM hit path and fixed-width scalar accessors while preserving dirty/stale data, DMA coherence, cache-control operations and required exceptions. Globally bypassing the enabled cache is not established as safe by these checkpoints.
 
-## Classification gates and AICA divisions (tool/dc_bench.dart)
+## Classification gates and AICA divisions (tool/bench.dart dc)
 
-A checksum-pinned AOT bench now exists for this core (`tool/dc_bench.dart`: cpu, jit, fpu, frame, gpu, aica workloads), which can isolate per-instruction costs the scene measurements could not. Interleaved old/new AOT comparisons, checksums identical:
+A checksum-pinned AOT bench now exists for this core (`tool/bench.dart dc`: cpu, jit, fpu, frame, gpu, aica workloads), which can isolate per-instruction costs the scene measurements could not. Interleaved old/new AOT comparisons, checksums identical:
 
 - Gating the `_fpuOp` call in `Sh4._step` on `_fpuCandidate` (top nibble 15, or the FPSCR/FPUL system pattern space of top nibble 0 or 4 with bits 7-4 of 5 or 6 and a low nibble ending in 2; `_fpuOp` still matches the exact codes) and gating the `_controlOp` call on `_controlCandidate` (top nibble 0 or 4 with bit 1 set, which covers every encoding `_controlOp` accepts): cpu -12%, frame -13%. The control gate was previously reverted on scene measurements; the isolated bench measures it consistently, so it is retained this time.
 - Deriving the CCR index-mode bits once per CCR write (`DcCache._deriveIndexModes`, called from the setter, reset and state load) instead of on every `_index` call: a further few percent on cpu and frame.

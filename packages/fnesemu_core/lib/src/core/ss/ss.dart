@@ -456,9 +456,8 @@ class Ss extends Core {
   /// with. The drive's sector cache is not saved: a restored run may wait
   /// for sectors that the original run had cached.
   int get _media {
-    var h = stateMediaHash(bus.bios);
     final toc = cdblock.disc.status.toc;
-    for (final v in [
+    return stateMediaHashAll(stateMediaHash(bus.bios), [
       toc.totalSectors,
       for (final t in toc.tracks) ...[
         t.number,
@@ -466,10 +465,7 @@ class Ss extends Core {
         t.startLba,
         t.sectors
       ],
-    ]) {
-      h = (h ^ v) * 0x100000001b3;
-    }
-    return h;
+    ]);
   }
 
   @override
@@ -498,9 +494,6 @@ class Ss extends Core {
     bus.bios.setRange(
         0, body.length < bus.bios.length ? body.length : bus.bios.length, body);
 
-    _sram.init("ss_bram", Bus.blankBram);
-    bus.bramRead = _sram.read8;
-    bus.bramWrite = _sram.write8;
   }
 
   @override
@@ -514,7 +507,12 @@ class Ss extends Core {
   void setCdromDrive(CdromDrive drive) => cdblock.setDisc(drive);
 
   @override
-  void setSram(Sram sram) => _sram = sram;
+  void setSram(Sram sram) {
+    _sram = sram;
+    _sram.init("ss_bram", Bus.blankBram);
+    bus.bramRead = _sram.read8;
+    bus.bramWrite = _sram.write8;
+  }
 
   @override
   void reset() {

@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:fnesemu_core/src/core/md/32x/sh2/onchip.dart';
+import 'package:fnesemu_core/src/components/sh2/onchip.dart';
 import 'package:test/test.dart';
 
 void main() {

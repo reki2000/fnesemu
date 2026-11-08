@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// The video display processor of the sms core: the TMS9918 modes, the mode
 /// 4 and the portable console's 12-bit colors. Renders one scanline at a
@@ -86,6 +87,61 @@ class Vdp {
     }
     _back.fillRange(0, _back.length, 0xff000000);
     _front.fillRange(0, _front.length, 0xff000000);
+  }
+
+  // Typed arrays are saved as their raw bytes, in host byte order.
+  void saveState(StateWriter w) {
+    w.section('sms-vdp');
+    w.bytes(vram);
+    w.bytes(cram);
+    w.bytes(reg);
+    w.ints([
+      _addr, _code, _readBuffer, _cramLatch, _fifthSprite, _lineCounter, //
+      _vscroll, line, frames, hLatch, _frontHeight
+    ]);
+    w.boolean(_latched);
+    w.boolean(_frameInt);
+    w.boolean(_overflow);
+    w.boolean(_collision);
+    w.boolean(_lineInt);
+    w.boolean(compatible);
+    w.bytes(
+        _front.buffer.asUint8List(_front.offsetInBytes, _front.lengthInBytes));
+    w.bytes(
+        _back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
+  }
+
+  void loadState(StateReader s) {
+    s.section('sms-vdp');
+    s.bytesInto(vram);
+    s.bytesInto(cram);
+    s.bytesInto(reg);
+    final v = s.ints();
+    if (v.length != 11) throw const StateMismatch('sms vdp state layout');
+    _addr = v[0];
+    _code = v[1];
+    _readBuffer = v[2];
+    _cramLatch = v[3];
+    _fifthSprite = v[4];
+    _lineCounter = v[5];
+    _vscroll = v[6];
+    line = v[7];
+    frames = v[8];
+    hLatch = v[9];
+    _frontHeight = v[10];
+    _latched = s.boolean();
+    _frameInt = s.boolean();
+    _overflow = s.boolean();
+    _collision = s.boolean();
+    _lineInt = s.boolean();
+    compatible = s.boolean();
+    for (var i = 0; i < 32; i++) {
+      _updatePalette(i);
+    }
+    s.bytesInto(
+        _front.buffer.asUint8List(_front.offsetInBytes, _front.lengthInBytes));
+    s.bytesInto(
+        _back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
   }
 
   bool get mode4 => !tms && reg[0].bit2;

@@ -328,11 +328,13 @@ class DcDmac {
           ((control >> 14) & 3) == 3) {
         throw DcUnsupported('prohibited DMAC size or address mode');
       }
-      final size = [8, 1, 2, 4, 32][sizeCode];
+      final size = const [8, 1, 2, 4, 32][sizeCode];
       final source = _source[selected], destination = _destination[selected];
       final resource = (control >> 8) & 15;
-      final peripheralSource = [6, 9, 11, 14].contains(resource);
-      final peripheralDestination = [5, 8, 10, 13].contains(resource);
+      final peripheralSource =
+          resource == 6 || resource == 9 || resource == 11 || resource == 14;
+      final peripheralDestination =
+          resource == 5 || resource == 8 || resource == 10 || resource == 13;
       if ((source | destination) & (size - 1) != 0 ||
           ((source & 0x1fffffff) >= 0x1c000000) != peripheralSource ||
           ((destination & 0x1fffffff) >= 0x1c000000) != peripheralDestination) {

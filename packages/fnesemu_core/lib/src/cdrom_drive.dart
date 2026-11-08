@@ -72,6 +72,17 @@ class CdromSession {
   const CdromSession(this.number, this.firstTrack, this.startLba);
 }
 
+/// The kind of disc, when the image format records it.
+enum CdromMedium {
+  /// The format does not say; the drive must not assume a kind.
+  unknown,
+  cd,
+
+  /// A GD-ROM: tracks in one LBA space, the high-density area from LBA 45000.
+  gd,
+  dvd,
+}
+
 class CdromToc {
   final List<CdromTrack> tracks;
 
@@ -84,7 +95,11 @@ class CdromToc {
   /// Explicit lead-in disc identity; null means XA identity is unavailable.
   final bool? isXa;
 
-  const CdromToc(this.tracks, this.totalSectors, {this.sessions, this.isXa});
+  /// The disc kind recorded by the image format.
+  final CdromMedium medium;
+
+  const CdromToc(this.tracks, this.totalSectors,
+      {this.sessions, this.isXa, this.medium = CdromMedium.unknown});
 
   static const empty = CdromToc([], 0);
 
@@ -192,6 +207,18 @@ class CdromSubcodeIdentifier {
   final int frame;
 }
 
+/// The CRC-16 of [data] as used by Q subchannel records: polynomial 0x1021, initial value 0, and the stored CRC is the bitwise inverse of the result.
+int cdromSubcodeCrc16(List<int> data) {
+  var crc = 0;
+  for (final byte in data) {
+    crc ^= byte << 8;
+    for (var bit = 0; bit < 8; bit++) {
+      crc = ((crc << 1) ^ (crc & 0x8000 != 0 ? 0x1021 : 0)) & 0xffff;
+    }
+  }
+  return crc;
+}
+
 /// Explicitly supplied subchannels for a single requested sector.
 /// Null fields mean unavailable metadata, not an invented silent subchannel.
 class CdromSubcode {
@@ -214,14 +241,8 @@ class CdromSubcode {
     for (var bit = 0; bit < 96; bit++) {
       q[bit >> 3] |= ((raw[bit] >> 6) & 1) << (7 - (bit & 7));
     }
-    var crc = 0;
-    for (var byte = 0; byte < 10; byte++) {
-      crc ^= q[byte] << 8;
-      for (var bit = 0; bit < 8; bit++) {
-        crc = ((crc << 1) ^ (crc & 0x8000 != 0 ? 0x1021 : 0)) & 0xffff;
-      }
-    }
-    if (((~crc) & 0xffff) != (q[10] << 8 | q[11])) {
+    if (((~cdromSubcodeCrc16(Uint8List.sublistView(q, 0, 10))) & 0xffff) !=
+        (q[10] << 8 | q[11])) {
       return CdromSubcode(raw: raw);
     }
     int? bcd(int value) => value >> 4 > 9 || (value & 15) > 9

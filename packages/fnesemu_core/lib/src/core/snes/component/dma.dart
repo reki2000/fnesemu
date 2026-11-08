@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'bus.dart';
 
@@ -49,6 +50,42 @@ class Dma {
     [0],
     [0, 1],
   ];
+
+  /// Saves the eight channels' registers and HDMA progress plus the HDMA enable mask.
+  void saveState(StateWriter w) {
+    w.section('snes-dma');
+    w.int32(hdmaEnableMask);
+    for (final c in channels) {
+      w.ints([
+        c.dmap, c.bbad, c.a1tAddr, c.a1bBank, c.dasLen, c.dasbBank, c.a2aAddr,
+        c.ntrl, c.linesRemaining, ...c.lineBuf,
+      ]);
+      w.boolean(c.hdmaActive);
+      w.boolean(c.hdmaDoTransfer);
+    }
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-dma');
+    hdmaEnableMask = s.int32();
+    for (final c in channels) {
+      final v = s.ints();
+      if (v.length != 13) throw const StateMismatch('snes dma state layout');
+      c.dmap = v[0];
+      c.bbad = v[1];
+      c.a1tAddr = v[2];
+      c.a1bBank = v[3];
+      c.dasLen = v[4];
+      c.dasbBank = v[5];
+      c.a2aAddr = v[6];
+      c.ntrl = v[7];
+      c.linesRemaining = v[8];
+      c.lineBuf.setAll(0, v.sublist(9));
+      c.hdmaActive = s.boolean();
+      c.hdmaDoTransfer = s.boolean();
+    }
+  }
 
   void reset() {
     for (final c in channels) {

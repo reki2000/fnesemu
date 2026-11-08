@@ -20,7 +20,7 @@ void main() {
         fpuHelper: 0,
         prefetchHelper: 0,
       );
-      final block = t.translate(0x100, 0)!;
+      final block = t.translate(0x100, tag: 0)!;
       final term = block.term as IrBranch;
       expect((term.pcTrue, term.pcFalse),
           (expectedTrue, expectedFalse));

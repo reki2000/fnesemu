@@ -5,6 +5,7 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../state.dart';
 import '../../util/int.dart';
+import '../../util/jit_adapter.dart';
 import 'bus.dart';
 import 'cache.dart';
 import 'fault.dart';
@@ -24,7 +25,7 @@ class Sh4 {
       : r = jit?._view(Sh4Translator.regs) ?? Uint32List(16),
         fr = jit?._view(Sh4Translator.fr) ?? Uint32List(16),
         xf = jit?._view(Sh4Translator.xf) ?? Uint32List(16) {
-    jit?._cpu = this;
+    jit?._attach(this);
     reset();
   }
 
@@ -215,38 +216,76 @@ class Sh4 {
     if (bus.cpg.stabilizing) return;
     if (_acceptInterrupt()) return;
     if (sleeping) return;
+    if (!inDelaySlot &&
+        pc & 1 == 0 &&
+        (privileged || pc.mask32 < 0x80000000) &&
+        bus.mmu.instructionMiss(pc, privileged: privileged)) {
+      // An ITLB miss enters its handler without a costly Dart exception.
+      _raise(DcCpuException(0x40, address: pc.mask32, vector: 0x400));
+      return;
+    }
     try {
       _checkAccess(pc, 2, false,
           privileged: _slotFetchPrivileged, instruction: true);
       _step();
       _instructionExecuted = true;
     } on DcCpuException catch (error) {
-      if (sr.bit28 || error.reset) {
-        // A general exception with BL set causes a CPU/on-chip manual reset.
-        // External RAM and ROM remain connected and retain their contents.
-        reset(manual: true);
-        bus.expevt = error.reset ? error.event : 0x20;
-        if (error.reset && error.address != null) bus.tea = error.address!;
-        return;
-      }
-      final inSlot = inDelaySlot;
-      if (inSlot && _delayedPr != null) pr = _delayedPr!;
-      ssr = sr;
-      spc = (error.completed ? pc + 2 : (inSlot ? pc - 2 : pc)).mask32;
-      sgr = r[15];
-      if (error.address != null) {
-        bus.tea = error.address!;
-        bus.pteh = (bus.pteh & 0xff) | (error.address! & 0xfffffc00);
-      }
-      if (error.trap != null) bus.tra = error.trap! * 4;
-      bus.expevt = error.event;
-      sr |= 0x70000000;
-      pc = (vbr + error.vector).mask32;
-      _delayedTarget = null;
-      _delayedPr = null;
-      _slotFetchPrivileged = null;
-      _instructionExecuted = error.completed;
+      _raise(error);
     }
+  }
+
+  /// Raises the UTLB miss of a data access at which compiled code left, as
+  /// interpreting the instruction would, unless something else comes first.
+  /// Returns whether it raised the miss.
+  /// LDTLB. A TLB miss handler loads the entry for TEA and returns to the
+  /// access, so the translation is reported at once and compiled code
+  /// resumes at the access without leaving again.
+  void _loadTlb() {
+    bus.mmu
+      ..load()
+      ..prime(bus.tea, privileged: ssr & 0x40000000 != 0);
+  }
+
+  bool _raiseDataMiss(int address, {required bool write}) {
+    if (sr.bit28 ||
+        inDelaySlot ||
+        bus.cpg.stabilizing ||
+        bus.cpg.resetPending ||
+        _interruptDue() ||
+        !bus.mmu.dataMiss(address, privileged: privileged)) {
+      return false;
+    }
+    _raise(
+        DcCpuException(write ? 0x60 : 0x40, address: address, vector: 0x400));
+    return true;
+  }
+
+  void _raise(DcCpuException error) {
+    if (sr.bit28 || error.reset) {
+      // A general exception with BL set causes a CPU/on-chip manual reset.
+      // External RAM and ROM remain connected and retain their contents.
+      reset(manual: true);
+      bus.expevt = error.reset ? error.event : 0x20;
+      if (error.reset && error.address != null) bus.tea = error.address!;
+      return;
+    }
+    final inSlot = inDelaySlot;
+    if (inSlot && _delayedPr != null) pr = _delayedPr!;
+    ssr = sr;
+    spc = (error.completed ? pc + 2 : (inSlot ? pc - 2 : pc)).mask32;
+    sgr = r[15];
+    if (error.address != null) {
+      bus.tea = error.address!;
+      bus.pteh = (bus.pteh & 0xff) | (error.address! & 0xfffffc00);
+    }
+    if (error.trap != null) bus.tra = error.trap! * 4;
+    bus.expevt = error.event;
+    sr |= 0x70000000;
+    pc = (vbr + error.vector).mask32;
+    _delayedTarget = null;
+    _delayedPr = null;
+    _slotFetchPrivileged = null;
+    _instructionExecuted = error.completed;
   }
 
   /// Whether an interrupt is accepted before the next instruction.
@@ -288,16 +327,19 @@ class Sh4 {
   }
 
   /// Runs compiled code for up to [budget] instructions when the next step
-  /// is an ordinary privileged instruction with the MMU off. Returns the
-  /// executed instruction count; 0 leaves the next step to [step].
+  /// is an ordinary instruction: privileged with the MMU off, or with the MMU
+  /// on, in P0 or in privileged P1 and P2. Returns the executed instruction
+  /// count; 0 leaves the next step to [step].
   int runCompiled(int budget) {
     final compiled = jit;
     if (compiled == null ||
         compiled.suspended ||
         inDelaySlot ||
         sleeping ||
-        !privileged ||
-        bus.mmu.enabled ||
+        !(bus.mmu.enabled
+            ? pc.mask32 < 0x80000000 ||
+                privileged && Sh4Translator.untranslated(pc)
+            : privileged) ||
         bus.cpg.stabilizing ||
         bus.cpg.resetPending ||
         _interruptDue()) {
@@ -376,7 +418,7 @@ class Sh4 {
       slotFetchPrivileged = privileged;
       sr = ssr;
     } else if (op == 0x0038) {
-      bus.mmu.load();
+      _loadTlb();
     } else if (_controlCandidate(op) && _controlOp(op, n)) {
       // The control transfer has already completed.
     } else if (_fpuCandidate(op) && _fpuOp(op, n, m)) {

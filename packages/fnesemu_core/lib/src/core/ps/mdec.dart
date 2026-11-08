@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import '../../util/debug.dart';
 import '../../util/int.dart';
+import 'state.dart';
 
 final _log = DebugLog('ps.mdec');
 
@@ -266,6 +267,45 @@ class Mdec {
     decoder.scale.setAll(0, params);
     _log.debugc(() => "SetScale ${dump()}\n"
         " [${decoder.scale.map((i) => i.x4).join(" ")}]");
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-mdec');
+    w.ints([command, paramCount, blockType, depth, decoder.outputIndex, decoder.q]);
+    for (final b in [signed, bit15Set, dataInRequest, dataOutRequest]) {
+      w.boolean(b);
+    }
+    w.queue(params);
+    w.queue(output);
+    for (final block in buf) {
+      w.ints(block);
+    }
+    w.ints(decoder.scale);
+    w.ints(decoder.qtY);
+    w.ints(decoder.qtC);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-mdec');
+    final v = s.fields(6, 'ps mdec');
+    command = v[0];
+    paramCount = v[1];
+    blockType = v[2];
+    depth = v[3];
+    decoder.outputIndex = v[4];
+    decoder.q = v[5];
+    signed = s.boolean();
+    bit15Set = s.boolean();
+    dataInRequest = s.boolean();
+    dataOutRequest = s.boolean();
+    s.queueInto(params);
+    s.queueInto(output);
+    for (final block in buf) {
+      s.intsInto(block);
+    }
+    s.intsInto(decoder.scale);
+    s.intsInto(decoder.qtY);
+    s.intsInto(decoder.qtC);
   }
 
   String dump() => "command:$command paramCount:$paramCount "

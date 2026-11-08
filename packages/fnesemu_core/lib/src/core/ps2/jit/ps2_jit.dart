@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../util/jit_adapter.dart';
 import '../bus.dart';
 import '../r5900/r5900.dart';
 import 'r5900_translator.dart';
@@ -15,13 +16,10 @@ import 'r5900_translator.dart';
 /// adapter runs compiled code only while the TLB maps the user addresses
 /// one to one ([Tlb.userIdentity]). Accesses outside main memory, such as
 /// the scratchpad and the device registers, exit to the interpreter.
-final class Ps2Jit {
-  final JitRuntime rt;
+final class Ps2Jit extends JitAdapter {
   late final diagnostics =
       JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little)
         ..memoryRegion = _memoryRegion;
-  final bool native;
-  final int compileThreshold;
   final Uint8List ram;
   late final ByteData _ram = ByteData.sublistView(ram);
   late final Int64List gpr = Int64List.view(
@@ -37,10 +35,6 @@ final class Ps2Jit {
       codeMemory: _code,
       threshold: compileThreshold);
 
-  /// Runs the interpreter instead while keeping the compiled blocks and the
-  /// shared state.
-  bool suspended = false;
-
   // A recent LW that exited before executing because its address was outside
   // the JIT's RAM mapping. The base register and instruction are rechecked
   // on every hit: the same instruction can later address RAM, and code can
@@ -48,10 +42,11 @@ final class Ps2Jit {
   int _unmappedLoadPc = -1, _unmappedLoadWord = 0;
   int _unmappedLoadBase = 0, _unmappedLoadOffset = 0;
 
-  int get compiledClocks => native ? _driver.executedClocks : 0;
+  Ps2Jit._(super.rt, super.native, int? threshold, this.ram)
+      : super(compileThreshold: threshold);
 
-  Ps2Jit._(this.rt, this.native, int? threshold, this.ram)
-      : compileThreshold = threshold ?? rt.compileThreshold;
+  @override
+  JitDriver get driver => _driver;
 
   static Ps2Jit? create({bool native = true, int? compileThreshold}) {
     if (Endian.host != Endian.little) return null;
@@ -135,9 +130,10 @@ final class Ps2Jit {
   int? _fetch(int pc) =>
       _canFetch(pc) ? _ram.getUint32(pc & 0x1fffffff, Endian.little) : null;
 
+  @override
   void reset() {
     _unmappedLoadPc = -1;
-    _driver.reset();
+    super.reset();
   }
 
   bool _outsideRam(int base, int offset) =>
@@ -195,5 +191,4 @@ final class Ps2Jit {
     return true;
   }
 
-  void dispose() => rt.dispose();
 }

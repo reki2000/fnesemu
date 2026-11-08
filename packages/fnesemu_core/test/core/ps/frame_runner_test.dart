@@ -1,11 +1,21 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
 
+final _liveCores = <Ps>[];
+
+void _disposeLiveCores() {
+  for (final core in _liveCores) {
+    core.dispose();
+  }
+  _liveCores.clear();
+}
+
 Ps createCore(int startClock, {bool jit = false}) {
   final core = Ps(jit: jit)..setSram(Sram());
-  addTearDown(core.dispose);
+  _liveCores.add(core);
   core.reset();
   core.cpu.pc = 0;
   core.cpu.nextPc = 4;
@@ -29,11 +39,41 @@ Ps createCore(int startClock, {bool jit = false}) {
   return core;
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggSkipCase(String reason) => throw const _CaseSkip();
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+        _disposeLiveCores();
+      }
+    }
+  }
+
   for (final startClock in [0, 22, 24, 60, 98, 102]) {
-    test('JIT returns to DMA scheduler after wake at clock $startClock', () {
+    aggCase('JIT returns to DMA scheduler after wake at clock $startClock', () {
       if (!JitRuntime.nativeSupported) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       final core = createCore(startClock, jit: true);
@@ -48,9 +88,9 @@ void main() {
       expect(core.bus.interrupt.status & 8, 8);
     });
   }
-  test('a suspended JIT runs frames with the interpreter', () {
+  aggCase('a suspended JIT runs frames with the interpreter', () {
     if (!JitRuntime.nativeSupported) {
-      markTestSkipped('no native recompiler on this host');
+      aggSkipCase('no native recompiler on this host');
       return;
     }
     final reference = createCore(24);
@@ -64,7 +104,7 @@ void main() {
     expect(suspended.bus.mem32, reference.bus.mem32);
   });
   for (final startClock in [0, 2, 22, 24, 26, 46, 48, 50, 60, 98, 100, 102]) {
-    test('frame runner preserves DMA wake timing at clock $startClock', () {
+    aggCase('frame runner preserves DMA wake timing at clock $startClock', () {
       final reference = createCore(startClock);
       final batched = createCore(startClock);
       var lines = 0;
@@ -80,7 +120,7 @@ void main() {
       expect(batched.bus.mem, reference.bus.mem);
     });
   }
-  test('enabling a pending channel preserves DMA wake timing', () {
+  aggCase('enabling a pending channel preserves DMA wake timing', () {
     final core = createCore(60);
     core.dma.control = 0;
     core.dma.setChannelCtrl(6, 0x11000000);
@@ -92,7 +132,7 @@ void main() {
     expect(core.bus.interrupt.status & 8, 8);
   });
 
-  test('DMA can wake again after completing a frame transfer', () {
+  aggCase('DMA can wake again after completing a frame transfer', () {
     final core = createCore(60);
     core.runFrame(2);
     expect(core.dma.active, isFalse);
@@ -104,4 +144,15 @@ void main() {
     expect(core.bus.mem32[0x10000 >> 2], 0xffffff);
     expect(core.dma.active, isFalse);
   });
+
+  const chunkCount = 4;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

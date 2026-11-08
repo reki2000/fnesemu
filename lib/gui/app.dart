@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/app_api.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
+import 'package:render_frame_gpu/render_frame_gpu.dart';
 
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
@@ -23,6 +24,8 @@ import 'rom_archive.dart';
 import 'rom_directory.dart';
 import 'rom_scanner.dart';
 import 'sound_player.dart';
+import 'state_slot.dart';
+import 'state_slot_dialog.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
 
@@ -96,6 +99,8 @@ class MainPage extends StatefulWidget {
 
 enum _DiscAction { eject, empty, select }
 
+enum _SetupAction { gpu }
+
 class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
   final _imageContainer = ImageContainer();
@@ -116,6 +121,19 @@ class MainPageState extends State<MainPage> {
 
   String _romName = "";
 
+  // the identity of the loaded game in the recent list (see
+  // Storage.gameId); the state slots are keyed by it. null while no game
+  // with an identity is loaded.
+  String? _gameId;
+
+  // the last frame the core rendered; kept for the state thumbnails
+  ImageBuffer? _lastFrame;
+
+  // true while a state save or load runs: the core stops and resumes
+  // inside the operation, which must not open the menu, pause the sound
+  // or toggle the key handler
+  bool _stateOp = false;
+
   // disc images found in the directory selected from the disc menu
   final _openedFolders = <String, PickedDirectory>{};
   final _folderIds = Expando<String>();
@@ -128,6 +146,12 @@ class MainPageState extends State<MainPage> {
   final _drive = AsyncCdromDrive();
 
   final _coreSetupKey = GlobalKey<PopupMenuButtonState>();
+
+  // draws the 3D renders of the cores when the GPU setting selects it; null
+  // until it is created, and when the platform has no Flutter GPU
+  GpuFrameSink? _gpu;
+  static const _gpuKey = "gpu";
+  bool get _gpuSelected => _gpu != null && _storage.setting(_gpuKey) == "gpu";
 
   @override
   void initState() {
@@ -142,9 +166,12 @@ class MainPageState extends State<MainPage> {
     _controller = CoreController(
         _onCoreStateChange,
         (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
-        (buf) => _imageContainer.push(
-            buf.buffer, buf.width, buf.height, buf.displayWidth,
-            displayHeight: buf.displayHeight),
+        (buf) {
+          _lastFrame = buf;
+          _imageContainer.push(buf.buffer, buf.width, buf.height,
+              buf.displayWidth,
+              displayHeight: buf.displayHeight);
+        },
         _storage);
 
     _debugRequested = widget.config.debug;
@@ -158,6 +185,14 @@ class MainPageState extends State<MainPage> {
         onPause: _padInput.clear);
 
     _restoreDiscFolder();
+
+    unawaited(GpuFrameSink.create().then((sink) {
+      _log.infoc(() => "${GpuFrameSink.name} is "
+          "${sink == null ? 'not available' : 'available'}");
+      _gpu = sink;
+      _applyGpu();
+      if (mounted) setState(() {});
+    }));
 
     _cdromWaitTimer = Timer.periodic(
         const Duration(milliseconds: 300), (_) => _tickCdromWait());
@@ -181,6 +216,7 @@ class MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
+    _progress.dispose();
     _debugGameWidth.dispose();
     unawaited(_controller.stop());
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
@@ -200,11 +236,11 @@ class MainPageState extends State<MainPage> {
   void _onCoreStateChange(CoreControllerState state) {
     if (!mounted) return;
     if (state.running) {
-      if (!_menuOpen && !_menuBusy) {
+      if (!_stateOp && !_menuOpen && !_menuBusy) {
         unawaited(_mPlayer.resume());
         _enableKeyHandler();
       }
-    } else {
+    } else if (!_stateOp) {
       // Pausing/stepping in the inspector keeps its controls accessible.
       // Explicit menu opening has already set _menuOpen before stopping.
       if (!_controller.debugger.state.showDebugView) _menuOpen = true;
@@ -376,6 +412,11 @@ class MainPageState extends State<MainPage> {
 
     _keyHandler.init();
     _romName = name;
+    // a disc boot gets its identity from _insertItem, which records the
+    // recent entry of the disc
+    _gameId = rom == null
+        ? null
+        : Storage.gameId(system.id, name, rom: rom, folder: folder);
     if (rom != null) {
       await _storage.recordRecent(system.id, name,
           rom: rom, folder: folder, path: path);
@@ -391,6 +432,30 @@ class MainPageState extends State<MainPage> {
       }
     }
     return true;
+  }
+
+  void _applyGpu() => _controller.renderFrameSink = _gpuSelected ? _gpu : null;
+
+  /// lets the user select the renderer of the 3D renders of the cores
+  Future<void> _selectGpu() async {
+    final selected = await showDialog<bool>(
+        context: context,
+        builder: (context) => SimpleDialog(title: const Text('GPU'), children: [
+              for (final (gpu, name) in [
+                (false, 'Software'),
+                if (_gpu != null) (true, GpuFrameSink.name),
+              ])
+                SimpleDialogOption(
+                    onPressed: () => Navigator.of(context).pop(gpu),
+                    child: ListTile(
+                        title: Text(name),
+                        trailing: gpu == _gpuSelected
+                            ? const Icon(Icons.check)
+                            : null)),
+            ]));
+    if (selected == null) return;
+    await _storage.setSetting(_gpuKey, selected ? "gpu" : "software");
+    _applyGpu();
   }
 
   /// lets the user select the BIOS files of [system] and saves them
@@ -490,8 +555,10 @@ class MainPageState extends State<MainPage> {
               directory.id, folder.name, folder.restoreKey,
               path: folder.displayPath));
         }
-      } catch (_) {
+      } catch (e, st) {
         // Keep the saved token so the user can retry restoring access.
+        AppSnackBar.show(e.toString());
+        _log.errorc(() => "$e\n$st");
       }
     }
     await _storage.setSetting(_directoriesImportedKey, "1");
@@ -542,16 +609,21 @@ class MainPageState extends State<MainPage> {
       if (dialogOpen && mounted) Navigator.of(context).pop();
       Error.throwWithStackTrace(e, st);
     });
-    final selected = await showDialog<RomFile>(
-        context: context,
-        builder: (_) => GameListDialog(
-            title: folder.name,
-            scan: scan,
-            progress: _progress,
-            onRemove: () => _removeDirectory(folder)));
-    dialogOpen = false;
-    _cancelScan = true;
-    await scanning;
+    RomFile? selected;
+    try {
+      selected = await showDialog<RomFile>(
+          context: context,
+          builder: (_) => GameListDialog(
+              title: folder.name,
+              scan: scan,
+              progress: _progress,
+              onRemove: () => _removeDirectory(folder)));
+      dialogOpen = false;
+      _cancelScan = true;
+      await scanning;
+    } finally {
+      scan.dispose();
+    }
     if (selected != null && mounted) await _openRomFile(selected);
   }
 
@@ -613,6 +685,8 @@ class MainPageState extends State<MainPage> {
 
     if (await _startDisc(item.path, system: system)) {
       await _storage.recordRecent(_controller.system, item.path,
+          folder: _folderHistoryKey(scan));
+      _gameId = Storage.gameId(_controller.system, item.path,
           folder: _folderHistoryKey(scan));
     }
   }
@@ -690,6 +764,137 @@ class MainPageState extends State<MainPage> {
     await _controller.stop();
   }
 
+  bool get _canUseStates => _hasGame && _gameId != null;
+
+  /// saves the state of the loaded game in [slot], with a thumbnail of
+  /// the last rendered frame if there is one
+  Future<void> _saveToSlot(int slot) async {
+    final state = await _controller.saveState();
+    Uint8List? thumbnail;
+    final frame = _lastFrame;
+    if (frame != null) {
+      try {
+        thumbnail = await stateThumbnail(frame);
+      } catch (e) {
+        _log.errorc(() => "failed to make a state thumbnail: $e");
+      }
+    }
+    await _storage.saveStateSlot(_controller.system, _gameId!, slot, state,
+        thumbnail: thumbnail);
+    AppSnackBar.show("Saved to slot $slot");
+  }
+
+  /// restores the state saved in [slot] of the loaded game. an error of
+  /// the storage or the core is passed to the caller.
+  Future<void> _loadFromSlot(int slot) async {
+    final state =
+        await _storage.loadStateSlot(_controller.system, _gameId!, slot);
+    await _controller.loadState(state);
+    AppSnackBar.show("Loaded state from slot $slot");
+  }
+
+  void _showSaveStateDialog() => _menuAction(() async {
+        final id = _gameId;
+        if (id == null) return;
+        final slots = await _storage.stateSlots(_controller.system, id);
+        if (!mounted) return;
+        final slot =
+            await showStateSlotDialog(context, saving: true, slots: slots);
+        if (slot == null) return;
+        await _saveToSlot(slot);
+      });
+
+  void _showLoadStateDialog() => _menuAction(() async {
+        final id = _gameId;
+        if (id == null) return;
+        final slots = await _storage.stateSlots(_controller.system, id);
+        if (!mounted) return;
+        final slot =
+            await showStateSlotDialog(context, saving: false, slots: slots);
+        if (slot == null) return;
+        await _loadFromSlot(slot);
+        _resumeAfterAction = true;
+      });
+
+  // true while a text field has the keyboard focus: the F1/F2 shortcuts
+  // must not fire then
+  bool _editableHasFocus() {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext == null) return false;
+    return focusContext.widget is EditableText ||
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
+  /// F1: saves the state to slot 0 at once
+  void _quickSave() {
+    if (!_canUseStates || _stateOp || _editableHasFocus()) return;
+    _do(() async {
+      _stateOp = true;
+      try {
+        await _saveToSlot(0);
+      } finally {
+        _stateOp = false;
+      }
+    });
+  }
+
+  /// F2: loads the state from slot 0, after a confirmation
+  void _quickLoad() {
+    if (!_canUseStates || _stateOp || _editableHasFocus()) return;
+    _do(() async {
+      _stateOp = true;
+      try {
+        final info =
+            await _storage.stateSlot(_controller.system, _gameId!, 0);
+        if (info == null) {
+          AppSnackBar.show("Slot 0 is empty");
+          return;
+        }
+        final resume = !_menuOpen;
+        await _controller.stop();
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Load state'),
+                content: const Text('Load the state from slot 0?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Load'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (!confirmed) {
+          if (resume) _controller.run();
+          return;
+        }
+        var loaded = false;
+        try {
+          await _loadFromSlot(0);
+          loaded = true;
+        } catch (e) {
+          AppSnackBar.show(e.toString());
+          _log.errorc(() => "failed to load state from slot 0: $e");
+        }
+        if (loaded) {
+          await _resumeFromMenu();
+        } else if (resume) {
+          // the core is unchanged; restart the game stopped for the dialog
+          _controller.run();
+        }
+      } finally {
+        _stateOp = false;
+      }
+    });
+  }
+
   _reset() async {
     await _controller.reset();
   }
@@ -704,7 +909,7 @@ class MainPageState extends State<MainPage> {
     }
   }
 
-  PopupMenuItem<BiosSetup> _coreSetupItem(BiosSetup setup) => PopupMenuItem(
+  PopupMenuItem<Object> _coreSetupItem(BiosSetup setup) => PopupMenuItem(
       value: setup,
       child: ListTile(
           title: Text(setup.name),
@@ -720,16 +925,27 @@ class MainPageState extends State<MainPage> {
               child: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  PopupMenuButton<BiosSetup>(
+                  PopupMenuButton<Object>(
                     key: _coreSetupKey,
                     icon: const Icon(Icons.settings),
                     tooltip: "Core setup",
-                    enabled: CoreFactory.biosSetups.isNotEmpty,
-                    onSelected: (system) =>
-                        _menuAction(() async => _selectBios(system)),
+                    onSelected: (item) => _menuAction(() async => item
+                            is BiosSetup
+                        ? _selectBios(item)
+                        : _selectGpu()),
                     itemBuilder: (_) => [
                       for (final setup in CoreFactory.biosSetups)
                         _coreSetupItem(setup),
+                      if (CoreFactory.biosSetups.isNotEmpty)
+                        const PopupMenuDivider(),
+                      PopupMenuItem(
+                          value: _SetupAction.gpu,
+                          child: ListTile(
+                              title: const Text('GPU'),
+                              subtitle: Text(_gpuSelected
+                                  ? GpuFrameSink.name
+                                  : 'Software'),
+                              trailing: const Icon(Icons.memory))),
                     ],
                   ),
 
@@ -783,6 +999,22 @@ class MainPageState extends State<MainPage> {
                   // reset button
                   iconButton(Icons.restart_alt, "Reset",
                       () => _menuAction(() async => _reset())),
+
+                  // state save / load buttons
+                  IconButton(
+                    key: const ValueKey('save-state'),
+                    tooltip: 'Save state',
+                    onPressed:
+                        _canUseStates ? () => _showSaveStateDialog() : null,
+                    icon: const Icon(Icons.save),
+                  ),
+                  IconButton(
+                    key: const ValueKey('load-state'),
+                    tooltip: 'Load state',
+                    onPressed:
+                        _canUseStates ? () => _showLoadStateDialog() : null,
+                    icon: const Icon(Icons.restore),
+                  ),
 
                   // debug on/off button
                   _debugging
@@ -972,6 +1204,8 @@ class MainPageState extends State<MainPage> {
                   busy: _menuBusy || _menuTransition || _progress.value != null,
                   onToggle: _toggleMenu,
                   onResume: () => _do(_resumeFromMenu),
+                  onQuickSave: _quickSave,
+                  onQuickLoad: _quickLoad,
                   toolbar: _menuToolbar(),
                   topRight: _fpsOverlay(),
                   child: SafeArea(child: _gameContent()),

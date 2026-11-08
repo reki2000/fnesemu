@@ -4,6 +4,7 @@ import 'cdrom_drive.dart';
 import 'core_debug.dart';
 import 'pad_button.dart';
 import 'pad_source.dart';
+import 'render_frame.dart';
 import 'sram.dart';
 import 'types.dart';
 import 'video_debug.dart';
@@ -62,6 +63,14 @@ class Core extends CoreDebug {
 
   /// set sram storage interface
   void setSram(Sram sram) {}
+
+  /// whether the core can leave its 3D renders to [renderFrameSink]
+  bool get rendersFrames => false;
+
+  /// receives the 3D renders that the host draws in place of the core's
+  /// renderer; null draws them in the core. cores without [rendersFrames]
+  /// ignore it
+  set renderFrameSink(RenderFrameSink? sink) {}
 
   /// releases what the core holds outside the Dart heap; the core is not
   /// used afterwards

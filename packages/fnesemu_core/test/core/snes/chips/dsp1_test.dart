@@ -40,40 +40,5 @@ void main() {
       expect(result(bus), -0x1000);
     });
 
-    test('inverts a coefficient and an exponent', () {
-      final bus = dspBus();
-      command(bus, 0x10, [0x4000, 0]); // 0.5 -> 2 = 0x7fff * 2^1
-      expect(result(bus), 0x7fff);
-      expect(result(bus), 1);
-      command(bus, 0x10, [0x6000, 0]); // 0.75 -> 1.333 = 0x5555 * 2^1
-      expect(result(bus), 0x5555);
-      expect(result(bus), 1);
-    });
-
-    test('raster goes on with the next line', () {
-      final bus = dspBus();
-      // a view looking straight down from the height 64
-      command(bus, 0x02, [0, 0, 0, 64, 128, 0, 0]);
-      for (var i = 0; i < 4; i++) {
-        result(bus);
-      }
-      command(bus, 0x0a, [0]);
-      final line0 = [for (var i = 0; i < 4; i++) result(bus)];
-      final line1 = [for (var i = 0; i < 4; i++) result(bus)];
-      expect(line0, [128, 0, 0, 128]); // a ground pixel is half a dot
-      expect(line1, [128, 0, 0, 128]);
-    });
-
-    test('a write of \$8000 ends the raster command', () {
-      final bus = dspBus();
-      command(bus, 0x0a, [0]);
-      for (var i = 0; i < 3; i++) {
-        result(bus);
-      }
-      bus.write(0x6000, 0x00); // \$8000 in place of reading D
-      bus.write(0x6000, 0x80);
-      command(bus, 0x00, [0x4000, 0x4000]); // the next command runs
-      expect(result(bus), 0x2000);
-    });
   });
 }

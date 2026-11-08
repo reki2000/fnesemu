@@ -71,6 +71,24 @@ class Ipu {
   /// quadwords that the running command needs in the buffer
   int _wantQuads = 0;
 
+  /// the bits from [_bit] that the last step ran out of data before. The
+  /// step depends only on the data, so it fails again until that much data
+  /// is in the buffer. A game polls the registers while DMA fills the FIFO,
+  /// and each poll would otherwise decode the same partial macroblock again.
+  /// It is not saved: after a load the step runs once and finds it again.
+  int _stall = 0;
+
+  /// where the last [_need] or [_vlc] that ran out of data needed the data to
+  int _needEnd = 0;
+
+  /// where the last step that ran out of data had read to. The hardware has
+  /// consumed the data up to there, and BP and the FIFO counts show it while
+  /// the step waits: a game feeds the FIFO only when they show it nearly empty.
+  int _reach = 0;
+
+  /// the read position that the registers show
+  int get _shownBit => _stall > 0 && _reach > _bit ? _reach : _bit;
+
   // ---- output ----
 
   final _out = ListQueue<int>(); // 64-bit halves, low first
@@ -126,6 +144,7 @@ class Ipu {
     _bit = v[7];
     _stepBit = v[8];
     _wantQuads = v[9];
+    _stall = 0;
     _readHigh = v[10];
     _th0 = v[11];
     _th1 = v[12];
@@ -169,6 +188,7 @@ class Ipu {
     _inLen = 0;
     _bit = 0;
     _wantQuads = 0;
+    _stall = 0;
   }
 
   // ---- registers ----
@@ -185,7 +205,7 @@ class Ipu {
       case 0x10:
         return _ctrl;
       case 0x20:
-        return (_bit & 0x7f) | _ifc << 8 | _fp << 16;
+        return (_shownBit & 0x7f) | _ifc << 8 | _fp << 16;
       case 0x30:
         _fill(32);
         final ready = _available >= 32;
@@ -231,7 +251,7 @@ class Ipu {
       _pictureType << 24 |
       (_busy ? 1 << 31 : 0);
 
-  int get _quads => (_inLen >> 4) - (_bit >> 7);
+  int get _quads => (_inLen >> 4) - (_shownBit >> 7);
   int get _fp => _quads <= 0 ? 0 : (_quads > 2 ? 2 : _quads);
   int get _ifc {
     final n = _quads - _fp;
@@ -287,6 +307,7 @@ class Ipu {
     _inLen -= drop;
     _bit -= drop * 8;
     _stepBit -= drop * 8;
+    _reach -= drop * 8;
   }
 
   bool get _canPut => _quads < (_wantQuads > 10 ? _wantQuads : 10);
@@ -305,7 +326,11 @@ class Ipu {
 
   void _need(int bits) {
     _fill(bits);
-    if (_available < bits) throw const _Underflow();
+    if (_available < bits) {
+      _needEnd = _bit + bits;
+      _reach = _bit;
+      throw const _Underflow();
+    }
   }
 
   /// the next [n] (up to 32) bits; bits past the data read as 0
@@ -342,7 +367,11 @@ class Ipu {
     final entry = table.lookup(_peekRaw(table.bits));
     final length = Vlc.lengthOf(entry);
     if (length == 0) {
-      if (_available < table.bits) throw const _Underflow();
+      if (_available < table.bits) {
+        _needEnd = _bit + table.bits;
+        _reach = _bit;
+        throw const _Underflow();
+      }
       return 0;
     }
     _skip(length);
@@ -355,6 +384,7 @@ class Ipu {
     _command = value >>> 28;
     _option = value & 0x0fffffff;
     _busy = true;
+    _stall = 0;
     _ecd = _scd = false;
     _idle = false;
     _left = _option & 0x7ff;
@@ -373,6 +403,23 @@ class Ipu {
       return;
     }
     _running = true;
+    if (_stall > 0) {
+      try {
+        if (_available < _stall) {
+          _wantQuads = ((_bit + _stall + 127) >> 7) - (_bit >> 7);
+          onDma?.call();
+          _wantQuads = 0;
+        }
+      } finally {
+        _running = false;
+      }
+      if (_available < _stall) {
+        if (_outQuads > 0) onDma?.call();
+        return;
+      }
+      _stall = 0;
+      _running = true;
+    }
     try {
       while (_busy) {
         _stepBit = _bit;
@@ -387,6 +434,7 @@ class Ipu {
             onInterrupt?.call();
           }
         } on _Underflow {
+          _stall = _needEnd - _stepBit;
           _bit = _stepBit;
           _dc[0] = dc0;
           _dc[1] = dc1;

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 import 'vrc7_apu.dart';
@@ -66,6 +67,53 @@ class MapperVrc7 extends Mapper {
     _prgBank[3] = prgRoms.length - 1;
 
     _apu.reset();
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('vrc7');
+    w.ints([
+      _irqLatch, _irqCounter, _chrBankMask, _prgBankMask, _prescaledClock, _prevCycle
+    ]);
+    w.ints(_chrBank);
+    w.ints(_prgBank);
+    w.boolean(_irqEnabled);
+    w.boolean(_irqEnabledAfterAcknoledge);
+    w.boolean(_irqModeCycle);
+    w.boolean(_ramEnabled);
+    w.boolean(_chrRam);
+    if (_chrRam) {
+      for (final bank in chrRoms) {
+        w.bytes(bank);
+      }
+    }
+    _apu.saveState(w);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('vrc7');
+    final v = s.ints();
+    if (v.length != 6) throw const StateMismatch('vrc7 state layout');
+    _irqLatch = v[0];
+    _irqCounter = v[1];
+    _chrBankMask = v[2];
+    _prgBankMask = v[3];
+    _prescaledClock = v[4];
+    _prevCycle = v[5];
+    s.intsInto(_chrBank);
+    s.intsInto(_prgBank);
+    _irqEnabled = s.boolean();
+    _irqEnabledAfterAcknoledge = s.boolean();
+    _irqModeCycle = s.boolean();
+    _ramEnabled = s.boolean();
+    _chrRam = s.boolean();
+    if (_chrRam) {
+      for (final bank in chrRoms) {
+        s.bytesInto(bank);
+      }
+    }
+    _apu.loadState(s);
   }
 
   @override

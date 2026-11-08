@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../util/state.dart';
+
 /// YM2413 (OPLL): 9 channels of 2-operator FM, or 6 channels and 5 rhythm
 /// sounds.
 ///
@@ -30,6 +32,47 @@ class Opll {
     }
     _amPhase = _vibPhase = 0;
     _noise = 1;
+  }
+
+  /// Saves the register file and the envelope, phase and noise state of
+  /// every operator; the remaining operator fields are recomputed by
+  /// configure on the next rendered sample.
+  void saveState(StateWriter w) {
+    w.section('opll');
+    w.bytes(regs);
+    w.int32(_address);
+    w.float64(_amPhase);
+    w.float64(_vibPhase);
+    w.int32(_noise);
+    for (final ch in _channels) {
+      for (final op in [ch.mod, ch.car]) {
+        w.float64(op._env);
+        w.int32(op._stage.index);
+        w.float64(op._phase);
+        w.float64(op.last);
+      }
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('opll');
+    s.bytesInto(regs);
+    _address = s.int32();
+    _amPhase = s.float64();
+    _vibPhase = s.float64();
+    _noise = s.int32();
+    for (final ch in _channels) {
+      for (final op in [ch.mod, ch.car]) {
+        op._env = s.float64();
+        final stage = s.int32();
+        if (stage < 0 || stage >= _Stage.values.length) {
+          throw const StateMismatch('opll operator stage');
+        }
+        op._stage = _Stage.values[stage];
+        op._phase = s.float64();
+        op.last = s.float64();
+      }
+    }
   }
 
   void writeAddress(int value) => _address = value & 0x3f;

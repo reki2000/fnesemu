@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import 'bus.dart';
 
@@ -71,6 +72,20 @@ class Ppu {
       _refX[i] = 0;
       _refY[i] = 0;
     }
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-ppu');
+    w.ints(_refX);
+    w.ints(_refY);
+    w.bytes(buffer.buffer.asUint8List(buffer.offsetInBytes, buffer.lengthInBytes));
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-ppu');
+    s.intsInto(_refX);
+    s.intsInto(_refY);
+    s.bytesInto(buffer.buffer.asUint8List(buffer.offsetInBytes, buffer.lengthInBytes));
   }
 
   // --- scanline rendering ---------------------------------------------------

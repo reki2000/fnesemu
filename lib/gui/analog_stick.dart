@@ -166,6 +166,7 @@ class AnalogStickPainter extends CustomPainter {
           ..layout();
         painter.paint(
             canvas, spots[i] - Offset(painter.width / 2, painter.height / 2));
+        painter.dispose();
       }
     }
     final touched = dot;

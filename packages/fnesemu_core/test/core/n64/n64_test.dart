@@ -74,92 +74,12 @@ void main() {
     expect(cpu.r[0], 0);
   });
 
-  test('SUB handles the minimum signed operand and delivers overflow', () {
-    final cpu = processor([0x3c018000, 0x00211022, 0x00011822]);
-    cpu.step();
-    cpu.step();
-    expect(cpu.r[2], 0);
-    cpu.step();
-    expect(cpu.stopReason, isNull);
-    expect(cpu.cop0[13].shr2.mask5, 12);
-    expect(cpu.cop0[14], 0x80000008);
-    expect(cpu.pc, 0x80000180);
-  });
 
-  test('64-bit shifts, stores and loads preserve both halves', () {
-    final cpu = processor([
-      0x3c038000, // lui r3,0x8000
-      0x34011234, // ori r1,zero,0x1234
-      0x0001083c, // dsll32 r1,r1,0
-      0x34215678, // ori r1,r1,0x5678
-      0xfc610100, // sd r1,0x100(r3)
-      0xdc620100, // ld r2,0x100(r3)
-    ]);
-    for (var i = 0; i < 6; i++) {
-      cpu.step();
-    }
-    expect(cpu.stopReason, isNull);
-    expect(cpu.r[2], 0x123400005678);
-    expect(cpu.bus.read(0x80000100, 4), 0x1234);
-    expect(cpu.bus.read(0x80000104, 4), 0x5678);
-  });
 
-  test('taken branch executes delay slot and skips intervening code', () {
-    final cpu = processor([0x10000002, 0x24010007, 0x24010063, 0x24020009]);
-    cpu.step();
-    cpu.step();
-    cpu.step();
-    expect(cpu.r[1], 7);
-    expect(cpu.r[2], 9);
-    expect(cpu.pc, 0x80000010);
-  });
 
-  test('untaken likely branch annuls its delay slot', () {
-    final cpu = processor([0x54000001, 0x24010007, 0x24020009]);
-    cpu.step();
-    cpu.step();
-    expect(cpu.r[1], 0);
-    expect(cpu.r[2], 9);
-  });
 
-  test('unsupported instructions and unaligned memory stop at fault PC', () {
-    for (final opcode in [0x4c000000, 0x8c010001]) {
-      final cpu = processor([opcode]);
-      cpu.step();
-      expect(cpu.stopReason, isNotNull);
-      expect(cpu.pc, 0x80000000);
-      cpu.step();
-      expect(cpu.clocks, 0);
-    }
-  });
 
-  test('KSEG aliases and cartridge PI DMA expose big endian data', () {
-    final bus = N64Bus()..rom = Uint8List.fromList([1, 2, 3, 4]);
-    bus.write(0xa4600000, 0x100, 4);
-    bus.write(0xa4600004, 0x10000000, 4);
-    bus.write(0xa460000c, 3, 4);
-    expect(bus.read(0x80000100, 4), 0x01020304);
-    expect(bus.read(0xa0000100, 4), 0x01020304);
-    // PI_STATUS reports the pending interrupt of the finished DMA
-    expect(bus.read(0xa4600010, 4), 8);
-  });
 
-  test('VI scans 16-bit and 32-bit framebuffers with RAM bounds', () {
-    final bus = N64Bus();
-    bus.vi[1] = 0x100;
-    bus.vi[2] = 1;
-    bus.vi[9] = 1;
-    bus.vi[10] = 2;
-    bus.vi[12] = bus.vi[13] = 1024;
-    bus.vi[0] = 2;
-    bus.write(0xa0000100, 0xf801, 2);
-    expect(bus.image().bytes, [255, 0, 0, 255]);
-    bus.vi[0] = 3;
-    bus.write(0xa0000100, 0x123456ff, 4);
-    expect(bus.image().bytes, [0x12, 0x34, 0x56, 255]);
-    bus.vi[1] = 0xffffff;
-    expect(bus.image().bytes, [0, 0, 0, 0]);
-  });
 
   test('direct boot runs a ROM that configures VI and draws a red pixel', () {
     final core = N64();

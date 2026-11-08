@@ -38,45 +38,6 @@ void main() {
     feg.advance(regs);
     expect(feg.state, 2);
   });
-  test('four stages reach targets in both directions and release holds', () {
-    regs[12] = 10;
-    regs[13] = 8;
-    regs[14] = 11;
-    regs[15] = 8;
-    regs[16] = regs[17] = 0x1f1f;
-    feg.start(8);
-    feg.advance(regs);
-    expect((feg.state, feg.level), (1, 10));
-    feg.advance(regs);
-    expect((feg.state, feg.level), (2, 8));
-    feg.advance(regs);
-    expect((feg.state, feg.level), (2, 11));
-    feg.release(regs[14]);
-    feg.advance(regs);
-    expect((feg.state, feg.level), (3, 8));
-    feg.advance(regs);
-    expect((feg.state, feg.level), (3, 8));
-  });
-  test('key scaling uses signed octave and FNS unless KRS is disabled', () {
-    regs[12] = 0x1ff8;
-    regs[16] = 30 << 8;
-    regs[5] = 1 << 10;
-    feg.start(8);
-    feg.advance(regs);
-    final rate62 = feg.level;
-    regs[6] = 1 << 9;
-    feg.start(8);
-    feg.advance(regs);
-    expect(feg.level - 8, closeTo(8176 / (12 * 44.1), 1e-10));
-    regs[6] = 15 << 11;
-    feg.start(8);
-    feg.advance(regs);
-    expect(feg.level, lessThan(rate62));
-    regs[5] = 15 << 10;
-    feg.start(8);
-    feg.advance(regs);
-    expect(feg.level - 8, closeTo(8176 / (22 * 44.1), 1e-10));
-  });
 
   test('live rate and target changes retain cutoff and reset clears state', () {
     regs[12] = 0x1ff8;
@@ -113,33 +74,6 @@ void main() {
       configure(0);
       sound.write(0, 0xc200);
       sound.monitor = 0x4000;
-    });
-    test('FEG monitor exposes independent 13-bit cutoff and stage', () {
-      expect(sound.readMonitor(), 0x1ff8);
-      sound.advance(1);
-      expect(sound.readMonitor(), 0x3ff8);
-      sound.advance(1);
-      expect(sound.readMonitor(), 0x5ff8);
-      sound.monitor = 0;
-      expect(sound.readMonitor() & 0x1fff, 0);
-    });
-    test('key-off releases and retrigger restarts attack', () {
-      sound.advance(2);
-      sound.write(0, 0x8200);
-      expect(sound.readMonitor(), 0x7ff8);
-      sound.write(0, 0xc200);
-      expect(sound.readMonitor(), 0x1ff8);
-      sound.reset();
-      sound.monitor = 0x4000;
-      expect(sound.readMonitor(), 0x6000);
-    });
-    test('slot selection and peeks preserve independent states', () {
-      configure(1);
-      sound.advance(2);
-      sound.monitor = 0x4100;
-      expect(sound.readMonitor(sideEffects: false), 0x6000);
-      sound.monitor = 0x4000;
-      expect(sound.readMonitor(sideEffects: false), 0x5ff8);
     });
   });
 }

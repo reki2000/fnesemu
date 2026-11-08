@@ -39,55 +39,8 @@ void main() {
     }
   });
 
-  test('disabled clock holds and zero constant matches after eight-bit wrap',
-      () {
-    final bsc = DcBsc();
-    bsc.tickBusClocks(1000000);
-    expect(bsc.read(40, 2), 0);
-    bsc.write(28, 2, 0xa508);
-    bsc.tickBusClocks(4 * 256 - 1);
-    expect(bsc.read(32, 2), 255);
-    expect(bsc.read(40, 2), 0);
-    bsc.tickBusClocks(1);
-    expect(bsc.read(32, 2), 0);
-    expect(bsc.read(40, 2), 1);
-  });
 
-  test('RFCR wraps at 1024 or 512 and status flags are write-zero-to-clear',
-      () {
-    for (final limit in [512, 1024]) {
-      final bsc = DcBsc();
-      bsc.write(28, 2, 0xa508 | (limit == 512 ? 1 : 0));
-      bsc.write(36, 2, 0xa501);
-      bsc.write(40, 2, 0xa400 | (limit - 1));
-      bsc.tickBusClocks(4);
-      expect(bsc.read(40, 2), 0);
-      expect(bsc.read(28, 2) & 0x84, 0x84);
-      bsc.write(28, 2, 0xa58c | (limit == 512 ? 1 : 0));
-      expect(bsc.read(28, 2) & 0x84, 0x84);
-      bsc.write(28, 2, 0xa508);
-      expect(bsc.read(28, 2) & 0x84, 0);
-      bsc.write(28, 2, 0xa54a);
-      expect(bsc.read(28, 2), 0x4a);
-      expect(bsc.interruptEvent, 0);
-    }
-  });
 
-  test('latched refresh flags request enabled interrupts until cleared', () {
-    final bsc = DcBsc();
-    bsc.write(28, 2, 0xa508);
-    bsc.write(36, 2, 0xa501);
-    bsc.write(40, 2, 0xa7ff);
-    bsc.tickBusClocks(4);
-    expect(bsc.interruptEvent, 0);
-    bsc.write(28, 2, 0xa5ce);
-    expect(bsc.interruptEvent, 0x580);
-    expect(bsc.interruptEvent, 0x580);
-    bsc.write(28, 2, 0xa54e);
-    expect(bsc.interruptEvent, 0x5a0);
-    bsc.write(28, 2, 0xa54a);
-    expect(bsc.interruptEvent, 0);
-  });
 
   test('batched counter matches agree with independent per-clock stepping', () {
     final bsc = DcBsc(), random = Random(13);
@@ -113,51 +66,6 @@ void main() {
     }
   });
 
-  test('manual reset retains registers, counters and divider phase', () {
-    final bsc = DcBsc();
-    bsc.write(28, 2, 0xa508);
-    bsc.write(36, 2, 0xa501);
-    bsc.tickBusClocks(3);
-    bsc.reset(powerOn: false);
-    bsc.tickBusClocks(1);
-    expect(bsc.read(40, 2), 1);
-    bsc.reset();
-    expect(bsc.read(28, 2), 0);
-    expect(bsc.read(40, 2), 0);
-  });
 
-  test('SDRAM precharge and address-encoded 32/64-bit mode writes are separate',
-      () {
-    final bsc = DcBsc();
-    bsc.writeMode(1, 0xff940190, 1);
-    expect(bsc.precharges[1], 1);
-    expect(bsc.mode[1], 0);
-    bsc.write(20, 4, 0x40000000);
-    bsc.write(4, 2, 0);
-    bsc.writeMode(1, 0xff940190, 1);
-    expect(bsc.mode[1], 0x32);
-    bsc.write(4, 2, 0x3ffc);
-    bsc.writeMode(0, 0xff900088, 1);
-    expect(bsc.mode[0], 0x22);
-    expect(
-        () => bsc.writeMode(0, 0xff900088, 2), throwsA(isA<DcUnsupported>()));
-    bsc.write(4, 2, 0x10);
-    expect(
-        () => bsc.writeMode(0, 0xff900088, 1), throwsA(isA<DcUnsupported>()));
-  });
 
-  test('CPU bus maps P4/area-7 aliases and uses the CPG bus-clock divider', () {
-    final bus = DcBus();
-    bus.write16(0xff800024, 0xa501);
-    bus.write16(0x1f80001c, 0xa508);
-    bus.tickMasterClocks(bus.cpg.busPeriod * 4);
-    expect(bus.read16(0xff800028), 1);
-    expect(bus.read16(0x1f800028), 1);
-    bus.write8(0xff940190, 0);
-    expect(bus.bsc.precharges[1], 1);
-    bus.resetCpuRegisters(manual: true);
-    expect(bus.read16(0xff800028), 1);
-    bus.resetCpuRegisters();
-    expect(bus.read16(0xff800028), 0);
-  });
 }

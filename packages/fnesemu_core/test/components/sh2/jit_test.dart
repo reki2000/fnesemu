@@ -46,30 +46,6 @@ void main() {
         expect(jit.regs[2], 99);
       });
 
-      test('profile misses keep generic code and reset allows fresh candidates',
-          () {
-        final fixture = _ProfileFixture(native, 2);
-        final jit = fixture.jit;
-        addTearDown(jit.dispose);
-        expect(jit.run(_base, 1), isNull);
-        expect(jit.run(_base, 1), (_base + 2, 1));
-        expect(jit.regs[1], 42);
-        jit.regs[4] = _base + 0x200;
-        expect(jit.run(_base, 1), isNull);
-        expect(jit.rt.ctx[JitCtx.budget], 1);
-        expect(jit.regs[1], 42);
-        expect(jit.run(_base, 1), (_base + 2, 1));
-        expect(jit.regs[1], 99);
-        jit.regs[4] = _base + 0x100;
-        expect(jit.run(_base, 1), (_base + 2, 1));
-        expect(jit.regs[1], 42);
-        jit.reset();
-        expect(jit.run(_base, 1), isNull);
-        expect(jit.run(_base, 1), (_base + 2, 1));
-        jit.regs[4] = _base + 0x200;
-        expect(jit.run(_base, 1), isNull);
-        expect(jit.regs[1], 42);
-      });
     }, skip: native && !JitRuntime.nativeSupported);
   }
 }

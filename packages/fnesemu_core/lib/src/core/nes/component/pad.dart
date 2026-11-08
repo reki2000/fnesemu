@@ -1,6 +1,7 @@
 import '../../../pad_button.dart';
 import '../../../pad_source.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 class Joypad {
   final PadSource pad;
@@ -47,6 +48,20 @@ class Joypad {
   bool _strobe = false;
 
   Joypad([this.pad = const NoPadSource()]);
+
+  /// Saves the shift register position and the strobe level.
+  void saveState(StateWriter w) {
+    w.section('nes-pad');
+    w.int32(counter);
+    w.boolean(_strobe);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('nes-pad');
+    counter = s.int32();
+    _strobe = s.boolean();
+  }
 
   void write(int addr, int data) {
     if (addr != 0x4016) return;

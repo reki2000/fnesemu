@@ -10,6 +10,7 @@ import '../../types.dart';
 import '../../util/crc32.dart';
 import '../../util/disasm.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 import 'pad.dart';
 import 'vdp.dart';
@@ -183,6 +184,64 @@ class Sms extends Core {
   @override
   void setSram(Sram sram) {
     _sram = sram;
+  }
+
+  static const _stateVersion = 1;
+
+  int get _stateMedia {
+    final w = StateWriter('sms-media', 1, stateMediaHash(bus.rom));
+    w.int32(model.index);
+    return stateMediaHash(w.take());
+  }
+
+  void _requireRom() {
+    if (crc.isEmpty) throw StateError('SMS ROM not loaded');
+  }
+
+  @override
+  Uint8List saveState() {
+    _requireRom();
+    final w = StateWriter('sms', _stateVersion, _stateMedia);
+    w.section('sms');
+    w.ints([_nextLineCycles, _frames, _psgFrames, _audioFrames]);
+    w.boolean(_pausePressed);
+    w.floats(_audio);
+    w.floats(_psgBuffer);
+    w.floats(_fmBuffer);
+    bus.saveState(w);
+    return w.take();
+  }
+
+  void _loadDirect(Uint8List state) {
+    final s = StateReader(state, 'sms', _stateVersion, _stateMedia);
+    s.section('sms');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('sms core state layout');
+    _nextLineCycles = v[0];
+    _frames = v[1];
+    _psgFrames = v[2];
+    _audioFrames = v[3];
+    _pausePressed = s.boolean();
+    final audio = s.floats();
+    if (audio.length != _audio.length) {
+      throw const StateMismatch('sms audio buffer state layout');
+    }
+    _audio.setAll(0, audio);
+    _psgBuffer = Float32List.fromList(s.floats());
+    _fmBuffer = Float32List.fromList(s.floats());
+    bus.loadState(s);
+    s.end();
+  }
+
+  /// Loads into a fresh instance with the same ROM first, so that a state
+  /// which fails partway cannot leave this core half restored; the staged
+  /// state is then re-serialized and applied, as in the DC core.
+  @override
+  void loadState(Uint8List state) {
+    _requireRom();
+    final staged = Sms(model)..setRom(bus.rom);
+    staged._loadDirect(state);
+    _loadDirect(staged.saveState());
   }
 
   @override

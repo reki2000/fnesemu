@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -18,6 +19,22 @@ class MapperMMC2 extends Mapper {
     _prgBanks[1] = prgRoms.length - 3;
     _prgBanks[2] = prgRoms.length - 2;
     _prgBanks[3] = prgRoms.length - 1;
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('mmc2');
+    w.ints(_prgBanks);
+    w.ints(_chrBanks);
+    w.ints(_latch);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('mmc2');
+    s.intsInto(_prgBanks);
+    s.intsInto(_chrBanks);
+    s.intsInto(_latch);
   }
 
   @override

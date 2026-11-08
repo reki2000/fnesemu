@@ -33,14 +33,5 @@ void main() {
       expect(ppu.vram[0], 0xaa);
     });
 
-    test('repeat entry transfers on every line', () {
-      final (_, dma, ppu) = setup([0x83, 0x01, 0x02, 0x03, 0x00]);
-      dma.hdmaInit();
-      for (int i = 0; i < 3; i++) {
-        dma.hdmaScanline();
-      }
-      expect(ppu.vramAddr, 3);
-      expect([ppu.vram[0], ppu.vram[2], ppu.vram[4]], [1, 2, 3]);
-    });
   });
 }

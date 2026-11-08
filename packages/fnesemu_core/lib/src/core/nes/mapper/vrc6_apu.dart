@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 final _log = DebugLog('nes.mapper.vrc6_apu');
 
@@ -10,6 +11,16 @@ final _log = DebugLog('nes.mapper.vrc6_apu');
 mixin _Wave {
   bool _enabled = false;
   int _freq = 0;
+
+  void saveWaveState(StateWriter w) {
+    w.int32(_freq);
+    w.boolean(_enabled);
+  }
+
+  void loadWaveState(StateReader s) {
+    _freq = s.int32();
+    _enabled = s.boolean();
+  }
 
   void reset() {} // to be overridden
 
@@ -33,6 +44,21 @@ class _PulseWave with _Wave {
 
   int _timer = 0;
   int _dutyCycle = 15;
+
+  void saveState(StateWriter w) {
+    saveWaveState(w);
+    w.ints([duty, volume, _timer, _dutyCycle]);
+  }
+
+  void loadState(StateReader s) {
+    loadWaveState(s);
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('vrc6 pulse state layout');
+    duty = v[0];
+    volume = v[1];
+    _timer = v[2];
+    _dutyCycle = v[3];
+  }
 
   @override
   void reset() {
@@ -68,6 +94,21 @@ class _SawToothWave with _Wave {
   int _timer = 0;
   int _count = 0;
   int _accumlator = 0;
+
+  void saveState(StateWriter w) {
+    saveWaveState(w);
+    w.ints([accum, _timer, _count, _accumlator]);
+  }
+
+  void loadState(StateReader s) {
+    loadWaveState(s);
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('vrc6 saw state layout');
+    accum = v[0];
+    _timer = v[1];
+    _count = v[2];
+    _accumlator = v[3];
+  }
 
   @override
   void reset() {
@@ -109,6 +150,24 @@ class _SawToothWave with _Wave {
 class Vrc6Apu {
   void reset() {
     cycle = 0;
+  }
+
+  /// Saves the three wave generators and the cycle counter.
+  void saveState(StateWriter w) {
+    w.section('vrc6-apu');
+    w.int32(cycle);
+    pulse0.saveState(w);
+    pulse1.saveState(w);
+    saw.saveState(w);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('vrc6-apu');
+    cycle = s.int32();
+    pulse0.loadState(s);
+    pulse1.loadState(s);
+    saw.loadState(s);
   }
 
   int cycle = 0;

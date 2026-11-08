@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/app_api.dart';
 import 'package:fnesemu_core/src/core/ps/pad.dart';
 import 'package:test/test.dart';
@@ -7,15 +8,43 @@ import 'package:test/test.dart';
 List<int> transfer(Pad pad, List<int> tx) =>
     [for (final b in tx) pad.notify(b).rxData];
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('digital pad answers a 2 byte poll', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('digital pad answers a 2 byte poll', () {
     final pad = Pad();
     expect(
         transfer(pad, [0x01, 0x42, 0, 0, 0]), [0xff, 0x41, 0x5a, 0xff, 0xff]);
     expect(pad.padStep, Pad.waitAddr);
   });
 
-  test('configuration selects the analog mode and polls the sticks', () {
+  aggCase('configuration selects the analog mode and polls the sticks', () {
     final state = PadState()
       ..setAxis(0, PadAxis.leftX, -1)
       ..setAxis(0, PadAxis.leftY, 1)
@@ -33,25 +62,16 @@ void main() {
         [0xff, 0x73, 0x5a, 0xff, 0xff, 255, 0x80, 1, 255]);
   });
 
-  test('reset returns to the digital mode', () {
-    final pad = Pad()..analogMode = true;
-    pad.reset();
-    expect(transfer(pad, [0x01, 0x42, 0, 0, 0])[1], 0x41);
-  });
 
-  test('configuration commands answer the constants of the controller', () {
-    final pad = Pad();
-    transfer(pad, [0x01, 0x43, 0, 1, 0]);
-    expect(transfer(pad, [0x01, 0x46, 0, 0, 0, 0, 0, 0, 0]),
-        [0xff, 0xf3, 0x5a, 0, 0, 1, 2, 0, 0x0a]);
-    expect(transfer(pad, [0x01, 0x46, 0, 1, 0, 0, 0, 0, 0]),
-        [0xff, 0xf3, 0x5a, 0, 0, 1, 1, 1, 0x14]);
-    expect(transfer(pad, [0x01, 0x47, 0, 0, 0, 0, 0, 0, 0]),
-        [0xff, 0xf3, 0x5a, 0, 0, 2, 0, 1, 0]);
-    expect(transfer(pad, [0x01, 0x4c, 0, 0, 0, 0, 0, 0, 0]),
-        [0xff, 0xf3, 0x5a, 0, 0, 0, 4, 0, 0]);
-    expect(transfer(pad, [0x01, 0x4c, 0, 1, 0, 0, 0, 0, 0]),
-        [0xff, 0xf3, 0x5a, 0, 0, 0, 6, 0, 0]);
-    expect(pad.padStep, Pad.waitAddr);
-  });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

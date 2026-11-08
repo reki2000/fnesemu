@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 import 'package:fnesemu_core/app_api.dart';
 import '../../styles.dart';
+import 'hex_pager.dart';
 
 // get 40 lines of disassemble string
 
-class DebugDisasm extends StatelessWidget {
+class DebugDisasm extends StatefulWidget {
   final Debugger debugger;
   final int cpuNo;
 
@@ -13,24 +14,43 @@ class DebugDisasm extends StatelessWidget {
   final int forwardLines;
   final double width;
   final int addrBits;
-  final int addrMask;
 
-  final addrNotifier = ValueNotifier<int>(0);
-
-  DebugDisasm(
+  const DebugDisasm(
       {super.key,
       required this.debugger,
       required this.cpuNo,
       this.addrBits = 16,
       this.backwardLines = 5,
       this.forwardLines = 40,
-      this.width = 320})
-      : addrMask = (1 << addrBits) - 1 {
-    addrNotifier.value = debugger.disasmAddress(cpuNo);
+      this.width = 320});
+
+  int get addrMask => (1 << addrBits) - 1;
+
+  @override
+  State<DebugDisasm> createState() => _DebugDisasmState();
+}
+
+class _DebugDisasmState extends State<DebugDisasm> {
+  late final ValueNotifier<int> addrNotifier;
+  final margin10 = const EdgeInsets.all(2.0);
+  late final FocusNode node;
+
+  Debugger get debugger => widget.debugger;
+  int get cpuNo => widget.cpuNo;
+
+  @override
+  void initState() {
+    super.initState();
+    addrNotifier = ValueNotifier<int>(debugger.disasmAddress(cpuNo));
+    node = FocusNode();
   }
 
-  final margin10 = const EdgeInsets.all(2.0);
-  final node = FocusNode();
+  @override
+  void dispose() {
+    addrNotifier.dispose();
+    node.dispose();
+    super.dispose();
+  }
 
   List<(int, String)> _asm(int addr, int lines) {
     final result = List<(int, String)>.empty(growable: true);
@@ -58,56 +78,49 @@ class DebugDisasm extends StatelessWidget {
     return result.sublist(result.length - lines);
   }
 
-  _button(String text, void Function() func) =>
-      TextButton(onPressed: func, child: Text(text));
-
-  _addrInc(int offset) {
-    addrNotifier.value = (addrNotifier.value + offset) & addrMask;
-  }
-
   @override
   Widget build(BuildContext context) {
-    node.requestFocus;
+    node.requestFocus();
     return Container(
-        width: width,
+        width: widget.width,
         margin: margin10,
         alignment: Alignment.topLeft,
         child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Focus(
               focusNode: node,
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(spacing: 3, children: [
-                      _button("--", () => _addrInc(-0x400)),
-                      _button("-", () => _addrInc(-0x20)),
-                      SizedBox(
-                          width: 60,
-                          child: TextField(
-                              decoration: denseTextDecoration,
-                              onChanged: (v) {
-                                if (v.length == (addrBits + 3) ~/ 4) {
-                                  addrNotifier.value = int.parse(v, radix: 16);
-                                }
-                              })),
-                      _button("+", () => _addrInc(0x20)),
-                      _button("++", () => _addrInc(0x400)),
-                    ]),
-                    ValueListenableBuilder<int>(
-                        valueListenable: addrNotifier,
-                        builder: (_, addr, __) => SelectableText(
+              child: ValueListenableBuilder<int>(
+                  valueListenable: addrNotifier,
+                  builder: (_, addr, __) => Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            HexAddressPager(
+                                address: addr,
+                                bits: widget.addrBits,
+                                fieldWidth: 60,
+                                spacing: 3,
+                                leadingSteps: const [
+                                  ('--', -0x400),
+                                  ('-', -0x20)
+                                ],
+                                trailingSteps: const [
+                                  ('+', 0x20),
+                                  ('++', 0x400)
+                                ],
+                                onAddress: (value) =>
+                                    addrNotifier.value = value),
+                            SelectableText(
                               [
-                                ..._backward(addr, backwardLines),
-                                ..._asm(addr, forwardLines)
+                                ..._backward(addr, widget.backwardLines),
+                                ..._asm(addr, widget.forwardLines)
                               ]
                                   .map((s) => (s.$1 == addr ? "*" : " ") + s.$2)
                                   .join("\n"),
                               style: debugStyle,
                               showCursor: true,
-                            )),
-                  ]),
+                            ),
+                          ])),
             )));
   }
 }

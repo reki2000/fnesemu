@@ -1,5 +1,6 @@
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -55,6 +56,48 @@ class MapperVrc4 extends Mapper {
     _prgBank[1] = _prgBankA000; // 0xa000-0xbfff
     _prgBank[2] = _prgBank2ndLast; // 0xc000-0xdfff
     _prgBank[3] = [prgRoms.length - 1]; // 0xe000-0xffff
+  }
+
+  // The two swappable PRG slots point at the register lists, so the state stores which list each slot uses and restores the same sharing.
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('vrc4');
+    w.ints([
+      _irqLatch, _irqCounter, _chrBankMask, _prgBankMask, _prescaledClock, //
+      _prevCycle, _prgBank0[0], _prgBankA000[0], _prgBank2ndLast[0], _prgBank[3][0]
+    ]);
+    w.ints(_chrBank);
+    w.boolean(_irqEnabled);
+    w.boolean(_irqEnabledAfterAcknoledge);
+    w.boolean(_irqModeCycle);
+    w.boolean(_ramEnabled);
+    w.boolean(identical(_prgBank[0], _prgBank2ndLast));
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('vrc4');
+    final v = s.ints();
+    if (v.length != 10) throw const StateMismatch('vrc4 state layout');
+    _irqLatch = v[0];
+    _irqCounter = v[1];
+    _chrBankMask = v[2];
+    _prgBankMask = v[3];
+    _prescaledClock = v[4];
+    _prevCycle = v[5];
+    _prgBank0[0] = v[6];
+    _prgBankA000[0] = v[7];
+    _prgBank2ndLast[0] = v[8];
+    s.intsInto(_chrBank);
+    _irqEnabled = s.boolean();
+    _irqEnabledAfterAcknoledge = s.boolean();
+    _irqModeCycle = s.boolean();
+    _ramEnabled = s.boolean();
+    final swapped = s.boolean();
+    _prgBank[0] = swapped ? _prgBank2ndLast : _prgBank0;
+    _prgBank[1] = _prgBankA000;
+    _prgBank[2] = swapped ? _prgBank0 : _prgBank2ndLast;
+    _prgBank[3] = [v[9]];
   }
 
   @override

@@ -5,6 +5,7 @@ import '../../../util/double.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
 import '../bus.dart';
+import '../state.dart';
 import 'reverb.dart';
 import 'voice.dart';
 
@@ -346,6 +347,63 @@ class Spu {
     }
     // _log.debugc(() => "endx ${result.x8}");
     return result;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-spu');
+    w.bytes(ram);
+    w.ints([
+      counter, captureIndex, noiseLevel, _noiseTimer, _status, _control, //
+      mainVolumeLeft, mainVolumeRight, cdAudioInputLeft, cdAudioInputRight, //
+      externalInputLeft, externalInputRight, noiseFreqShift, noiseFreqStep, //
+      fifoMode, fifoAddr, _fifoAddr, irqAddr, _irqAddr, fifoWriteCount,
+    ]);
+    w.int32(fifoType);
+    for (final b in [enabled, muted, irqEnabled]) {
+      w.boolean(b);
+    }
+    w.float64(outLeft);
+    w.float64(outRight);
+    for (final v in voices) {
+      v.saveState(w);
+    }
+    reverb.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-spu');
+    s.bytesInto(ram);
+    final v = s.fields(20, 'ps spu');
+    counter = v[0];
+    captureIndex = v[1];
+    noiseLevel = v[2];
+    _noiseTimer = v[3];
+    _status = v[4];
+    _control = v[5];
+    mainVolumeLeft = v[6];
+    mainVolumeRight = v[7];
+    cdAudioInputLeft = v[8];
+    cdAudioInputRight = v[9];
+    externalInputLeft = v[10];
+    externalInputRight = v[11];
+    noiseFreqShift = v[12];
+    noiseFreqStep = v[13];
+    fifoMode = v[14];
+    fifoAddr = v[15];
+    _fifoAddr = v[16];
+    irqAddr = v[17];
+    _irqAddr = v[18];
+    fifoWriteCount = v[19];
+    fifoType = s.int32();
+    enabled = s.boolean();
+    muted = s.boolean();
+    irqEnabled = s.boolean();
+    outLeft = s.float64();
+    outRight = s.float64();
+    for (final voice in voices) {
+      voice.loadState(s);
+    }
+    reverb.loadState(s);
   }
 
   String dump() =>

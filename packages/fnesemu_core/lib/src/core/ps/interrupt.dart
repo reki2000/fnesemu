@@ -1,6 +1,7 @@
 import '../../util/debug.dart' show DebugLog;
 import '../../util/int.dart';
 import 'r3000/r3000.dart';
+import 'state.dart';
 
 final _log = DebugLog('ps.interrupt');
 
@@ -43,6 +44,18 @@ class InterruptController {
   void reset() {
     status = 0;
     _mask = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-interrupt');
+    w.ints([status, _mask]);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-interrupt');
+    final v = s.fields(2, 'ps interrupt');
+    status = v[0];
+    _mask = v[1];
   }
 
   void setIrq(int irqNo) {

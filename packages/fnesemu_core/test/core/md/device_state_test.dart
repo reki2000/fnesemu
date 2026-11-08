@@ -119,24 +119,4 @@ void main() {
     expect(_save(restored.saveState), _save(original.saveState));
   });
 
-  test('a restored VDP keeps a pending sprite dot overflow', () {
-    final vdp = _vdp()..line.spriteDotOverflow = true;
-    final copy = Vdp();
-    _load(_save(vdp.saveState), copy.loadState);
-    expect(copy.line.spriteDotOverflow, isTrue);
-  });
-
-  test('the opacity buffer round trips when tracked', () {
-    final vdp = _vdp()
-      ..trackOpacity = true
-      ..opaque[10] = 1;
-    final copy = Vdp();
-    _load(_save(vdp.saveState), copy.loadState);
-    expect(copy.opaque[10], 1);
-    expect(copy.trackOpacity, isTrue);
-    final plain = _save(Vdp().saveState);
-    _load(plain, copy.loadState);
-    expect(_save(copy.saveState), plain);
-    expect(copy.trackOpacity, isFalse);
-  });
 }

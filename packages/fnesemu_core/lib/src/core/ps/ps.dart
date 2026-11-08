@@ -28,6 +28,7 @@ import 'r3000/disasm.dart';
 import 'r3000/r3000.dart';
 import 'serial.dart';
 import 'spu/spu.dart';
+import 'state.dart';
 import 'timer.dart';
 
 final _log = DebugLog('ps');
@@ -172,9 +173,7 @@ class Ps extends Core {
 
     cdrom.closeShell();
 
-    _sram.init(StorageKey.of("ps", StorageKey.sram, "memcard1"),
-        MemoryCard.blankImage);
-    memoryCard.setRw(_sram.read8, _sram.write8);
+
   }
 
   int nextScanlineClock = 0;
@@ -312,6 +311,98 @@ class Ps extends Core {
     return scanlineRendered;
   }
 
+  static const _stateVersion = 1;
+
+  /// The BIOS bytes, the sideloaded PS-EXE and the inserted disc.
+  int get _media {
+    var h = stateMediaHash(bus.rom);
+    h = stateMediaHashAll(h, cpu.exe);
+    return stateMediaHashAll(h, [cdrom.driveMedia]);
+  }
+
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('ps', _stateVersion, _media);
+    w.section('ps');
+    w.ints([
+      nextScanlineClock, nextTimerClock, nextDmaClock, _cpuLimit, //
+      nextSpuClock, nextSerialClock, nextCdromClock, audioBufferIndex,
+    ]);
+    w.boolean(_waitFinishLine);
+    w.boolean(fastBoot);
+    w.typed(audioBuffer);
+    bus.saveState(w);
+    cpu.saveState(w);
+    bus.interrupt.saveState(w);
+    dma.saveState(w);
+    timer.saveState(w);
+    gpu.saveState(w);
+    spu.saveState(w);
+    serial.saveState(w);
+    memoryCard.saveImage(w);
+    memoryCard2.saveImage(w);
+    cdrom.saveState(w);
+    mdec.saveState(w);
+    return w.take();
+  }
+
+  /// A state that fails after its header is rolled back from a snapshot of the current state, so a rejected load leaves this core unchanged.
+  @override
+  void loadState(Uint8List state) {
+    final reader = StateReader(state, 'ps', _stateVersion, _media);
+    Uint8List? rollback;
+    try {
+      rollback = saveState();
+    } catch (_) {
+      rollback = null;
+    }
+    try {
+      _restore(reader);
+    } catch (_) {
+      final snapshot = rollback;
+      if (snapshot != null) {
+        try {
+          _restore(StateReader(snapshot, 'ps', _stateVersion, _media));
+        } catch (_) {
+          // The snapshot came from this core, so it is expected to load; if it does not, the original failure is the one to report.
+        }
+      }
+      rethrow;
+    }
+    // Compiled blocks may hold translations of the old memory.
+    jit?.reset();
+  }
+
+  void _restore(StateReader s) {
+    s.section('ps');
+    final v = s.fields(8, 'ps core');
+    nextScanlineClock = v[0];
+    nextTimerClock = v[1];
+    nextDmaClock = v[2];
+    _cpuLimit = v[3];
+    nextSpuClock = v[4];
+    nextSerialClock = v[5];
+    nextCdromClock = v[6];
+    audioBufferIndex = v[7];
+    _waitFinishLine = s.boolean();
+    fastBoot = s.boolean();
+    s.typed(audioBuffer);
+    bus.loadState(s);
+    cpu.loadState(s);
+    bus.interrupt.loadState(s);
+    dma.loadState(s);
+    timer.loadState(s);
+    gpu.loadState(s);
+    spu.loadState(s);
+    serial.loadState(s);
+    memoryCard.loadImage(s);
+    memoryCard2.loadImage(s);
+    cdrom.loadState(s);
+    mdec.loadState(s);
+    s.end();
+    cpu.setInterruptPending(bus.interrupt.mask & bus.interrupt.status != 0);
+  }
+
   @override
   void reset() {
     cpu.reset();
@@ -349,7 +440,7 @@ class Ps extends Core {
   ImageBuffer imageBuffer() => gpu.imageBuffer;
 
   @override
-  onAudio(void Function(AudioBuffer p1) f) => _onAudio = f;
+  void onAudio(void Function(AudioBuffer) onAudio) => _onAudio = onAudio;
 
   @override
   void setCdromDrive(CdromDrive drive) {
@@ -358,7 +449,12 @@ class Ps extends Core {
   }
 
   @override
-  void setSram(Sram sram) => _sram = sram;
+  void setSram(Sram sram) {
+    _sram = sram;
+    _sram.init(StorageKey.of("ps", StorageKey.sram, "memcard1"),
+        MemoryCard.blankImage);
+    memoryCard.setRw(_sram.read8, _sram.write8);
+  }
 
   @override
   List<PadButton> get buttons => pad.buttons;

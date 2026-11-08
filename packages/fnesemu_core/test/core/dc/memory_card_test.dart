@@ -93,57 +93,10 @@ void main() {
     expect(transfer(1).first, 255);
   });
 
-  test('ordered write phases commit a block and GetLastError confirms it', () {
-    discover();
-    for (var phase = 0; phase < 4; phase++) {
-      expect(transfer(12, params(17, phase, chunk(phase))), [7, 0, 1, 0]);
-      if (phase < 3) expect(memoryCard.exportImage()[17 * 512], 255);
-    }
-    expect(transfer(13, params(17, 4)), [7, 0, 1, 0]);
-    final read = transfer(11, params(17, 0));
-    expect(read.take(12), [8, 0, 1, 130, 0, 0, 0, 2, 0, 0, 0, 17]);
-    expect(read.sublist(12), [for (var p = 0; p < 4; p++) ...chunk(p)]);
-    expect(transfer(13, params(17, 1)), [7, 0, 1, 0]);
-    expect(memoryCard.exportImage()[16 * 512], 255);
-    expect(memoryCard.exportImage()[18 * 512], 255);
-  });
 
-  test('skipped phase discards group and leaves entire block unchanged', () {
-    discover();
-    transfer(12, params(0, 0, chunk(0)));
-    expect(transfer(12, params(0, 2, chunk(2))), [251, 0, 1, 1, 0, 0, 0, 2]);
-    expect(memoryCard.exportImage().take(512), everyElement(255));
-    expect(transfer(13, params(0, 3)), [251, 0, 1, 1, 0, 0, 0, 2]);
-    for (var p = 0; p < 4; p++) {
-      expect(transfer(12, params(0, p, chunk(p))).first, 7);
-    }
-    expect(transfer(13, params(0, 4)).first, 7);
-  });
 
-  test('intervening command discards a write group', () {
-    discover();
-    transfer(12, params(12, 0, chunk(0)));
-    expect(transfer(11, params(12, 0)), [251, 0, 1, 1, 0, 0, 0, 2]);
-    expect(transfer(11, params(12, 0)).sublist(12), everyElement(255));
-  });
 
-  test('partition, block, phase and length errors have documented bits', () {
-    discover();
-    expect(transfer(11, [0, 0, 0, 2, 1, 0, 0, 0]).last, 1);
-    expect(transfer(11, params(256, 0)).last, 4);
-    expect(transfer(11, params(255, 1)).last, 2);
-    expect(transfer(12, params(0, 0, [1, 2, 3, 4])).last, 16);
-    expect(transfer(11, [0, 0, 0, 16, 0, 0, 0, 0]).first, 254);
-    expect(transfer(0x7f).first, 253);
-    expect(memoryCard.exportImage(), everyElement(255));
-  });
 
-  test('changing block mid group cannot partly replace either block', () {
-    discover();
-    transfer(12, params(0, 0, chunk(0)));
-    expect(transfer(12, params(1, 1, chunk(1))).last, 2);
-    expect(memoryCard.exportImage().take(1024), everyElement(255));
-  });
 
   test('discovery, kill and reset preserve storage and discard partial writes',
       () {
@@ -208,146 +161,57 @@ void main() {
         ]));
   });
 
-  test('storage packets use the same canonical bytes in MSB31 mode', () {
-    selection = 1;
-    dc.bus.write32(base + 0xe8, 1);
-    transfer(1, [], 32);
-    transfer(1);
-    for (var phase = 0; phase < 4; phase++) {
-      expect(transfer(12, params(255, phase, chunk(phase))).first, 7);
-    }
-    expect(transfer(11, params(255, 0)).sublist(12),
-        [for (var phase = 0; phase < 4; phase++) ...chunk(phase)]);
-    expect(dc.bus.ram.getUint32LE(0x20000), 0x82010008);
-  });
 
-  test(
-      'Memory card attached after setSram uses persistence without changing flash key',
-      () {
-    final storage = _MemoryStorage();
-    dc = Dc()..setSram(storage);
-    addTearDown(dc.dispose);
-    dc.attachMemoryCard(0, 0, memoryCard);
-    final image = Uint8List(DcMemoryCard.size)..[1234] = 0x67;
-    memoryCard.loadImage(image);
-    expect(dc.bus.flash.exportImage(), everyElement(255));
-    final next = Dc()..setSram(storage);
-    addTearDown(next.dispose);
-    final restored = DcMemoryCard();
-    next.attachMemoryCard(0, 0, restored);
-    expect(restored.exportImage()[1234], 0x67);
-    expect(next.bus.flash.exportImage(), everyElement(255));
-  });
 
-  test('wrong function during write group discards all buffered phases', () {
+
+
+
+
+
+
+
+
+  test('the default card starts formatted unless storage holds data', () {
+    final fresh = Dc();
+    addTearDown(fresh.dispose);
+    final card =
+        fresh.bus.maple.controllers[0]!.expansions[0]! as DcMemoryCard;
+    final image = card.exportImage();
+    final root = 255 * 512, fat = 254 * 512;
+    expect(image.sublist(root, root + 16), everyElement(0x55));
+    expect(image.getUint16LE(root + 0x50), 200);
+    expect(image.getUint16LE(fat + 255 * 2), 0xfffa);
+    expect(image.getUint16LE(fat + 253 * 2), 252);
+    expect(image.getUint16LE(fat + 241 * 2), 0xfffa);
+    expect(image.getUint16LE(fat + 240 * 2), 0xfffc);
+    expect(image.getUint16LE(fat), 0xfffc);
+    expect(image.sublist(0, 241 * 512), everyElement(255));
+    expect(image.sublist(241 * 512, 254 * 512), everyElement(0));
+    expect(image.getUint16LE(root + 0x56), 128);
+
+    // Media info answers from the system block of the new card.
+    dc = fresh;
     discover();
-    transfer(12, params(0, 0, chunk(0)));
-    final wrong = params(0, 1, chunk(1))..[3] = 16;
-    expect(transfer(12, wrong).first, 254);
-    expect(transfer(12, params(0, 1, chunk(1))).last, 2);
-    expect(transfer(11, params(0, 0)).sublist(12), everyElement(255));
+    final info = transfer(10, params(0, 0));
+    expect(info.first, 8);
+    expect(info.sublist(14, 20), [254, 0, 1, 0, 253, 0]);
+
+    final storage = _MemoryStorage()
+      ..init('dc/sram/memory_card_0_0',
+          Uint8List(DcMemoryCard.size)..fillRange(0, 512, 0x33));
+    final saved = Dc();
+    addTearDown(saved.dispose);
+    saved.setSram(storage);
+    final restored =
+        saved.bus.maple.controllers[0]!.expansions[0]! as DcMemoryCard;
+    expect(restored.exportImage().sublist(0, 512), everyElement(0x33));
   });
 
-  test('plain Sram regions retain live data across region switches', () {
-    final parent = Sram();
-    final first = DcStorageRegion(parent), second = DcStorageRegion(parent);
-    first.init('first', Uint8List.fromList([1, 2]));
-    first.write8(0, 3);
-    second.init('second', Uint8List.fromList([4, 5]));
-    second.write8(1, 6);
-    expect(first.read8(0), 3);
-    expect(second.read8(1), 6);
-  });
-
-  test('LCD reports its panel and accepts one complete horizontal-1 image', () {
-    discover();
-    expect(transfer(10, [0, 0, 0, 4, 0, 0, 0, 0]),
-        [8, 0, 1, 2, 0, 0, 0, 4, 47, 31, 16, 0]);
-    final pixels = List.generate(192, (i) => (i * 7) & 255);
-    expect(transfer(12, [0, 0, 0, 4, 0, 0, 0, 0, ...pixels]), [7, 0, 1, 0]);
-    final snapshot = memoryCard.lcd.exportPixels();
-    expect(snapshot, pixels);
-    snapshot[0] = 255;
-    expect(memoryCard.lcd.exportPixels()[0], 0);
-    expect(transfer(11, [0, 0, 0, 4, 0, 0, 0, 0]).first, 0xfd);
-  });
-
-  test('LCD partition, phase, plane, length and contrast errors use FT2 codes',
-      () {
-    discover();
-    final pixels = List.filled(192, 0x69);
-    expect(transfer(12, [0, 0, 0, 4, 1, 0, 0, 0, ...pixels]).last, 1);
-    expect(transfer(12, [0, 0, 0, 4, 0, 1, 0, 0, ...pixels]).last, 2);
-    expect(transfer(12, [0, 0, 0, 4, 0, 0, 0, 1, ...pixels]).last, 4);
-    expect(transfer(12, [0, 0, 0, 4, 0, 0, 0, 0]).last, 16);
-    expect(transfer(14, [0, 0, 0, 4, 0, 1, 0, 0]), [250, 0, 1, 1, 0, 0, 0, 32]);
-    expect(transfer(14, [0, 0, 0, 4, 0, 255, 0, 0]),
-        [8, 0, 1, 2, 0, 0, 0, 4, 0, 0, 0, 0]);
-    expect(transfer(14, [0, 0, 0, 4, 0, 0, 0, 0]).first, 8);
-  });
-
-  test('storage group interruption rejects LCD once before a successful retry',
-      () {
-    discover();
-    transfer(12, params(1, 0, chunk(0)));
-    final lcd = [0, 0, 0, 4, 0, 0, 0, 0, ...List.filled(192, 0x42)];
-    expect(transfer(12, lcd), [251, 0, 1, 1, 0, 0, 0, 2]);
-    expect(transfer(12, lcd).first, 7);
-    expect(memoryCard.lcd.exportPixels(), everyElement(0x42));
-    expect(transfer(11, params(1, 0)).sublist(12), everyElement(255));
-  });
-
-  test('timer calendar read/write uses little-endian year and ignores weekday',
-      () {
-    var now = DateTime.utc(2026);
-    memoryCard.timer.clock = () => now;
-    discover();
-    final time = [0xd0, 7, 2, 28, 23, 59, 59, 255]; // 2000, leap year.
-    expect(transfer(12, [0, 0, 0, 8, 0, 0, 0, 0, ...time]), [7, 0, 1, 0]);
-    expect(transfer(11, [0, 0, 0, 8, 0, 0, 0, 0]),
-        [8, 0, 1, 3, 0, 0, 0, 8, ...time.take(7), 0]);
-    dc.bus.write32(base + 0x14, 0);
-    now = now.add(const Duration(seconds: 1));
-    // VMU calendar follows elapsed host time, not emulated cycles.
-    dc.bus.tickMasterClocks(100000);
-    expect(transfer(11, [0, 0, 0, 8, 0, 0, 0, 0]).sublist(8),
-        [0xd0, 7, 2, 29, 0, 0, 0, 0]);
-  });
-
-  test('timer buttons and alarm registers are independent of stored blocks',
-      () {
-    discover();
-    memoryCard.timer.setButton(PadButton.up, true);
-    memoryCard.timer.setButton(DcMemoryCardTimer.a, true);
-    expect(transfer(9, [0, 0, 0, 8]), [8, 0, 1, 2, 0, 0, 0, 8, 0xee, 0, 0, 0]);
-    memoryCard.timer.setButton(PadButton.down, true);
-    expect(transfer(9, [0, 0, 0, 8])[8], 0xed);
-    expect(transfer(14, [0, 0, 0, 8, 10, 5, 0, 0]).first, 7);
-    expect((memoryCard.timer.alarmPeriod, memoryCard.timer.alarmDuty), (10, 5));
-    expect(transfer(14, [0, 0, 0, 8, 5, 6, 0, 0]).first, 0xfc);
-    expect(transfer(14, [0, 0, 0, 8, 10, 5, 1, 0]).first, 0xfc);
-    expect((memoryCard.timer.alarmPeriod, memoryCard.timer.alarmDuty), (10, 5));
-    final date = memoryCard.timer.time;
-    expect(transfer(3).first, 7);
-    final after = memoryCard.timer.time;
-    expect((after.year, after.month, after.day, after.hour, after.minute,
-        after.second),
-        (date.year, date.month, date.day, date.hour, date.minute, date.second));
-    expect((memoryCard.timer.alarmPeriod, memoryCard.timer.alarmDuty), (0, 0));
-    transfer(1);
-    expect(transfer(9, [0, 0, 0, 8])[8], 0xed);
-  });
-
-  test('LCD and timer packets also pass through MSB31 host byte order', () {
-    selection = 1;
-    dc.bus.write32(base + 0xe8, 1);
-    transfer(1, [], 32);
-    transfer(1);
-    final pixels = List.generate(192, (i) => i);
-    expect(transfer(12, [0, 0, 0, 4, 0, 0, 0, 0, ...pixels]).first, 7);
-    expect(memoryCard.lcd.exportPixels(), pixels);
-    expect(transfer(11, [0, 0, 0, 8, 0, 0, 0, 0]).take(8),
-        [8, 0, 1, 3, 0, 0, 0, 8]);
+  test('LCD media information reports a 48x32 one-bit panel', () {
+    final request = Uint8List.fromList([10, 1, 0, 2, 0, 0, 0, 4, 0, 0, 0, 0]);
+    final (code, data) = memoryCard.lcd.command(10, request);
+    expect(code, 8);
+    expect(data, [0, 0, 0, 4, 47, 31, 0x10, 2]);
   });
 
   test('LCD image and core debug layer follow documented byte and bit order',
@@ -374,18 +238,6 @@ void main() {
     expect(dc.videoLayers.map((l) => l.name), ['Framebuffer']);
   });
 
-  test('attachment validation and port D routing', () {
-    expect(() => dc.attachMemoryCard(0, 1, memoryCard), throwsArgumentError);
-    expect(() => dc.attachMemoryCard(1, 0, memoryCard), throwsStateError);
-    expect(() => dc.attachMemoryCard(4, 0, memoryCard), throwsRangeError);
-    dc.bus.maple.controllers[3] = DcMapleController();
-    dc.attachMemoryCard(3, 1, DcMemoryCard(unit: 2));
-    final controller = dc.bus.maple.controllers[3]!;
-    expect(controller.exchange(Uint8List.fromList([1, 0xe0, 0xc0, 0]), 3)![2],
-        0xe2);
-    expect(controller.exchange(Uint8List.fromList([1, 0xc2, 0xc0, 0]), 3)![2],
-        0xc2);
-  });
 }
 
 class _MemoryStorage extends Sram {

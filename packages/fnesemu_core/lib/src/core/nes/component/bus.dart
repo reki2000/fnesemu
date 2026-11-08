@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
+import '../../../components/6502/bus.dart';
 import '../../../pad_source.dart';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../mapper/mapper.dart';
 import '../mapper/mapper_factory.dart';
 import '../mapper/mirror.dart';
@@ -13,7 +15,7 @@ import 'ppu.dart';
 
 final _log = DebugLog('nes.bus');
 
-class Bus {
+class Bus implements Cpu6502Bus {
   late final Cpu cpu;
   late final Ppu ppu;
   late final Apu apu;
@@ -66,6 +68,7 @@ class Bus {
 
   final List<int> ram = List.filled(0x800, 0);
 
+  @override
   int read(int addr) {
     if (addr < 0x2000) {
       return ram[addr.mask11];
@@ -84,6 +87,7 @@ class Bus {
     }
   }
 
+  @override
   void write(int addr, int data) {
     if (addr < 0x2000) {
       ram[addr.mask11] = data.mask8;
@@ -102,6 +106,24 @@ class Bus {
     } else if (addr >= 0x6000 || (addr >= 0x4020 && mapper.hasExpansionArea)) {
       mapper.write(addr, data);
     }
+  }
+
+  /// Saves the work RAM, the nametable RAM, the mirroring mode and the joypad state; the devices on the bus save their own state separately.
+  void saveState(StateWriter w) {
+    w.section('nes-bus');
+    w.bytes(ram);
+    w.bytes(vram);
+    w.int32(_mirror.stateId);
+    joypad.saveState(w);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('nes-bus');
+    s.bytesInto(ram);
+    s.bytesInto(vram);
+    _mirror = Mirror.fromStateId(s.int32());
+    joypad.loadState(s);
   }
 
   void onNmi() => cpu.onNmi();

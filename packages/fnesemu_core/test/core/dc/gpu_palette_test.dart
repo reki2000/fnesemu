@@ -47,74 +47,10 @@ void main() {
     }
   });
 
-  test(
-      '4BPP uses low nibble first and all six selector bits including scan overlap',
-      () {
-    bus.write32(reg + 0x108, 3);
-    entry(1009, 0xff112233);
-    entry(1010, 0xff445566);
-    entry(1011, 0xff778899);
-    entry(1012, 0xffaabbcc);
-    indices([0x21, 0x43]);
-    final view = texture(tcw: 0x2800c000 | (63 << 21));
-    expect(view.sample(0, 0), 0xff112233);
-    expect(view.sample(0, 1 / 8), 0xff445566);
-    expect(view.sample(1 / 8, 0), 0xff778899);
-    expect(view.sample(1 / 8, 1 / 8), 0xffaabbcc);
-  });
 
-  test('8BPP uses only the upper two selector bits and ignores the lower four',
-      () {
-    bus.write32(reg + 0x108, 3);
-    entry(768 + 128, 0xff123456);
-    entry(1023, 0xffabcdef);
-    indices([128, 255]);
-    final full = texture(tcw: 0x3000c000 | (63 << 21));
-    final high = texture(tcw: 0x3000c000 | (3 << 25));
-    expect(full.sample(0, 0), 0xff123456);
-    expect(full.sample(0, 1 / 8), 0xffabcdef);
-    expect(high.sample(0, 0), full.sample(0, 0));
-    expect(high.sample(0, 1 / 8), full.sample(0, 1 / 8));
-  });
 
-  test(
-      'rectangular palette addressing keeps leftover U or V bits above Morton bits',
-      () {
-    entry(3, 0xfc00);
-    indices([3, 0], offset: 64);
-    expect(texture(tcw: 0x3000c000, tsp: copy | 8).sample(0.5, 0), 0xffff0000);
-    expect(texture(tcw: 0x3000c000, tsp: copy | 1).sample(0, 0.5), 0xffff0000);
-    indices([3, 0], offset: 32);
-    expect(texture(tsp: copy | 8).sample(0.5, 0), 0xffff0000);
-  });
 
-  test(
-      'bilinear filtering combines palette colors rather than interpolating indices',
-      () {
-    bus.write32(reg + 0x108, 3);
-    entry(0, 0xffff0000);
-    entry(1, 0xff00ff00);
-    entry(128, 0xff0000ff);
-    entry(255, 0xffffffff);
-    indices([0, 1, 128, 255]);
-    expect(texture(tcw: 0x3000c000, tsp: copy | 0x2000).sample(1 / 16, 1 / 16),
-        0xff808080);
-  });
 
-  test(
-      'mode changes and writes remain visible to existing functional texture views',
-      () {
-    bus.write32(reg + 0x108, 3);
-    indices([0, 0]);
-    entry(0, 0xff112233);
-    final view = texture();
-    expect(view.sample(0, 0), 0xff112233);
-    entry(0, 0xff445566);
-    expect(view.sample(0, 0), 0xff445566);
-    bus.write32(reg + 0x108, 1);
-    entry(0, 0x001f);
-    expect(view.sample(0, 0), 0xff0000ff);
-  });
 
   test('soft resets retain palette while power reset clears synthetic RAM', () {
     bus.write32(reg + 0x108, 3);

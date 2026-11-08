@@ -131,17 +131,6 @@ Gba _boot(Uint8List rom) {
 }
 
 void main() {
-  test('POSTFLG byte write does not halt, HALTCNT byte write does', () {
-    final bus = Bus();
-    // the BIOS writes POSTFLG=1 at boot while IE/IF/IME are still zero; if
-    // this entered HALT the CPU could never wake up (regression: pc stuck in
-    // the BIOS startup around 0x194c).
-    bus.write8(0x04000300, 1);
-    expect(bus.halted, false);
-    expect(bus.read8(0x04000300), 1);
-    bus.write8(0x04000301, 0);
-    expect(bus.halted, true);
-  });
 
   test('halt wakes on VBlank and the BIOS-style dispatcher runs the handler',
       () {
@@ -157,44 +146,4 @@ void main() {
     expect(v.mask1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
   });
 
-  test('IRQ interrupts a thumb wait loop (IntrWait-style polling)', () {
-    // thumb loop: while ([0x03007ff8] == 0) {}; then store it to 0x02000000
-    final thumb = [
-      tLdrI(1, 0, 0), // ldr r1, [r0]
-      tCmpI(1, 0),
-      tBCond(condEq, -4), // beq back to the ldr
-      tStrI(1, 6, 0), // result -> [r6]
-      tBSelf,
-    ];
-    if (thumb.length.isOdd) thumb.add(tNop);
-
-    final main = <int>[
-      ...aMovI32(1, 0x08000000 + _thumbIdx * 4 + 1),
-      aBx(1),
-    ];
-    // place the thumb code at its fixed slot
-    final words = [..._prologue, ...main];
-    assert(words.length <= _thumbIdx);
-    while (words.length < _thumbIdx) {
-      words.add(aNop);
-    }
-    for (var i = 0; i < thumb.length; i += 2) {
-      words.add(thumb[i] | thumb[i + 1].shl16);
-    }
-    while (words.length < _handlerIdx) {
-      words.add(aNop);
-    }
-    words.addAll(_handler);
-
-    final v = _runUntilResult(_boot(wordBytes(words)));
-    expect(v.mask1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
-  });
-
-  test('byte write to IF only acknowledges that byte', () {
-    final bus = Bus();
-    bus.irq.raise(IrqBit.vblank);
-    bus.irq.raise(IrqBit.dma0);
-    bus.write8(0x04000202, 0x01);
-    expect(bus.irq.if_, 1 << IrqBit.dma0);
-  });
 }

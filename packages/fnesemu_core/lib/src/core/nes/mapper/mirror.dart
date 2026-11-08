@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// mirroring setting for PPU name table
 class Mirror {
@@ -24,4 +25,18 @@ class Mirror {
   static final oneScreenHigh = Mirror((v) => v & ~0xc00 | 0x400, name: "1h");
 
   static final external = Mirror((v) => v, name: "ex", isExternal: true);
+
+  /// Every mirroring mode in state order, for saving the active mode as an index.
+  static final all = [vertical, horizontal, oneScreenLow, oneScreenHigh, external];
+
+  /// The index of this mode in [all], or -1 when it is not a known mode.
+  int get stateId => all.indexWhere((m) => identical(m, this));
+
+  /// The mode at [stateId], throwing a StateMismatch for an unknown index.
+  static Mirror fromStateId(int stateId) {
+    if (stateId < 0 || stateId >= all.length) {
+      throw StateMismatch('mirror mode $stateId');
+    }
+    return all[stateId];
+  }
 }

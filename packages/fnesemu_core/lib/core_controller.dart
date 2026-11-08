@@ -10,6 +10,7 @@ import 'src/internal/frame_counter.dart';
 import 'src/internal/frame_pacer.dart';
 import 'src/pad_button.dart';
 import 'src/pad_source.dart';
+import 'src/render_frame.dart';
 import 'src/sram.dart';
 import 'src/types.dart';
 import 'src/util/debug.dart';
@@ -71,10 +72,12 @@ class CoreController {
     final Core core;
     try {
       core = created = CoreFactory.of(system);
+      // Load factory BIOS data before attaching persistent backup storage.
+      // Saved contents must take precedence over bundled initial images.
       core
+        ..setBiosFiles(bios)
         ..setSram(_sram)
-        ..onAudio(_onAudio)
-        ..setBiosFiles(bios);
+        ..onAudio(_onAudio);
 
       if (rom != null) {
         core.setRom(rom);
@@ -93,7 +96,9 @@ class CoreController {
     }
 
     _core.dispose();
-    _core = core..input = _input;
+    _core = core
+      ..input = _input
+      ..renderFrameSink = _renderFrameSink;
     _system = system;
     final metadata = CoreFactory.system(system);
     debugger.setCore(_core,
@@ -212,6 +217,43 @@ class CoreController {
     return;
   }
 
+  /// captures the state of the loaded core at a frame boundary.
+  /// the emulation is stopped while the state is captured, and resumed if
+  /// it was running. throws a StateError if no core is loaded, and whatever
+  /// [Core.saveState] throws if the core cannot save.
+  Future<Uint8List> saveState() async {
+    if (_system.isEmpty) {
+      throw StateError('CoreController.saveState: no core is loaded');
+    }
+    final wasRunning = _state.running;
+    await stop();
+    try {
+      return _core.saveState();
+    } finally {
+      if (wasRunning) run();
+    }
+  }
+
+  /// restores a state captured by [saveState] into the loaded core.
+  /// the emulation is stopped while the state is restored, and resumed if
+  /// it was running. an error of the core, such as a state of another media
+  /// or format version, is passed to the caller and the core is left as it
+  /// was before the call, apart from the frame position.
+  Future<void> loadState(Uint8List state) async {
+    if (_system.isEmpty) {
+      throw StateError('CoreController.loadState: no core is loaded');
+    }
+    final wasRunning = _state.running;
+    await stop();
+    try {
+      _core.loadState(state);
+      _currentCpuClocks = _scanline = 0;
+      _renderAll();
+    } finally {
+      if (wasRunning) run();
+    }
+  }
+
   /// reset emulation. keep run/stop state
   Future<void> reset() async {
     final wasRunning = _state.running;
@@ -312,6 +354,16 @@ class CoreController {
   set input(PadSource source) {
     _input = source;
     _core.input = source;
+  }
+
+  RenderFrameSink? _renderFrameSink;
+
+  /// the loaded core and the cores loaded later leave their 3D renders to
+  /// this sink; null draws them in the cores
+  RenderFrameSink? get renderFrameSink => _renderFrameSink;
+  set renderFrameSink(RenderFrameSink? sink) {
+    _renderFrameSink = sink;
+    _core.renderFrameSink = sink;
   }
 
   // returns a list of core's buttons

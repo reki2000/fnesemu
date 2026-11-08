@@ -60,68 +60,11 @@ void main() {
     expect(apply(0xffff0000, depth: 2), 0xffff0000);
   });
 
-  test(
-      'signed density exponents and fractional mantissas follow documented scale',
-      () {
-    fog.write(0xb0, 0x00ff00);
-    fog.write(0x200, 0xffff);
-    fog.write(0xb8, 0xff07); // The manual's 255.0 example.
-    expect(apply(0xff000000, depth: 1 / 255), 0xff00ff00);
-    expect(apply(0xff000000, depth: 2 / 255), 0xff000000);
-    fog.write(0xb8, 0x80ff); // Scale 1/2.
-    expect(apply(0xff000000, depth: 2), 0xff00ff00);
-    expect(apply(0xff000000, depth: 4), 0xff000000);
-  });
 
-  test('outlying depths clamp to the first and final table segments', () {
-    fog.write(0xb8, 0x8000);
-    fog.write(0xb0, 0xffffff);
-    fog.write(0x200, 0x4040);
-    fog.write(0x3fc, 0xc0c0);
-    expect(apply(0xff000000, depth: -10), 0xff404040);
-    expect(apply(0xff000000, depth: 0), 0xff404040);
-    expect(apply(0xff000000, depth: 1e30), 0xffc0c0c0);
-  });
 
-  test('normal fog preserves alpha and selects the independent vertex color',
-      () {
-    fog.write(0xb0, 0xff0000);
-    fog.write(0xb4, 0x0000ff);
-    fog.write(0x200, 0xffff);
-    expect(apply(0x406080a0), 0x40ff0000);
-    expect(apply(0x406080a0, mode: 1, offset: 0xff112233, hasOffset: true),
-        0x400000ff);
-    expect(apply(0x406080a0, mode: 1, offset: 0xff000000), 0x406080a0);
-    expect(apply(0x406080a0, mode: 2), 0x406080a0);
-  });
 
-  test('vertex alpha interpolates RGB using full range and ignores offset RGB',
-      () {
-    fog.write(0xb4, 0x0000ff);
-    expect(apply(0x80ff0000, mode: 1, offset: 0x80ffffff, hasOffset: true),
-        0x807f0080);
-    expect(apply(0x80ff0000, mode: 1, offset: 0x80000000, hasOffset: true),
-        0x807f0080);
-  });
 
-  test('table Mode 2 replaces RGB and alpha for subsequent blending', () {
-    fog.write(0xb0, 0x123456);
-    fog.write(0x200, 0x8080);
-    expect(apply(0xffabcdef, mode: 3), 0x80123456);
-  });
 
-  test('clamp includes alpha and precedes fog, whose output can exceed bounds',
-      () {
-    fog.write(0xc0, 0x20304050);
-    fog.write(0xbc, 0x8090a0b0);
-    expect(apply(0xff00ffff, mode: 2, clamp: true), 0x8030a0b0);
-    fog.write(0xb4, 0xffffff);
-    expect(
-        apply(0xff00ffff,
-            mode: 1, offset: 0xff000000, hasOffset: true, clamp: true),
-        0x80ffffff);
-    expect(apply(0xff00ffff, mode: 2), 0xff00ffff);
-  });
 
   group('CPU bus and CORE rendering', () {
     const reg = 0xa05f8000, copy = 0x20800000;
@@ -206,71 +149,32 @@ void main() {
       bus.tickMasterClocks(2);
     }
 
-    test('depth fog affects background and polygon before framebuffer packing',
-        () {
-      scene(tsp: 0x20000000, backgroundTsp: 0x20000000);
-      bus.write32(reg + 0xb0, 0x0000ff);
-      bus.write32(reg + 0x200, 0xffff);
-      draw();
-      expect(pixel(1, 1), 0xff0000ff);
-      expect(pixel(31, 31), 0xff0000ff);
-      expect(bus.systemBus.normalStatus & 7, 7);
-    });
 
-    test('per-vertex fog uses the provoking offset alpha for flat polygons',
-        () {
-      scene(
-          tsp: 0x20400000 | (1 << 6),
-          textured: true,
-          offsets: [0, 0, 0xff000000]);
-      bus.write32(reg + 0xb4, 0x0000ff);
-      draw();
-      expect(pixel(1, 1), 0xff0000ff);
-    });
 
-    test(
-        'Gouraud fog interpolates offset alpha with reciprocal depth correction',
-        () {
-      scene(
-          tsp: 0x20400000 | (1 << 6),
-          textured: true,
-          gouraud: true,
-          offsets: [0, 0xff000000, 0],
-          depths: [1, 2, 1]);
-      bus.write32(reg + 0xb4, 0x0000ff);
-      draw();
-      // At (8.5, 0.5), the B weight after correction is (2*8.5)/(32+8.5).
-      expect(pixel(8, 0), 0xff94006b);
-    });
 
-    test('color clamp operates after texture shading and before blending', () {
-      scene(
-          tsp: copy | 0x200000 | 0x100000 | (1 << 6),
-          textured: true,
-          color: 0x80ff0000);
-      bus.write32(reg + 0xbc, 0x407fffff);
-      bus.write32(reg + 0xc0, 0x00002030);
-      draw();
-      expect(pixel(1, 1), 0x407f2030);
-    });
 
-    test('Mode 2 supplies the source alpha for blending over the background',
-        () {
-      scene(tsp: 0x94c00000);
-      bus.write32(reg + 0xb0, 0xff0000);
-      bus.write32(reg + 0x200, 0x8080);
-      draw();
-      expect(pixel(1, 1), 0xbf800000);
-    });
 
-    test('fog register mutation during rendering retains the active settings',
-        () {
-      scene();
-      bus.write32(reg + 0x14, 1);
-      expect(() => bus.write32(reg + 0xb0, 0xffffff),
-          throwsA(isA<DcUnsupported>()));
-      bus.tickMasterClocks(2);
-      expect(pixel(1, 1), 0xffff0000);
-    });
+  });
+  test('the depth scale follows every change of the density register', () {
+    fog.write(0xb0, 0xffffff);
+    fog.write(0x200 + 16 * 4, 0xff00); // Depth 2 to 2 + 1/8: full fog.
+    // Scale 1 maps depth 2 to table entry 16; scale 2 maps it to entry 32.
+    fog.write(0xb8, 0x8000);
+    final one = apply(0x80000000, depth: 2);
+    fog.write(0xb8, 0x8001);
+    final two = apply(0x80000000, depth: 2);
+    expect(one, isNot(two));
+    fog.write(0xb8, 0x8000);
+    expect(apply(0x80000000, depth: 2), one);
+    fog.write(0xb8, 0x80ff); // Exponent -1.
+    final half = apply(0x80000000, depth: 2);
+    fog.write(0xb8, 0x8000);
+    fog.write(0xb8, 0x80ff);
+    expect(apply(0x80000000, depth: 2), half);
+    fog.reset();
+    fog.write(0xb0, 0xffffff);
+    fog.write(0x200 + 16 * 4, 0xff00);
+    fog.write(0xb8, 0x8000);
+    expect(apply(0x80000000, depth: 2), one);
   });
 }

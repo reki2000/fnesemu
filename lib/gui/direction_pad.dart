@@ -162,6 +162,7 @@ class DirectionPadPainter extends CustomPainter {
       )..layout();
       final location = center + Offset(math.cos(angle), math.sin(angle)) * 54;
       label.paint(canvas, location - Offset(label.width / 2, label.height / 2));
+      label.dispose();
     }
   }
 

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../constants.dart' as hardware;
 import 'bus.dart';
 import 'cpu.dart';
@@ -17,6 +18,24 @@ class _EnvelopeUnit {
   bool _start = false;
 
   int get volume => _disabled ? _n : _decay;
+
+  void saveState(StateWriter w) {
+    w.ints([_n, _decay, _divider]);
+    w.boolean(_loop);
+    w.boolean(_disabled);
+    w.boolean(_start);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('envelope state layout');
+    _n = v[0];
+    _decay = v[1];
+    _divider = v[2];
+    _loop = s.boolean();
+    _disabled = s.boolean();
+    _start = s.boolean();
+  }
 
   void prepare({required bool disabled, required bool loop, required int n}) {
     _disabled = disabled;
@@ -63,6 +82,21 @@ mixin _LengthCounter {
     12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
   ];
 
+  void saveLengthState(StateWriter w) {
+    w.ints([length, lengthCounter]);
+    w.boolean(halt);
+    w.boolean(enabled);
+  }
+
+  void loadLengthState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('length state layout');
+    length = v[0];
+    lengthCounter = v[1];
+    halt = s.boolean();
+    enabled = s.boolean();
+  }
+
   void countLength() {
     if (lengthCounter > 0 && !halt) lengthCounter--;
   }
@@ -96,6 +130,23 @@ class _SweepUnit {
   _SweepUnit(
     this._adjust,
   );
+
+  void saveState(StateWriter w) {
+    w.ints([freq, _period, _shift, _counter]);
+    w.boolean(_enabled);
+    w.boolean(_negate);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('sweep state layout');
+    freq = v[0];
+    _period = v[1];
+    _shift = v[2];
+    _counter = v[3];
+    _enabled = s.boolean();
+    _negate = s.boolean();
+  }
 
   String debug() {
     return "${_enabled ? (_negate ? '-' : '+') : ' '}$_shift:"
@@ -158,6 +209,27 @@ class _PulseWave with _LengthCounter {
     [1, 0, 0, 1, 1, 1, 1, 1], // dutyType:3
   ];
 
+  void saveState(StateWriter w) {
+    w.section('nes-apu-pulse');
+    saveLengthState(w);
+    w.int32(dutyType);
+    w.ints([_timer, _index]);
+    envelope.saveState(w);
+    sweep.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('nes-apu-pulse');
+    loadLengthState(s);
+    dutyType = s.int32();
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('pulse state layout');
+    _timer = v[0];
+    _index = v[1];
+    envelope.loadState(s);
+    sweep.loadState(s);
+  }
+
   void noteOn() {
     //_index = 0;
     _timer = sweep.freq + 1;
@@ -194,6 +266,28 @@ class TriangleWave with _LengthCounter {
 
   static final table = List.generate(16, (index) => 15 - index)
     ..addAll(List.generate(16, (index) => index));
+
+  void saveState(StateWriter w) {
+    w.section('nes-apu-triangle');
+    saveLengthState(w);
+    w.ints([freq, _timer, _index, linearReload, _linear]);
+    w.boolean(linearControl);
+    w.boolean(_needLinearReload);
+  }
+
+  void loadState(StateReader s) {
+    s.section('nes-apu-triangle');
+    loadLengthState(s);
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('triangle state layout');
+    freq = v[0];
+    _timer = v[1];
+    _index = v[2];
+    linearReload = v[3];
+    _linear = v[4];
+    linearControl = s.boolean();
+    _needLinearReload = s.boolean();
+  }
 
   void prepare() {
     _timer = freq + 1;
@@ -259,6 +353,26 @@ class NoiseWave with _LengthCounter {
   int reg = 1;
   bool short = false;
 
+  void saveState(StateWriter w) {
+    w.section('nes-apu-noise');
+    saveLengthState(w);
+    w.ints([counter, timer, reg]);
+    w.boolean(short);
+    envelope.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('nes-apu-noise');
+    loadLengthState(s);
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('noise state layout');
+    counter = v[0];
+    timer = v[1];
+    reg = v[2];
+    short = s.boolean();
+    envelope.loadState(s);
+  }
+
   // periods in cpu cycles
   static const _table = [
     4, 8, 16, 32, 64, 96, 128, 160, //
@@ -316,6 +430,37 @@ class DPCMWave {
 
   int _counter = 0;
   int _deltaCounter = 0;
+
+  void saveState(StateWriter w) {
+    w.section('nes-apu-dpcm');
+    w.ints([
+      _initAddress, _initLength, _initTimer, _address, _length, _sample, //
+      _timer, _counter, _deltaCounter
+    ]);
+    w.boolean(irqFlag);
+    w.boolean(_loop);
+    w.boolean(_irqEnabled);
+    w.boolean(_silence);
+  }
+
+  void loadState(StateReader s) {
+    s.section('nes-apu-dpcm');
+    final v = s.ints();
+    if (v.length != 9) throw const StateMismatch('dpcm state layout');
+    _initAddress = v[0];
+    _initLength = v[1];
+    _initTimer = v[2];
+    _address = v[3];
+    _length = v[4];
+    _sample = v[5];
+    _timer = v[6];
+    _counter = v[7];
+    _deltaCounter = v[8];
+    irqFlag = s.boolean();
+    _loop = s.boolean();
+    _irqEnabled = s.boolean();
+    _silence = s.boolean();
+  }
 
   set mode(int val) {
     _irqEnabled = val.bit7;
@@ -457,6 +602,37 @@ class Apu {
   bool frameIrqEnabled = false;
   bool frameCounterMode0 = false;
   int frameCountTick = 0;
+
+  /// Saves every channel and the frame counter; the output buffer is derived by the next [exec] and is not saved.
+  void saveState(StateWriter w) {
+    w.section('nes-apu');
+    w.ints([frameCountTick, apuFrameCounter]);
+    w.boolean(frameIrqHold);
+    w.boolean(frameIrqEnabled);
+    w.boolean(frameCounterMode0);
+    pulse0.saveState(w);
+    pulse1.saveState(w);
+    triangle.saveState(w);
+    noise.saveState(w);
+    dpcm.saveState(w);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('nes-apu');
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('apu state layout');
+    frameCountTick = v[0];
+    apuFrameCounter = v[1];
+    frameIrqHold = s.boolean();
+    frameIrqEnabled = s.boolean();
+    frameCounterMode0 = s.boolean();
+    pulse0.loadState(s);
+    pulse1.loadState(s);
+    triangle.loadState(s);
+    noise.loadState(s);
+    dpcm.loadState(s);
+  }
 
   void write(int reg, int val) {
     switch (reg) {

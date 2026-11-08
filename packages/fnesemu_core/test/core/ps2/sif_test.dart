@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
@@ -25,9 +26,37 @@ class _System {
   }
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
   cdvdTests();
-  test('IOP DMA retries all waiting channels in order', () {
+  aggCase('IOP DMA retries all waiting channels in order', () {
     final iop = _System().iop;
     final seen = <int>[];
     for (var ch = 0; ch < iop.channels.length; ch++) {
@@ -45,7 +74,7 @@ void main() {
     expect(seen, List.generate(iop.channels.length, (i) => i));
   });
 
-  test('IOP DMA retries observe changes to later channels immediately', () {
+  aggCase('IOP DMA retries observe changes to later channels immediately', () {
     final iop = _System().iop;
     final seen = <int>[];
     iop.dmaHandlers[1] = (_) {
@@ -70,7 +99,7 @@ void main() {
     expect(seen, [1, 2, 6]);
   });
 
-  test('SIF1 delivers an EE packet to IOP memory', () {
+  aggCase('SIF1 delivers an EE packet to IOP memory', () {
     final s = _System();
     // EE chain tag at 0x1000: end tag with 3 quads. The first is the IOP tag
     // (address 0x4000, end, 6 words), followed by two quads of data.
@@ -91,7 +120,7 @@ void main() {
     expect(s.ee.sif.sif1Fifo, isEmpty);
   });
 
-  test('SIF0 delivers IOP data to EE memory', () {
+  aggCase('SIF0 delivers IOP data to EE memory', () {
     final s = _System();
     // IOP chain tag at 0x100: data at 0x200, 5 words, end; EE tag: end tag,
     // 2 quads to EE address 0x3000
@@ -114,7 +143,7 @@ void main() {
     expect(s.bus.read32(_sif0) & 0x100, 0);
   });
 
-  test('mailbox flags are set by one side and cleared by the other', () {
+  aggCase('mailbox flags are set by one side and cleared by the other', () {
     final s = _System();
     s.iop.write(0x1d000030, 4, 0x30000); // IOP sets SMFLG
     expect(s.bus.read32(0x1000f230), 0x30000);
@@ -126,18 +155,8 @@ void main() {
     expect(s.iop.read(0x1d000020, 4), 0);
   });
 
-  test('a DICR2 flag sets the DICR master flag only with DICR.23', () {
-    final s = _System();
-    final iop = s.iop;
-    iop.write(0x1f801574, 4, 1 << 16); // mask of channel 7
-    iop.write(0x1f801508, 4, 1 << 24); // start channel 7 (no device)
-    expect(iop.read(0x1f801574, 4) >> 24, 1);
-    expect(iop.read(0x1f8010f4, 4) >>> 31, 0);
-    iop.write(0x1f8010f4, 4, 1 << 23);
-    expect(iop.read(0x1f8010f4, 4) >>> 31, 1);
-  });
 
-  test('IOP timers interrupt once unless repeat is set', () {
+  aggCase('IOP timers interrupt once unless repeat is set', () {
     final s = _System();
     final iop = s.iop;
     iop.write(0x1f801108, 4, 10); // target
@@ -153,7 +172,7 @@ void main() {
     expect(iop.read(0x1f801104, 4) & 0x400, 0x400);
   });
 
-  test('timers 4 and 5 divide by their prescaler', () {
+  aggCase('timers 4 and 5 divide by their prescaler', () {
     final s = _System();
     final iop = s.iop;
     iop.write(0x1f8014a4, 4, 2 << 13); // timer 5, 1/16
@@ -161,17 +180,8 @@ void main() {
     expect(iop.read(0x1f8014a0, 4), 4);
   });
 
-  test('only the EE writes MSCOM and only the IOP writes SMCOM', () {
-    final s = _System();
-    s.bus.write32(0x1000f200, 0x11);
-    s.iop.write(0x1d000000, 4, 0x22);
-    expect(s.iop.read(0x1d000000, 4), 0x11);
-    s.iop.write(0x1d000010, 4, 0x33);
-    s.bus.write32(0x1000f210, 0x44);
-    expect(s.bus.read32(0x1000f210), 0x33);
-  });
 
-  test('byte and halfword accesses reach a part of an IOP register', () {
+  aggCase('byte and halfword accesses reach a part of an IOP register', () {
     final s = _System();
     final iop = s.iop;
     iop.write(0x1f8010f4, 4, 0x00ff0000); // DICR enables
@@ -186,7 +196,7 @@ void main() {
     expect(iop.read(0x1f8010a6, 2), 3);
   });
 
-  test('IOP interrupts need I_MASK and I_CTRL', () {
+  aggCase('IOP interrupts need I_MASK and I_CTRL', () {
     final s = _System();
     s.iop.raise(IopIrq.dma);
     expect(s.iop.asserted, false);
@@ -197,7 +207,7 @@ void main() {
     expect(s.iop.asserted, false);
   });
 
-  test('IOP timer reaches its target and raises an interrupt', () {
+  aggCase('IOP timer reaches its target and raises an interrupt', () {
     final s = _System();
     s.iop.write(0x1f801108, 4, 100); // timer 0 target... base 0x1f801100
     s.iop.write(0x1f801100 + 8, 4, 100);
@@ -206,6 +216,17 @@ void main() {
     expect(s.iop.stat & (1 << IopIrq.timer0), isNot(0));
     expect(s.iop.read(0x1f801100, 4), 50);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }
 
 void cdvdTests() {

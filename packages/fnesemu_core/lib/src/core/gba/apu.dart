@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
-
+import '../../util/state.dart';
 import 'bus.dart';
 
 /// GBA audio: 4 GB-compatible PSG channels plus the two 8-bit Direct Sound
@@ -48,6 +48,36 @@ class Apu {
     _cntL = 0;
     _cntH = 0;
     _cntX = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-apu');
+    w.ints([sampleHz, elapsedSamples, _cntL, _cntH, _cntX, _dsaLevel, _dsbLevel]);
+    _fifoA.saveState(w);
+    _fifoB.saveState(w);
+    _sq1.saveState(w);
+    _sq2.saveState(w);
+    _wave.saveState(w);
+    _noise.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-apu');
+    final v = s.ints();
+    if (v.length != 7) throw const StateMismatch('gba apu state layout');
+    sampleHz = v[0];
+    elapsedSamples = v[1];
+    _cntL = v[2];
+    _cntH = v[3];
+    _cntX = v[4];
+    _dsaLevel = v[5];
+    _dsbLevel = v[6];
+    _fifoA.loadState(s);
+    _fifoB.loadState(s);
+    _sq1.loadState(s);
+    _sq2.loadState(s);
+    _wave.loadState(s);
+    _noise.loadState(s);
   }
 
   // --- register access (reg = 0x060..0x0a7) ---------------------------------
@@ -257,6 +287,19 @@ class _Fifo {
     _head = 0;
     _len = 0;
   }
+
+  void saveState(StateWriter w) {
+    w.bytes(_buf);
+    w.ints([_head, _len]);
+  }
+
+  void loadState(StateReader s) {
+    s.bytesInto(_buf);
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('gba apu fifo state layout');
+    _head = v[0];
+    _len = v[1];
+  }
 }
 
 /// shared volume envelope used by the square and noise channels.
@@ -285,6 +328,22 @@ class _Envelope {
       if (volume > 0) volume--;
     }
   }
+
+  void saveState(StateWriter w) {
+    w.ints([volume, _periodSamples, _counter]);
+    w.boolean(_increase);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 3) {
+      throw const StateMismatch('gba apu envelope state layout');
+    }
+    volume = v[0];
+    _periodSamples = v[1];
+    _counter = v[2];
+    _increase = s.boolean();
+  }
 }
 
 /// shared length counter; silences the channel after the configured duration.
@@ -303,6 +362,16 @@ class _Length {
   }
 
   bool get expired => enabled && _counter <= 0;
+
+  void saveState(StateWriter w) {
+    w.int32(_counter);
+    w.boolean(enabled);
+  }
+
+  void loadState(StateReader s) {
+    _counter = s.int32();
+    enabled = s.boolean();
+  }
 }
 
 class _Square {
@@ -387,6 +456,32 @@ class _Square {
     _freq = 0;
     active = false;
   }
+
+  void saveState(StateWriter w) {
+    w.ints([sweep, dutyEnv, freqCtrl, _freq, _sampleHz, _sweepCounter, _sweepPeriodSamples]);
+    w.float64(_phase);
+    w.boolean(active);
+    _env.saveState(w);
+    _len.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 7) {
+      throw const StateMismatch('gba apu square state layout');
+    }
+    sweep = v[0];
+    dutyEnv = v[1];
+    freqCtrl = v[2];
+    _freq = v[3];
+    _sampleHz = v[4];
+    _sweepCounter = v[5];
+    _sweepPeriodSamples = v[6];
+    _phase = s.float64();
+    active = s.boolean();
+    _env.loadState(s);
+    _len.loadState(s);
+  }
 }
 
 class _Wave {
@@ -459,6 +554,28 @@ class _Wave {
     active = false;
     samples.fillRange(0, 32, 0);
   }
+
+  void saveState(StateWriter w) {
+    w.ints([enableReg, lenVol, freqCtrl, _freq, _sampleHz]);
+    w.float64(_phase);
+    w.boolean(active);
+    w.bytes(samples);
+    _len.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('gba apu wave state layout');
+    enableReg = v[0];
+    lenVol = v[1];
+    freqCtrl = v[2];
+    _freq = v[3];
+    _sampleHz = v[4];
+    _phase = s.float64();
+    active = s.boolean();
+    s.bytesInto(samples);
+    _len.loadState(s);
+  }
 }
 
 class _Noise {
@@ -523,5 +640,30 @@ class _Noise {
     _phase = 0;
     _hz = 0;
     active = false;
+  }
+
+  void saveState(StateWriter w) {
+    w.ints([lenEnv, freqCtrl, _lfsr, _sampleHz]);
+    w.float64(_phase);
+    w.float64(_hz);
+    w.boolean(active);
+    w.boolean(_width7);
+    _env.saveState(w);
+    _len.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('gba apu noise state layout');
+    lenEnv = v[0];
+    freqCtrl = v[1];
+    _lfsr = v[2];
+    _sampleHz = v[3];
+    _phase = s.float64();
+    _hz = s.float64();
+    active = s.boolean();
+    _width7 = s.boolean();
+    _env.loadState(s);
+    _len.loadState(s);
   }
 }

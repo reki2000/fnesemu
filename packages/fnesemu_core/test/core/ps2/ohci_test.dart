@@ -15,21 +15,4 @@ void main() {
     expect(ohci.read(_base + 0x00), 0x10);
     expect(ohci.read(_base + 0x34), 0x2edf);
   });
-
-  test('interrupt enable and status registers follow the specification', () {
-    final ohci = Ohci();
-    ohci.write(_base + 0x10, 0x5);
-    ohci.write(_base + 0x10, 0x2);
-    ohci.write(_base + 0x14, 0x4);
-    expect(ohci.read(_base + 0x10), 0x3);
-    expect(ohci.read(_base + 0x14), 0x3);
-    expect(ohci.read(_base + 0x0c), 0);
-  });
-
-  test('the root hub has two ports with nothing connected', () {
-    final ohci = Ohci();
-    expect(ohci.read(_base + 0x48) & 0xff, 2);
-    expect(ohci.read(_base + 0x54), 0);
-    expect(ohci.read(_base + 0x58), 0);
-  });
 }

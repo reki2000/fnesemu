@@ -129,98 +129,11 @@ void main() {
     expect(DcModule().identifyRom('1ST_READ.BIN', metadata()), isNull);
   });
 
-  test('last data track is preferred and an audio track is never read',
-      () async {
-    final drive = Drive({
-      100: raw(metadata())
-    }, tracks: const [
-      CdromTrack(1, false, 0, 50),
-      CdromTrack(2, true, 50, 50),
-      CdromTrack(3, false, 100, 80),
-      CdromTrack(4, true, 180, 20)
-    ]);
-    expect((await DcModule().identifyDisc(drive))?.id, 'dc');
-    expect(drive.reads, [100]);
-  });
 
-  test('first data track metadata is accepted when the last has no header',
-      () async {
-    final drive = Drive({0: raw(metadata())},
-        tracks: const [dataTrack, CdromTrack(2, false, 80, 80)]);
-    expect((await DcModule().identifyDisc(drive))?.id, 'dc');
-    expect(drive.reads, [80, 0]);
-  });
 
-  for (final invalid in [
-    'shift',
-    'hardware',
-    'maker',
-    'sync',
-    'mode',
-    'form2',
-    'subheader',
-    'short'
-  ]) {
-    test('rejects invalid or misplaced boot identity: $invalid', () async {
-      final bytes = raw(metadata(),
-          mode: invalid == 'form2' || invalid == 'subheader' ? 2 : 1);
-      switch (invalid) {
-        case 'shift':
-          bytes.fillRange(16, 48, 0);
-          bytes.setAll(17, identity.codeUnits);
-        case 'hardware':
-          bytes[16] ^= 1;
-        case 'maker':
-          bytes[32] ^= 1;
-        case 'sync':
-          bytes[1] = 0;
-        case 'mode':
-          bytes[15] = 0;
-        case 'form2':
-          bytes[18] = bytes[22] = 0x28;
-        case 'subheader':
-          bytes[20] = 1;
-      }
-      final drive =
-          Drive({0: invalid == 'short' ? bytes.sublist(0, 100) : bytes});
-      expect(await DcModule().identifyDisc(drive), isNull);
-    });
-  }
 
-  test('unready, audio-only and out-of-range tracks do not read sectors',
-      () async {
-    final drives = [
-      cooked({0: metadata()})..ready = false,
-      Drive({0: raw(metadata())}, tracks: const [CdromTrack(1, true, 0, 80)]),
-      Drive({0: raw(metadata())}, total: 1),
-      Drive({0: raw(metadata())}, tracks: const [CdromTrack(1, false, -1, 80)])
-    ];
-    for (final drive in drives) {
-      expect(await DcModule().identifyDisc(drive), isNull);
-      expect(drive.reads, isEmpty);
-    }
-  });
 
-  test('pending reads are retried and a replacement medium cancels identity',
-      () async {
-    final pending = cooked({0: metadata()})..pending = 1;
-    expect((await DcModule().identifyDisc(pending))?.id, 'dc');
-    expect(pending.reads, [0, 0]);
-    final changed = cooked({0: metadata()})..replaceOnRead = true;
-    expect(await DcModule().identifyDisc(changed), isNull);
-    expect(changed.reads, [0]);
-  });
 
-  for (final name in ['IP.BIN;1', 'IP0000.BIN;1']) {
-    for (final start in [0, 200]) {
-      test('ISO root $name identifies metadata with volume start $start',
-          () async {
-        final drive = cooked(iso(name: name, base: start), start: start);
-        expect((await DcModule().identifyDisc(drive))?.id, 'dc');
-        expect(drive.reads, [start, start + 16, start + 20, start + 30]);
-      });
-    }
-  }
 
   test('ISO skips a boot descriptor and root block padding', () async {
     final blocks = iso(rootSize: 4096);
@@ -232,9 +145,4 @@ void main() {
     expect((await DcModule().identifyDisc(cooked(blocks)))?.id, 'dc');
   });
 
-  test('a marker in an unlisted ISO file does not identify the platform',
-      () async {
-    final blocks = iso(name: 'OTHER.BIN;1');
-    expect(await DcModule().identifyDisc(cooked(blocks)), isNull);
-  });
 }

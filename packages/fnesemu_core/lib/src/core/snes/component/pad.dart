@@ -1,6 +1,7 @@
 import '../../../pad_button.dart';
 import '../../../pad_source.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// SNES standard pad. bit layout of the auto-joypad word ($4219$4218):
 /// B Y Select Start Up Down Left Right A X L R - - - -  (b15..b0)
@@ -65,6 +66,20 @@ class SnesPad {
       if (source.isPressed(0, e.key)) word |= 1 << e.value;
     }
     return word;
+  }
+
+  /// Saves the serial shift register and the latch.
+  void saveState(StateWriter w) {
+    w.section('snes-pad');
+    w.int32(_shift1);
+    w.boolean(_latch);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-pad');
+    _shift1 = s.int32();
+    _latch = s.boolean();
   }
 
   // the serial shift register of pad 1, read through $4016. It shifts in 1s,

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../components/arm7/jit/translator.dart';
 import '../../state.dart';
 import '../../util/uint8list.dart';
 import 'aica_dsp.dart';
@@ -7,7 +8,6 @@ import 'aica_midi.dart';
 import 'aica_sound.dart';
 import 'arm7di.dart';
 import 'arm_jit.dart';
-import 'arm_translator.dart';
 import 'fault.dart';
 
 /// Retail AICA memory, RTC and timer/interrupt subset from System Architecture.
@@ -83,6 +83,9 @@ class DcAica {
               _unixToAicaSeconds +
               _rtc) &
       0xffffffff;
+
+  /// The RTC counter: local wall time in seconds since 1950.
+  int get rtcSeconds => _rtcCounter;
 
   void _setRtcCounter(int seconds, {bool resetFraction = false}) {
     // Low-half writes restart the subsecond fraction from the host instant.
@@ -221,7 +224,7 @@ class DcAica {
         values[8] > 7 ||
         !fits(9, 0xfe0f) ||
         values[11] < 1 ||
-        values[11] > 20 + DcArmTranslator.maxBlockCycles ||
+        values[11] > 20 + ArmTranslatorPolicy.dc.maxBlockCycles(64) ||
         [12, 13, 14].any((index) => !fits(index, 0xfffc)) ||
         values[15] > memorySize ||
         values[16] > 0x45c8 ||
@@ -448,6 +451,8 @@ class DcAica {
     if (DcAicaSound.channelRegister(offset)) return sound.read(offset);
     return switch (offset) {
       0x2800 => 0, // Chip-revision identification remains unverified.
+      // MSLC reads back; the write-only MOBUF bits are assumed to read as 0.
+      0x280c => sound.monitor,
       0x2810 => sound.readMonitor(sideEffects: sideEffects),
       0x2814 => sound.currentAddress,
       0x2888 => _dmaRegister & 0x8000,
@@ -488,7 +493,8 @@ class DcAica {
     value &= 0xffff;
     if (value == 0 &&
         ((offset >= 0x3300 && offset < 0x3400) ||
-            (offset >= 0x3c00 && offset < 0x4000))) {
+            (offset >= 0x3c00 && offset < 0x4000) ||
+            (offset >= 0x45c8 && offset < 0x4800))) {
       return; // Inert writes while clearing the gaps in the DSP register map.
     }
     if (DcAicaDsp.handles(offset)) return dsp.write(offset, value);

@@ -535,10 +535,27 @@ class DcOpticalDrive {
         .every((t) => t.number < second.firstTrack ? t.isAudio : !t.isAudio);
   }
 
+  /// First LBA of the high-density area of a GD-ROM; the tracks of the image
+  /// keep their LBAs in one space.
+  static const _highDensityLba = 45000;
+
+  /// Whether the image was made from a GD-ROM, as its format records.
+  bool get _gdromLayout => _drive.status.toc.medium == CdromMedium.gd;
+
+  /// Sectors the head can reach in the current area. A GD-ROM drive sits in
+  /// the low-density area until it is asked for the high-density TOC, and
+  /// then cannot address the high-density sectors.
+  int get _reachableSectors {
+    final total = _drive.status.toc.totalSectors;
+    return _gdromLayout && _compatibilityArea != 2
+        ? (total < _highDensityLba ? total : _highDensityLba)
+        : total;
+  }
+
   int get _format {
     if (_opening) return 0;
     if (diagnosticFormatOverride case final format?) return format;
-    if (_compatibilityArea == 2) return 0x80;
+    if (_compatibilityArea == 2 || _gdromLayout) return 0x80;
     final toc = _drive.status.toc;
     if (!toc.tracks.any((t) => !t.isAudio)) return 0;
     return toc.isXa == true || _audioDataSessions ? 0x20 : 0x10;
@@ -988,8 +1005,9 @@ class DcOpticalDrive {
         final highDensity = _packet[1] & 1 != 0;
         if (highDensity) {
           if (diagnosticFormatOverride != 0x80) {
-            if (_compatibilityArea == 0 ||
-                !(bypassBootChecks?.call() ?? false)) {
+            if (!_gdromLayout &&
+                (_compatibilityArea == 0 ||
+                    !(bypassBootChecks?.call() ?? false))) {
               _finish(key: 5, asc: 0x24);
               return;
             }
@@ -999,6 +1017,7 @@ class DcOpticalDrive {
           // No claim is made about a physical optical drive high-density layout.
           onTrace?.call('virtual-data-area', [1]);
         }
+        if (!highDensity && _gdromLayout) _compatibilityArea = 0;
         _slice(_toc(highDensity: highDensity), 0, allocation);
       case 0x15:
         if (!_ready()) return;
@@ -1040,7 +1059,7 @@ class DcOpticalDrive {
           final next = flags & 1 != 0
               ? (_packet[8] * 60 + _packet[9]) * 75 + _packet[10]
               : (_packet[8] << 16) | (_packet[9] << 8) | _packet[10];
-          if (next < 150 || next >= _drive.status.toc.totalSectors + 150) {
+          if (next < 150 || next >= _reachableSectors + 150) {
             _finish(key: 5, asc: 0x21);
             return;
           }
@@ -1052,7 +1071,7 @@ class DcOpticalDrive {
           return;
         }
         if (start < 150 ||
-            start - 150 + _readCount > _drive.status.toc.totalSectors) {
+            start - 150 + _readCount > _reachableSectors) {
           _finish(key: 5, asc: 0x21);
           return;
         }
@@ -1087,7 +1106,7 @@ class DcOpticalDrive {
         final target = type == 1
             ? (_packet[2] << 16) | (_packet[3] << 8) | _packet[4]
             : (_packet[2] * 60 + _packet[3]) * 75 + _packet[4];
-        if (target < 150 || target >= _drive.status.toc.totalSectors + 150) {
+        if (target < 150 || target >= _reachableSectors + 150) {
           _finish(key: 5, asc: 0x21);
           return;
         }
@@ -1121,7 +1140,7 @@ class DcOpticalDrive {
             : (_packet[offset] * 60 + _packet[offset + 1]) * 75 +
                 _packet[offset + 2];
         final start = point(2), requestedEnd = point(8);
-        final leadOut = _drive.status.toc.totalSectors + 150;
+        final leadOut = _reachableSectors + 150;
         final end = requestedEnd == 0 || requestedEnd > leadOut
             ? leadOut
             : requestedEnd;
@@ -1310,13 +1329,7 @@ class DcOpticalDrive {
     q[2] = 1;
     time(3, lba - track.startLba);
     time(7, lba + 150);
-    var crc = 0;
-    for (var i = 0; i < 10; i++) {
-      crc ^= q[i] << 8;
-      for (var bit = 0; bit < 8; bit++) {
-        crc = ((crc << 1) ^ (crc & 0x8000 != 0 ? 0x1021 : 0)) & 0xffff;
-      }
-    }
+    final crc = cdromSubcodeCrc16(Uint8List.sublistView(q, 0, 10));
     q[10] = (~crc >> 8) & 255;
     q[11] = ~crc & 255;
     final raw = Uint8List(96);
@@ -1413,9 +1426,15 @@ class DcOpticalDrive {
   Uint8List _toc({bool highDensity = false}) {
     final toc = _drive.status.toc;
     // Compatibility areas retain source LBAs; they are not physical geometry.
-    final tracks = _compatibilityArea == 2
-        ? toc.tracks.where((t) => highDensity ? !t.isAudio : t.isAudio).toList()
-        : toc.tracks;
+    final tracks = _gdromLayout
+        ? toc.tracks
+            .where((t) => (t.startLba >= _highDensityLba) == highDensity)
+            .toList()
+        : _compatibilityArea == 2
+            ? toc.tracks
+                .where((t) => highDensity ? !t.isAudio : t.isAudio)
+                .toList()
+            : toc.tracks;
     final bytes = Uint8List(408)..fillRange(0, 408, 255);
     for (final track in tracks) {
       if (track.number < 1 || track.number > 99) {
@@ -1439,7 +1458,7 @@ class DcOpticalDrive {
       0,
       0
     ]);
-    final end = (_compatibilityArea == 2 && !highDensity
+    final end = ((_gdromLayout || _compatibilityArea == 2) && !highDensity
             ? last.startLba + last.sectors
             : toc.totalSectors) +
         150;

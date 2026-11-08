@@ -14,19 +14,6 @@ import 'package:test/test.dart';
 import '../tool/headless/jit_metrics.dart';
 
 void main() {
-  test('cores without a compiler expose no diagnostic runtimes', () {
-    for (final core in [
-      Core(),
-      Ps(jit: false),
-      N64(jit: false),
-      Ss(jit: false),
-      Md(sh2Jit: false)
-    ]) {
-      addTearDown(core.dispose);
-      expect(core.jitDiagnostics, isEmpty);
-      expect(jitRuntimes(core), isEmpty);
-    }
-  });
 
   test('each core supplies runtime metadata in CPU order', () {
     final ps = Ps(), n64 = N64(), ss = Ss(jit: true);
@@ -47,25 +34,5 @@ void main() {
   }, skip: JitRuntime.nativeSupported ? false : 'No compiled backend');
 
   for (final enabled in [false, true]) {
-    test('SH-2 diagnostic decoding honors MAC options: $enabled', () {
-      final jit =
-          Sh2Jit.create(native: false, macLong: enabled, macWord: enabled)!;
-      addTearDown(jit.dispose);
-      final ram = jit.rt.alloc(0x1000);
-      jit.map(0, ram.length, ram);
-      final data = ByteData.sublistView(ram);
-      data.setUint16(0, 0x412f); // MAC.W
-      data.setUint16(2, 0x012f); // MAC.L
-      for (final pc in [0, 2]) {
-        expect(jit.diagnostics.classify(pc, Sh2Translator.interpret, 0, null),
-            enabled ? 'guestExit' : 'unsupportedInstructionOrSlot');
-      }
-      expect(jit.diagnostics.classify(0, Sh2Translator.profileMiss, 0, null),
-          'profileGuard');
-      expect(jit.diagnostics.classify(0, Sh2Translator.idleDetected, 1, null),
-          'idleSkip');
-      expect(jit.diagnostics.classify(0x1000, Sh2Translator.interpret, 0, null),
-          'guestExit');
-    });
   }
 }

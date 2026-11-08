@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 // https://www.nesdev.org/wiki/VRC7_audio
 //
@@ -138,6 +139,18 @@ class _Slot {
   _EgState state = _EgState.finished;
   int egPhase = _egDpMax;
 
+  void saveState(StateWriter w) {
+    w.ints([phase, state.index, egPhase]);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('vrc7 slot state layout');
+    phase = v[0];
+    state = _EgState.values[v[1]];
+    egPhase = v[2];
+  }
+
   void keyOn(_OpParam p) {
     phase = 0;
     egPhase = 0;
@@ -232,6 +245,30 @@ class _Channel {
   int fb2 = 0;
 
   int output = 0;
+
+  void saveState(StateWriter w) {
+    w.ints([fnum, block, inst, vol, fb1, fb2, output]);
+    w.boolean(key);
+    w.boolean(susOn);
+    mod.saveState(w);
+    car.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 7) throw const StateMismatch('vrc7 channel state layout');
+    fnum = v[0];
+    block = v[1];
+    inst = v[2];
+    vol = v[3];
+    fb1 = v[4];
+    fb2 = v[5];
+    output = v[6];
+    key = s.boolean();
+    susOn = s.boolean();
+    mod.loadState(s);
+    car.loadState(s);
+  }
 }
 
 /// Emulates VRC7 audio (YM2413 subset)
@@ -257,6 +294,36 @@ class Vrc7Apu {
       c.key = false;
       c.mod.state = _EgState.finished;
       c.car.state = _EgState.finished;
+    }
+  }
+
+  /// Saves the custom instrument, the register address, the LFO counters and every channel; the built-in patches are constant and the custom patch is rebuilt from the saved instrument bytes.
+  void saveState(StateWriter w) {
+    w.section('vrc7-apu');
+    w.bytes(_custom);
+    w.ints([_addr, _amCounter, _pmCounter, _holdCount]);
+    w.boolean(mute);
+    w.float64(_lastSample);
+    for (final c in _ch) {
+      c.saveState(w);
+    }
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('vrc7-apu');
+    s.bytesInto(_custom);
+    _patches[0].set(_custom);
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('vrc7 apu state layout');
+    _addr = v[0];
+    _amCounter = v[1];
+    _pmCounter = v[2];
+    _holdCount = v[3];
+    mute = s.boolean();
+    _lastSample = s.float64();
+    for (final c in _ch) {
+      c.loadState(s);
     }
   }
 

@@ -3,7 +3,7 @@ description: A multiplatform NES/PCE/MD/PS1/N64 Emulator written in Flutter.
 
 publish_to: none # Remove this line if you wish to publish to pub.dev
 
-version: 1.3.0+0
+version: 1.4.0+0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -26,6 +26,8 @@ dependencies:
     path: packages/cdrom_image
   mp_pixel_image:
     path: packages/mp_pixel_image
+  render_frame_gpu:
+    path: packages/render_frame_gpu
 
 dev_dependencies:
   flutter_test:

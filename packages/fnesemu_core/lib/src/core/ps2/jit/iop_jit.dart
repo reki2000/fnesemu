@@ -2,11 +2,12 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../components/r3000/jit/r3000_translator.dart';
+import '../../../util/jit_adapter.dart';
 import '../iop/iop.dart';
 import '../iop/iop_memory.dart';
-import 'iop_translator.dart';
 
-/// Runs IOP code compiled by [IopTranslator].
+/// Runs IOP code compiled by [R3000Translator].
 ///
 /// Compiled blocks share RAM and the registers with the interpreter:
 /// the RAM is the runtime's buffer, mapped at its physical address, and
@@ -18,22 +19,21 @@ import 'iop_translator.dart';
 /// ([Iop.prepareCompiled]); hi, lo and the load in its delay are copied
 /// through the context around the run, as the interpreter keeps them in
 /// plain fields.
-final class IopJit {
-  final JitRuntime rt;
-  final bool native;
-  final int compileThreshold;
+final class IopJit extends JitAdapter {
+  late final diagnostics =
+      JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little);
   final Uint8List ram;
   late final ByteData _ram = ByteData.sublistView(ram);
   late final Uint32List regs =
       Uint32List.sublistView(rt.ctx, ctxRegs, ctxRegs + 32);
   late final Iop cpu;
   late final IopMemory memory;
-  late final IopTranslator _translator;
+  late final R3000Translator _translator;
   late final _code = JitCodeMemory(rt);
   late final _driver = JitDriver(rt,
       translate: (pc, tag) {
         _translating = (pc, tag);
-        return _translator.translate(pc, tag);
+        return _translator.translate(pc, tag: tag);
       },
       codeWord: _codeWord,
       codeMemory: _code,
@@ -41,21 +41,18 @@ final class IopJit {
       recompileInvalid: true);
   (int, int) _translating = (0, 0);
 
-  static const ctxRegs = JitCtx.user;
-  static const ctxHi = ctxRegs + 32, ctxLo = ctxHi + 1;
-  static const ctxPendingValue = ctxLo + 1;
+  static const ctxRegs = R3000Translator.ctxRegs;
+  static const ctxHi = R3000Translator.ctxHi, ctxLo = R3000Translator.ctxLo;
+  static const ctxPendingValue = R3000Translator.ctxPendingValue;
   static const _ctxWords = ctxPendingValue + 1;
-  static const reasonInterpret = JitReason.user;
-  static const reasonStore = JitReason.user + 1;
+  static const reasonInterpret = R3000Translator.reasonInterpret;
+  static const reasonStore = R3000Translator.reasonStore;
 
-  /// Runs the interpreter instead while keeping the compiled blocks and
-  /// the shared state.
-  bool suspended = false;
+  IopJit._(super.rt, super.native, int? threshold, this.ram)
+      : super(compileThreshold: threshold);
 
-  int get compiledClocks => native ? _driver.executedClocks : 0;
-
-  IopJit._(this.rt, this.native, int? threshold, this.ram)
-      : compileThreshold = threshold ?? rt.compileThreshold;
+  @override
+  JitDriver get driver => _driver;
 
   /// The recompiler of this host, or null when it has none (or no room
   /// for the RAM). Unlike the EE recompiler this does not reset the
@@ -86,7 +83,7 @@ final class IopJit {
     this.cpu = cpu;
     this.memory = memory;
     _code.map(0, ram.length, ram);
-    _translator = IopTranslator(
+    _translator = R3000Translator(
       fetch: _fetch,
       endsAfterStore: _endsAfterStore,
       mfc0: rt.addHelper((reg, _, __) {
@@ -104,6 +101,9 @@ final class IopJit {
         rt.ctx[ctxLo] = lo;
         return 0;
       }),
+      ramSize: IopMemory.ramSize,
+      maxInstructions: 32,
+      clocksPerInstruction: 1,
     );
   }
 
@@ -152,9 +152,6 @@ final class IopJit {
   bool _endsAfterStore(int pc) =>
       (pc & 0x1fffffff) < 0x800000 && _code.isReleased(pc);
 
-  void reset() => _driver.reset();
-
-  void dispose() => rt.dispose();
 
   /// Runs compiled code for up to [budget] instructions and returns how
   /// many ran; zero means the next instruction is the interpreter's.

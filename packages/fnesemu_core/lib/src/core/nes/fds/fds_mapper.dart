@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../mapper/mapper.dart';
 import '../mapper/mirror.dart';
 import 'fds_audio.dart';
@@ -42,6 +43,60 @@ class FdsMapper extends Mapper {
     audio.reset();
     mirror(Mirror.vertical);
     _updateIrq();
+  }
+
+  // The disk image itself is external media reached through the SRAM callbacks, so the state covers the adapter RAM, the CHR RAM, the drive position and the timer and IRQ state.
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('fds');
+    w.bytes(ram);
+    w.bytes(chr);
+    w.int32(selectedSide ?? -1);
+    w.ints([
+      _cycle, _reload, _counter, _control, _io, _head, _byteDelay, //
+      _insertDelay, _data, _writeData, _crc, _crcBytes, _external
+    ]);
+    for (final b in [
+      _timerEnabled, _repeat, _timerIrq, _diskIrq, _readyByte, _gapEnded, //
+      _scanning, _motor, _badCrc
+    ]) {
+      w.boolean(b);
+    }
+    audio.saveState(w);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('fds');
+    s.bytesInto(ram);
+    s.bytesInto(chr);
+    final side = s.int32();
+    selectedSide = side < 0 ? null : side;
+    final v = s.ints();
+    if (v.length != 13) throw const StateMismatch('fds state layout');
+    _cycle = v[0];
+    _reload = v[1];
+    _counter = v[2];
+    _control = v[3];
+    _io = v[4];
+    _head = v[5];
+    _byteDelay = v[6];
+    _insertDelay = v[7];
+    _data = v[8];
+    _writeData = v[9];
+    _crc = v[10];
+    _crcBytes = v[11];
+    _external = v[12];
+    _timerEnabled = s.boolean();
+    _repeat = s.boolean();
+    _timerIrq = s.boolean();
+    _diskIrq = s.boolean();
+    _readyByte = s.boolean();
+    _gapEnded = s.boolean();
+    _scanning = s.boolean();
+    _motor = s.boolean();
+    _badCrc = s.boolean();
+    audio.loadState(s);
   }
 
   void selectSide(int? side) {

@@ -1,3 +1,5 @@
+import 'runtime.dart';
+
 /// The addresses and tables a compiled block refers to.
 abstract interface class NativeEnv {
   bool get win64;
@@ -18,6 +20,11 @@ abstract interface class NativeEnv {
 
   /// the host address of a guest word mapped at compile time, or null
   int? guardAddr(int guestAddr);
+
+  /// a translation table and the host address of its slots, each a 32-bit
+  /// key followed at offset 8 by the 64-bit host address of its page
+  JitTranslationTable translationTable(int id);
+  int translationAddress(int id);
 
   /// a link slot which will hold the entry of the block (pc, tag)
   int slotFor(int pc, int tag);

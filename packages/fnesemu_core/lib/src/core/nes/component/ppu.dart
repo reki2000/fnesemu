@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../constants.dart' as hardware;
 import '../mapper/mapper.dart';
 import 'bus.dart';
@@ -52,6 +53,44 @@ class Ppu {
   int cycle = 0;
 
   final spriteLine = Uint16List(256);
+
+  /// Saves the registers, the address and scroll latches, OAM, the palette, the prepared sprite line and the rendered output.
+  void saveState(StateWriter w) {
+    w.section('nes-ppu');
+    w.ints([
+      ctl1, ctl2, status, objAddr, scrollX, scrollY, tmpVramAddr, vramAddr, //
+      fineX, vramBuffer, scanLine, cycle
+    ]);
+    w.boolean(first);
+    w.bytes(objRam);
+    w.bytes(palette);
+    w.ints(spriteLine);
+    w.ints(buffer);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('nes-ppu');
+    final v = s.ints();
+    if (v.length != 12) throw const StateMismatch('ppu state layout');
+    ctl1 = v[0];
+    ctl2 = v[1];
+    status = v[2];
+    objAddr = v[3];
+    scrollX = v[4];
+    scrollY = v[5];
+    tmpVramAddr = v[6];
+    vramAddr = v[7];
+    fineX = v[8];
+    vramBuffer = v[9];
+    scanLine = v[10];
+    cycle = v[11];
+    first = s.boolean();
+    s.bytesInto(objRam);
+    s.bytesInto(palette);
+    s.intsInto(spriteLine);
+    s.intsInto(buffer);
+  }
 
   final objRam = List<int>.filled(0x100, 0);
 

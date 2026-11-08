@@ -9,6 +9,7 @@ import '../../types.dart';
 import '../../util/crc32.dart';
 import '../../util/disasm.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import 'apu.dart';
 import 'bus.dart';
@@ -128,6 +129,43 @@ class Gb extends Core {
   @override
   void setSram(Sram sram) {
     _sram = sram;
+  }
+
+  static const _stateVersion = 1;
+
+  int get _stateMedia => stateMediaHash(bus.cart.rom);
+
+  void _requireRom() {
+    if (crc.isEmpty) throw StateError('GB ROM not loaded');
+  }
+
+  @override
+  Uint8List saveState() {
+    _requireRom();
+    final w = StateWriter('gb', _stateVersion, _stateMedia);
+    w.section('gb');
+    w.int32(_nextScanlineClocks);
+    bus.saveState(w);
+    return w.take();
+  }
+
+  void _loadDirect(Uint8List state) {
+    final s = StateReader(state, 'gb', _stateVersion, _stateMedia);
+    s.section('gb');
+    _nextScanlineClocks = s.int32();
+    bus.loadState(s);
+    s.end();
+  }
+
+  /// Loads into a fresh instance with the same ROM first, so that a state
+  /// which fails partway cannot leave this core half restored; the staged
+  /// state is then re-serialized and applied, as in the DC core.
+  @override
+  void loadState(Uint8List state) {
+    _requireRom();
+    final staged = Gb()..setRom(bus.cart.rom);
+    staged._loadDirect(state);
+    _loadDirect(staged.saveState());
   }
 
   @override

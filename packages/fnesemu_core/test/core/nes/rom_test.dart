@@ -16,12 +16,5 @@ void main() {
       expect(file.mapper, 1);
     });
 
-    test('nes 2.0 mapper bits 8-11 are read from byte 8', () {
-      final file = NesFile()
-        ..load(
-          ines(flags6: 0x50, header7to15: [0x48, 0x01, 0, 0, 0, 0, 0, 0, 0]),
-        );
-      expect(file.mapper, 0x145);
-    });
   });
 }

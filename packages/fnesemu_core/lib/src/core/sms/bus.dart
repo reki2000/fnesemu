@@ -6,6 +6,7 @@ import '../../components/z80/bus.dart';
 import '../../components/z80/z80.dart';
 import '../../sram.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'pad.dart';
 import 'vdp.dart';
 
@@ -136,6 +137,47 @@ class Bus implements Z80Bus {
     cpu.reset();
     // the boot ROM leaves the stack pointer at the top of the RAM
     if (model != SmsModel.tms) cpu.r.sp = 0xdff0;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('sms-bus');
+    w.int32(mapper.index);
+    w.ints([audioControl, ramControl, lineStartCycles, ioControl]);
+    w.ints(banks);
+    w.boolean(ggDomestic);
+    w.bytes(ram);
+    w.bytes(linkPort);
+    w.bytes(_cartRam.data);
+    cpu.saveState(w);
+    vdp.saveState(w);
+    psg.saveState(w);
+    fm?.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('sms-bus');
+    if (s.int32() != mapper.index) {
+      throw const StateMismatch('sms mapper state');
+    }
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('sms bus state layout');
+    audioControl = v[0];
+    ramControl = v[1];
+    lineStartCycles = v[2];
+    ioControl = v[3];
+    s.intsInto(banks);
+    ggDomestic = s.boolean();
+    s.bytesInto(ram);
+    s.bytesInto(linkPort);
+    final cartRam = s.bytes();
+    if (cartRam.length != _cartRam.data.length) {
+      throw const StateMismatch('sms cartridge ram state layout');
+    }
+    _cartRam.data.setAll(0, cartRam);
+    cpu.loadState(s);
+    vdp.loadState(s);
+    psg.loadState(s);
+    fm?.loadState(s);
   }
 
   /// attaches the persistent storage of the cartridge RAM

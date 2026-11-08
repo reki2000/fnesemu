@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/memory.dart';
@@ -8,7 +9,38 @@ import 'package:test/test.dart';
 
 import '../../../tool/cdrom_drive.dart';
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  FutureOr<void> Function()? aggSetup;
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      final setup = aggSetup;
+      if (setup != null) await setup();
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
   late Cdrom cdrom;
   late SimpleCdromDrive drive;
   late List<int> irqs;
@@ -52,7 +84,7 @@ void main() {
     }
   }
 
-  setUp(() async {
+  aggSetup = () async {
     cdrom = Cdrom(Bus());
     drive = SimpleCdromDrive();
     irqs = [];
@@ -63,16 +95,16 @@ void main() {
     cdrom.exec(1); // open
     cdrom.exec(1); // close
     cdrom.exec(1); // TOC ready
-  });
+  };
 
-  test('shell follows the drive', () async {
+  aggCase('shell follows the drive', () async {
     expect(cdrom.isShellOpen, false);
     await drive.eject();
     cdrom.exec(1);
     expect(cdrom.isShellOpen, true);
   });
 
-  test('closing the tray without a disc closes the shell', () async {
+  aggCase('closing the tray without a disc closes the shell', () async {
     await drive.eject();
     cdrom.exec(1);
     expect(cdrom.isShellOpen, true);
@@ -82,8 +114,7 @@ void main() {
     expect(cdrom.isSpindleMotorOn, false);
   });
 
-  test('a swap finished before the next exec is seen as shell open, close',
-      () async {
+  aggCase('a swap finished before the next exec is seen as shell open, close', () async {
     await drive.insert(
         memoryDisc("b.bin", {"b.bin": MemoryDiscFile("b.bin", makeBin(50))}));
     expect(drive.status.isReady, true);
@@ -96,7 +127,7 @@ void main() {
     expect(cdrom.isSpindleMotorOn, true);
   });
 
-  test('eject during seek raises INT5', () async {
+  aggCase('eject during seek raises INT5', () async {
     command(0x02, [0x00, 0x20, 0x00]); // SetLoc 00:20:00
     command(0x15); // SeekL
     final ejected = drive.eject();
@@ -105,7 +136,7 @@ void main() {
     expect(irqs, [3, 3, 5]);
   });
 
-  test('ReadN delivers sectors in order', () async {
+  aggCase('ReadN delivers sectors in order', () async {
     command(0x02, [0x00, 0x02, 0x10]); // SetLoc 00:02:10 => LBA 10
     command(0x06); // ReadN
 
@@ -122,7 +153,7 @@ void main() {
     expect(read, List.generate(100, (i) => (10 + i) & 0xff));
   });
 
-  test('SeekL raises INT2 after the drive completes the seek', () async {
+  aggCase('SeekL raises INT2 after the drive completes the seek', () async {
     command(0x02, [0x00, 0x20, 0x00]); // SetLoc 00:20:00
     command(0x15); // SeekL
     expect(cdrom.isSeeking, true);
@@ -131,7 +162,7 @@ void main() {
     expect(cdrom.isSeeking, false);
   });
 
-  test('SeekL out of the disc raises INT5', () async {
+  aggCase('SeekL out of the disc raises INT5', () async {
     command(0x02, [0x10, 0x00, 0x00]); // SetLoc 10:00:00
     command(0x15); // SeekL
     await run(() => irqs.contains(5));
@@ -139,9 +170,20 @@ void main() {
     expect(results.last[0] & 0x05, 0x05); // error, seek error
   });
 
-  test('GetTN uses TOC of the drive', () async {
+  aggCase('GetTN uses TOC of the drive', () async {
     command(0x13);
     await run(() => irqs.contains(3));
     expect(results.single.sublist(1), [0x01, 0x01]); // first, last track
   });
+
+  const chunkCount = 3;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

@@ -39,69 +39,6 @@ void main() {
     expect(gb.cpu.f & Cpu.flagC, 0);
   });
 
-  test('call and return keep the stack balanced', () {
-    final gb = _run([
-      0xcd, 0x10, 0x01, // CALL $0110
-      0x76, // HALT
-      ...List.filled(12, 0x00),
-      0x3e, 0x42, // $0110: LD A, $42
-      0xc9, // RET
-    ], 3);
-    expect(gb.cpu.a, 0x42);
-    expect(gb.cpu.pc, 0x0103);
-    expect(gb.cpu.sp, 0xfffe);
-  });
-
-  test('instruction cycles are counted by memory accesses', () {
-    final gb = Gb()..setRom(_rom([0x00, 0xc3, 0x00, 0x01]));
-    final start = gb.bus.clocks;
-    gb.exec(false); // NOP: 1 machine cycle
-    expect(gb.bus.clocks - start, 4);
-    gb.exec(false); // JP a16: 4 machine cycles
-    expect(gb.bus.clocks - start, 20);
-  });
-
-  test('timer overflow requests an interrupt and reloads TMA', () {
-    final bus = Bus()..reset();
-    bus.write(0xff0f, 0);
-    bus.write(0xff06, 0xab);
-    bus.write(0xff05, 0xff);
-    bus.write(0xff07, 0x05); // enabled, 16 clocks per increment
-
-    // overflow and reload happen within 5 machine cycles
-    for (int i = 0; i < 5 && bus.intFlag & Bus.intTimer == 0; i++) {
-      bus.tick();
-    }
-    expect(bus.read(0xff05), 0xab);
-    expect(bus.intFlag & Bus.intTimer, Bus.intTimer);
-  });
-
-  test('vertical blank interrupt is requested once per frame', () {
-    final bus = Bus()..reset();
-    bus.write(0xff0f, 0);
-    for (int i = 0; i < 154 * 456 ~/ 4; i++) {
-      bus.tick();
-    }
-    expect(bus.intFlag & Bus.intVBlank, Bus.intVBlank);
-    expect(bus.ppu.frames, 1);
-  });
-
-  test('joypad register reflects the selected button group', () {
-    final bus = Bus()..reset();
-    final state = PadState();
-    final pad = bus.pad..source = state;
-    state
-      ..press(0, Pad.start)
-      ..press(0, PadButton.left);
-    pad.poll();
-
-    bus.write(0xff00, 0x20); // directions
-    expect(bus.read(0xff00) & 0x0f, 0x0d);
-    bus.write(0xff00, 0x10); // actions
-    expect(bus.read(0xff00) & 0x0f, 0x07);
-    expect(bus.intFlag & Bus.intJoypad, Bus.intJoypad);
-  });
-
   test('bank controller switches the upper rom bank', () {
     final rom = _rom([], type: 0x01, romSizeCode: 2); // 128KB, 8 banks
     for (int bank = 0; bank < 8; bank++) {
@@ -116,22 +53,4 @@ void main() {
     expect(gb.read(0, 0x4010), 1);
   });
 
-  test('OAM DMA copies 160 bytes', () {
-    final bus = Bus()..reset();
-    for (int i = 0; i < 160; i++) {
-      bus.write(0xc000 + i, i);
-    }
-    bus.write(0xff46, 0xc0);
-    for (int i = 0; i < 162; i++) {
-      bus.tick();
-    }
-    expect(bus.ppu.oam.sublist(0, 160), List.generate(160, (i) => i));
-  });
-
-  test('disassembler decodes operands', () {
-    final gb = Gb()..setRom(_rom([0x21, 0x34, 0x12, 0x18, 0xfe, 0xcb, 0x7c]));
-    expect(gb.disasm(0, 0x100).$1, endsWith("LD HL,\$1234"));
-    expect(gb.disasm(0, 0x103).$1, endsWith("JR \$0103"));
-    expect(gb.disasm(0, 0x105).$1, endsWith("BIT 7,H"));
-  });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/vu.dart';
@@ -71,15 +72,43 @@ List<double> _getVf(Vu vu, int reg) =>
 const _end = (_lowerNop, _upperNop);
 (int, int) get _endPair => (_lowerNop, _upperNop | (1 << 30));
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('NOP encodings do nothing', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('NOP encodings do nothing', () {
     final vu = _vu([(_lowerNop, _upperNop), _endPair, _end]);
     vu.start(0);
     expect(vu.running, isFalse);
     expect(vu.pc, 3);
   });
 
-  test('ADD, SUB, MUL work per lane', () {
+  aggCase('ADD, SUB, MUL work per lane', () {
     final vu = _vu([
       (_lowerNop, _up(0x28, _xyzw, 3, 1, 2)), // ADD vf3 = vf1 + vf2
       (_lowerNop, _up(0x2c, _xyzw, 4, 1, 2)), // SUB
@@ -95,7 +124,7 @@ void main() {
     expect(_getVf(vu, 5), [10, 40, 90, 160]);
   });
 
-  test('the destination mask limits the written lanes and VF0 is constant', () {
+  aggCase('the destination mask limits the written lanes and VF0 is constant', () {
     final vu = _vu([
       (_lowerNop, _up(0x28, _x | _z, 3, 1, 2)),
       (_lowerNop, _up(0x28, _xyzw, 0, 1, 2)), // writes to VF0 are ignored
@@ -110,7 +139,7 @@ void main() {
     expect(_getVf(vu, 0), [0, 0, 0, 1]);
   });
 
-  test('broadcast operands use one lane of ft', () {
+  aggCase('broadcast operands use one lane of ft', () {
     final vu = _vu([
       (_lowerNop, _up(0x18 + 1, _xyzw, 3, 1, 2)), // MULy
       (_lowerNop, _up(0x00 + 3, _xyzw, 4, 1, 2)), // ADDw
@@ -124,7 +153,7 @@ void main() {
     expect(_getVf(vu, 4), [41, 42, 43, 44]);
   });
 
-  test('ADDA, MADD and MSUB use the accumulator', () {
+  aggCase('ADDA, MADD and MSUB use the accumulator', () {
     final vu = _vu([
       (_lowerNop, _upSpecial(0xa, 0, _xyzw, 1, 2)), // ADDA acc = vf1 + vf2
       (_lowerNop, _up(0x29, _xyzw, 3, 1, 2)), // MADD vf3 = acc + vf1 * vf2
@@ -139,7 +168,7 @@ void main() {
     expect(_getVf(vu, 4), [1, -18, -57, -116]);
   });
 
-  test('MAX and MINI pick lanes', () {
+  aggCase('MAX and MINI pick lanes', () {
     final vu = _vu([
       (_lowerNop, _up(0x2b, _xyzw, 3, 1, 2)),
       (_lowerNop, _up(0x2f, _xyzw, 4, 1, 2)),
@@ -153,7 +182,7 @@ void main() {
     expect(_getVf(vu, 4), [1, -6, 3, 4]);
   });
 
-  test('MAC flags report zero and sign per lane', () {
+  aggCase('MAC flags report zero and sign per lane', () {
     final vu = _vu([
       (_lowerNop, _up(0x2c, _xyzw, 3, 1, 2)), // SUB
       _endPair,
@@ -170,7 +199,7 @@ void main() {
     expect(vu.status & 0xc0, 0xc0, reason: 'sticky Z and S');
   });
 
-  test('flag instructions see FMAC flags four cycles after the issue', () {
+  aggCase('flag instructions see FMAC flags four cycles after the issue', () {
     final vu = _vu([
       (_lowerNop, _up(0x2c, _xyzw, 3, 1, 2)), // SUB: y is negative
       (_lo(0x1a, it: 4, is_: 2), _upperNop), // FMAND one cycle later
@@ -188,7 +217,7 @@ void main() {
     expect(vu.vi[5], 0x4a);
   });
 
-  test('CLIP shifts its judgement into the clip flag four cycles later', () {
+  aggCase('CLIP shifts its judgement into the clip flag four cycles later', () {
     final vu = _vu([
       (_lowerNop, _upSpecial(7, 3, _xyzw, 1, 2)), // CLIP vf1, vf2.w
       (_lo(0x1c, it: 3), _upperNop), // FCGET one cycle later
@@ -207,7 +236,7 @@ void main() {
     expect(vu.vi[4], 0x3 << 6 | 0x1 | 0x8);
   });
 
-  test('ITOF and FTOI convert with fixed point scaling', () {
+  aggCase('ITOF and FTOI convert with fixed point scaling', () {
     final vu = _vu([
       (_lowerNop, _upSpecial(4, 1, _xyzw, 1, 3)), // ITOF4 vf3 = vf1 / 16
       (_lowerNop, _upSpecial(5, 1, _xyzw, 2, 4)), // FTOI4 vf4 = vf2 * 16
@@ -226,7 +255,7 @@ void main() {
     expect(vu.vf[19], 0x7fffffff);
   });
 
-  test('Q register: DIV then WAITQ and MULq', () {
+  aggCase('Q register: DIV then WAITQ and MULq', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
       (_loSpecial(0xe, 3), _upperNop), // WAITQ
@@ -241,7 +270,7 @@ void main() {
     expect(_getVf(vu, 3), [18, 6, 9, 12]);
   });
 
-  test('a pair with a new DIV waits, so its upper reads the new Q', () {
+  aggCase('a pair with a new DIV waits, so its upper reads the new Q', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
       // DIV again with MULq vf3.x = vf1.x * q in the same pair
@@ -260,7 +289,7 @@ void main() {
     expect(_val(vu.q), 1);
   });
 
-  test('Q keeps its old value until the division finishes', () {
+  aggCase('Q keeps its old value until the division finishes', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
       (_lowerNop, _up(0x1c, _x, 3, 1, 0)), // MULq, 1 cycle later: old Q
@@ -281,7 +310,7 @@ void main() {
     expect(_val(vu.vf[16]), 18);
   });
 
-  test('a pair waits for the FMAC result it reads', () {
+  aggCase('a pair waits for the FMAC result it reads', () {
     final vu = _vu([
       (_lowerNop, _up(0x28, _xyzw, 3, 1, 1)), // ADD vf3 = vf1 + vf1
       (_lowerNop, _up(0x28, _xyzw, 4, 3, 3)), // ADD vf4 = vf3 + vf3
@@ -295,7 +324,7 @@ void main() {
     expect(vu.cycles, 4 + 3);
   });
 
-  test('a pair does not wait for a field it does not read', () {
+  aggCase('a pair does not wait for a field it does not read', () {
     final vu = _vu([
       (_lowerNop, _up(0x28, _y, 3, 1, 1)), // ADD vf3.y = vf1 + vf1
       (_lowerNop, _up(0x28, _x, 4, 3, 3)), // ADD vf4.x = vf3 + vf3
@@ -312,7 +341,7 @@ void main() {
     expect(vu.cycles, 5 + 2);
   });
 
-  test('division by zero clamps Q and sets the D flag', () {
+  aggCase('division by zero clamps Q and sets the D flag', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 0), _upperNop),
       _endPair,
@@ -325,7 +354,7 @@ void main() {
     expect(vu.status & 0x20, 0x20);
   });
 
-  test('SQRT and RSQRT', () {
+  aggCase('SQRT and RSQRT', () {
     final vu = _vu([
       (_loSpecial(0xe, 1, it: 1, ftf: 0), _upperNop), // SQRT q, vf1.x
       (_loSpecial(0xe, 3), _upperNop), // WAITQ
@@ -340,7 +369,7 @@ void main() {
     expect(_val(vu.vf[12]), 20);
   });
 
-  test('ERCPR sets P after its latency and MFP reads it', () {
+  aggCase('ERCPR sets P after its latency and MFP reads it', () {
     final vu = _vu([
       (_loSpecial(0x1e, 2, fs: 1, fsf: 3), _upperNop), // ERCPR P, vf1.w
       (_loSpecial(0x19, 0, dest: _x, it: 2), _upperNop), // MFP vf2.x: old P
@@ -358,7 +387,7 @@ void main() {
     expect(_getVf(vu, 2).sublist(0, 3), [0, 0.25, 14]);
   });
 
-  test('the I bit loads a float into I for MULi', () {
+  aggCase('the I bit loads a float into I for MULi', () {
     final vu = _vu([
       (_bits(2.5), _upperNop | (1 << 31)), // I = 2.5
       (_lowerNop, _up(0x1e, _xyzw, 3, 1, 0)), // MULi
@@ -371,7 +400,7 @@ void main() {
     expect(_getVf(vu, 3), [2.5, 5, 7.5, 10]);
   });
 
-  test('OPMULA and OPMSUB form a cross product', () {
+  aggCase('OPMULA and OPMSUB form a cross product', () {
     final vu = _vu([
       (_lowerNop, _upSpecial(0xb, 2, 14, 1, 2)), // OPMULA
       (_lowerNop, _up(0x2e, 14, 3, 2, 1)), // OPMSUB vf3 = acc - vf2 x vf1
@@ -387,7 +416,7 @@ void main() {
     expect(_val(vu.acc[2]), 1);
   });
 
-  test('CLIP sets the clip flag bits', () {
+  aggCase('CLIP sets the clip flag bits', () {
     final vu = _vu([
       (_lowerNop, _upSpecial(7, 3, 14, 1, 2)), // CLIP vf1.xyz against vf2.w
       _endPair,
@@ -399,7 +428,7 @@ void main() {
     expect(vu.clip & 0x3f, 1 | (2 << 2));
   });
 
-  test('integer instructions and loops with a branch delay slot', () {
+  aggCase('integer instructions and loops with a branch delay slot', () {
     // vi1 = 3; loop: vi2 += 5; vi1 -= 1; ibne vi1, vi0, loop
     final vu = _vu([
       (_lo(0x08, it: 1, is_: 0, imm: 3), _upperNop), // IADDIU vi1, vi0, 3
@@ -416,7 +445,7 @@ void main() {
     expect(vu.vi[3], 3, reason: 'the delay slot runs every time');
   });
 
-  test('the E bit lets one more pair execute', () {
+  aggCase('the E bit lets one more pair execute', () {
     final vu = _vu([
       (_lo(0x08, it: 1, is_: 0, imm: 1), _upperNop | (1 << 30)),
       (_lo(0x08, it: 2, is_: 0, imm: 2), _upperNop),
@@ -426,7 +455,7 @@ void main() {
     expect((vu.vi[1], vu.vi[2], vu.vi[3]), (1, 2, 0));
   });
 
-  test('BAL and JR call and return', () {
+  aggCase('BAL and JR call and return', () {
     final vu = _vu([
       (_lo(0x21, it: 15, imm: 3), _upperNop), // BAL vi15, +3 -> pair 4
       (_lowerNop, _upperNop), // delay slot
@@ -442,7 +471,7 @@ void main() {
     expect(vu.vi[4], 7);
   });
 
-  test('LQ, SQ, ILW, ISW and the post increment forms', () {
+  aggCase('LQ, SQ, ILW, ISW and the post increment forms', () {
     final vu = _vu([
       (_lo(0x08, it: 1, is_: 0, imm: 4), _upperNop), // vi1 = 4
       (
@@ -482,7 +511,7 @@ void main() {
     expect(_val(vu.data[5 * 4]), 100, reason: 'SQI stored vf7 at the old vi1');
   });
 
-  test('the upper instruction reads registers before the lower one writes', () {
+  aggCase('the upper instruction reads registers before the lower one writes', () {
     final vu = _vu([
       // LQ vf1 <- [0] and ADD vf3 = vf1 + vf2 in the same pair
       (
@@ -502,7 +531,7 @@ void main() {
     expect(_getVf(vu, 1), [50, 50, 50, 50]);
   });
 
-  test('MOVE and MR32 copy and rotate lanes', () {
+  aggCase('MOVE and MR32 copy and rotate lanes', () {
     final vu = _vu([
       (_loSpecial(0xc, 0, dest: _xyzw, it: 2, fs: 1), _upperNop), // MOVE
       (_loSpecial(0xc, 1, dest: _xyzw, it: 3, fs: 1), _upperNop), // MR32
@@ -515,7 +544,7 @@ void main() {
     expect(_getVf(vu, 3), [2, 3, 4, 1]);
   });
 
-  test('MTIR, MFIR and the flag instructions', () {
+  aggCase('MTIR, MFIR and the flag instructions', () {
     final vu = _vu([
       (_loSpecial(0xf, 0, it: 1, fs: 2, fsf: 1), _upperNop), // MTIR vi1 = vf2.y
       (
@@ -536,7 +565,7 @@ void main() {
     expect(vu.vi[5], 0x123);
   });
 
-  test('XGKICK, XTOP and XITOP use the VIF values', () {
+  aggCase('XGKICK, XTOP and XITOP use the VIF values', () {
     var kicked = -1;
     final vu = _vu([
       (_lo(0x08, it: 1, is_: 0, imm: 9), _upperNop),
@@ -555,7 +584,7 @@ void main() {
     expect(vu.vi[3], 5);
   });
 
-  test('the GIF reads an XGKICK packet after the pair that follows', () {
+  aggCase('the GIF reads an XGKICK packet after the pair that follows', () {
     var first = -1;
     final vu = _vu([
       (_lo(0x08, it: 1, is_: 0, imm: 9), _upperNop),
@@ -569,7 +598,7 @@ void main() {
     expect(first, 0x1234);
   });
 
-  test('R register random numbers stay in the 1.0 to 2.0 range', () {
+  aggCase('R register random numbers stay in the 1.0 to 2.0 range', () {
     final vu = _vu([
       (_loSpecial(0x10, 2, fs: 1, fsf: 0), _upperNop), // RINIT r = vf1.x
       (_loSpecial(0x10, 0, dest: _x, it: 2), _upperNop), // RNEXT vf2.x
@@ -585,7 +614,7 @@ void main() {
     expect(a, isNot(b));
   });
 
-  test('macro integer instructions run on VU0', () {
+  aggCase('macro integer instructions run on VU0', () {
     final vu = Vu(0)
       ..vi[1] = 5
       ..vi[2] = 7;
@@ -597,4 +626,15 @@ void main() {
     expect(vu.vi[4], 3);
     expect(vu.vi[5], 5);
   });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

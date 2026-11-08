@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -96,6 +97,76 @@ class MapperMMC3 extends Mapper {
     _prgBank[1] = _prgBankA000; // 0xa000-0xbfff
     _prgBank[2] = _prgBank2ndLast; // 0xc000-0xdfff
     _prgBank[3] = [prgRoms.length - 1]; // 0xe000-0xffff
+  }
+
+  // The bank slots point at the register lists, so the state stores which list each slot uses and restores the same sharing.
+  int _prgSlotId(List<int> slot) => identical(slot, _prgBank0)
+      ? 0
+      : identical(slot, _prgBank2ndLast)
+          ? 1
+          : 2;
+
+  List<int> _prgSlot(int id) =>
+      id == 0 ? _prgBank0 : id == 1 ? _prgBank2ndLast : _prgBankA000;
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('mmc3');
+    w.ints([
+      _r, _a12, _irqLatch, _irqCounter, _chrBankMask, _prgBankMask, //
+      _prgBank0[0], _prgBankA000[0], _prgBank2ndLast[0], _prgBank[3][0]
+    ]);
+    for (final b in [
+      _irqReload, _irqEnabled, _ramEnabled, _ramWriteEnabled, _chrRam, //
+      identical(_chrBank[0], _chrBankR2_5)
+    ]) {
+      w.boolean(b);
+    }
+    w.ints(_chrBankR0_1);
+    w.ints(_chrBankR2_5);
+    w.ints([_prgSlotId(_prgBank[0]), _prgSlotId(_prgBank[1]), _prgSlotId(_prgBank[2])]);
+    if (_chrRam) {
+      for (final bank in chrRoms) {
+        w.bytes(bank);
+      }
+    }
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('mmc3');
+    final v = s.ints();
+    if (v.length != 10) throw const StateMismatch('mmc3 state layout');
+    _r = v[0];
+    _a12 = v[1];
+    _irqLatch = v[2];
+    _irqCounter = v[3];
+    _chrBankMask = v[4];
+    _prgBankMask = v[5];
+    _prgBank0[0] = v[6];
+    _prgBankA000[0] = v[7];
+    _prgBank2ndLast[0] = v[8];
+    _irqReload = s.boolean();
+    _irqEnabled = s.boolean();
+    _ramEnabled = s.boolean();
+    _ramWriteEnabled = s.boolean();
+    _chrRam = s.boolean();
+    final inverted = s.boolean();
+    s.intsInto(_chrBankR0_1);
+    s.intsInto(_chrBankR2_5);
+    _chrBank[0] = inverted ? _chrBankR2_5 : _chrBankR0_1;
+    _chrBank[1] = inverted ? _chrBankR0_1 : _chrBankR2_5;
+    final slots = s.ints();
+    if (slots.length != 3) throw const StateMismatch('mmc3 bank layout');
+    for (var i = 0; i < 3; i++) {
+      _prgBank[i] = _prgSlot(slots[i]);
+    }
+    _prgBank[3] = [v[9]];
+    if (_chrRam) {
+      for (final bank in chrRoms) {
+        s.bytesInto(bank);
+      }
+    }
   }
 
   @override
@@ -280,6 +351,28 @@ class MapperTxsrom extends MapperMMC3 {
     _ntBit.fillRange(0, 6, false);
     _chrInverted = false;
     mirror(Mirror.external);
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    super.saveMapperState(w);
+    w.section('txsrom');
+    for (final b in _ntBit) {
+      w.boolean(b);
+    }
+    w.boolean(_chrInverted);
+    w.bytes(_ciram);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    super.loadMapperState(s);
+    s.section('txsrom');
+    for (var i = 0; i < _ntBit.length; i++) {
+      _ntBit[i] = s.boolean();
+    }
+    _chrInverted = s.boolean();
+    s.bytesInto(_ciram);
   }
 
   @override

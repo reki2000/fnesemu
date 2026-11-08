@@ -1,5 +1,6 @@
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'cpu_bus.dart';
 
 final _log = DebugLog('snes.cpu');
@@ -321,6 +322,44 @@ class Cpu {
       cycle += 1;
     }
     cycle += 2;
+  }
+
+  /// Saves the registers, the cycle counter and the held interrupt lines.
+  void saveState(StateWriter w) {
+    w.section('snes-cpu');
+    w.ints([
+      regs.a, regs.x, regs.y, regs.s, regs.d, regs.pc, regs.pbr, regs.dbr,
+      regs.p, cycle, _irqLines, _nmiDelay,
+    ]);
+    w.boolean(regs.e);
+    w.boolean(stopped);
+    w.boolean(waiting);
+    w.boolean(_holdNmi);
+    w.boolean(_holdIrq);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-cpu');
+    final v = s.ints();
+    if (v.length != 12) throw const StateMismatch('snes cpu state layout');
+    regs.a = v[0];
+    regs.x = v[1];
+    regs.y = v[2];
+    regs.s = v[3];
+    regs.d = v[4];
+    regs.pc = v[5];
+    regs.pbr = v[6];
+    regs.dbr = v[7];
+    regs.p = v[8];
+    cycle = v[9];
+    _irqLines = v[10];
+    _nmiDelay = v[11];
+    regs.e = s.boolean();
+    stopped = s.boolean();
+    waiting = s.boolean();
+    _holdNmi = s.boolean();
+    _holdIrq = s.boolean();
   }
 
   // ------------------------------------------------------------ interrupts

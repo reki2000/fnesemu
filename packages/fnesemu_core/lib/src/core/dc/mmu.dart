@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../state.dart';
 import '../../util/int.dart';
 import 'fault.dart';
@@ -9,10 +11,30 @@ class DcTranslation {
 }
 
 class _TlbEntry {
-  int high = 0, low = 0, assistance = 0;
+  /// Changes whenever any entry changes, so that lookup memos can be dropped.
+  static int version = 0;
+  int _high = 0, _low = 0;
+  int assistance = 0;
+  int get high => _high;
+  set high(int value) {
+    _high = value;
+    version++;
+  }
+
+  int get low => _low;
+  set low(int value) {
+    _low = value;
+    version++;
+  }
+
   bool get valid => low & 0x100 != 0;
-  int get offsetMask =>
-      [0x3ff, 0xfff, 0xffff, 0xfffff][((low >> 6) & 2) | ((low >> 4) & 1)];
+  @pragma('vm:prefer-inline')
+  int get offsetMask => switch (((_low >> 6) & 2) | ((_low >> 4) & 1)) {
+        0 => 0x3ff,
+        1 => 0xfff,
+        2 => 0xffff,
+        _ => 0xfffff,
+      };
 }
 
 /// SH7750 unified/instruction TLBs and software-visible MMU state.
@@ -30,7 +52,22 @@ class DcMmu {
         entry.low &= ~0x100;
       }
     }
+    if (value & 4 != 0 || (value ^ _control) & 0x101 != 0) onFlush?.call();
     _control = value & 0xfcfcff01;
+  }
+
+  /// Observers for a translation cache outside the MMU. [onTranslate]
+  /// reports each successful TLB translation with the offset mask of its
+  /// page. [onEntryChange] reports the old range of a valid entry before
+  /// the entry changes, and [onFlush] reports changes to every entry or to
+  /// the address space identifier rules.
+  void Function(int address, int physical, int offsetMask, bool write,
+      bool privileged)? onTranslate;
+  void Function(int high, int offsetMask)? onEntryChange;
+  void Function()? onFlush;
+
+  void _changing(_TlbEntry entry) {
+    if (entry.valid) onEntryChange?.call(entry.high, entry.offsetMask);
   }
 
   void reset({bool manual = false}) {
@@ -40,6 +77,7 @@ class DcMmu {
         entry.low &= ~0x100;
       }
     }
+    onFlush?.call();
   }
 
   void saveState(StateWriter writer) {
@@ -83,6 +121,7 @@ class DcMmu {
         }
       }
     }
+    onFlush?.call();
     pteh = registers[0];
     ptel = registers[1];
     ptea = registers[2];
@@ -100,11 +139,33 @@ class DcMmu {
 
   void load() {
     final entry = _unified[(_control >> 10) & 63];
-    entry.high = pteh & 0xfffffcff;
-    entry.low = ptel & 0x1ffffdff;
+    _changing(entry);
+    _assign(entry, pteh & 0xfffffcff, ptel & 0x1ffffdff);
     entry.assistance = ptea & 15;
   }
 
+  /// Sets [entry] and keeps the lookup memos, apart from the pages that the
+  /// old or the new entry covers, when both cover at most 4 KiB.
+  void _assign(_TlbEntry entry, int high, int low) {
+    final current = _memoVersion == _TlbEntry.version;
+    final oldHigh = entry.high, oldMask = entry.offsetMask;
+    entry.high = high;
+    entry.low = low;
+    final mask = entry.offsetMask;
+    if (!current || oldMask > 0xfff || mask > 0xfff) return;
+    _forgetPages(oldHigh, oldMask);
+    _forgetPages(high, mask);
+    _memoVersion = _TlbEntry.version;
+  }
+
+  void _forgetPages(int high, int mask) {
+    final first = (high & ~mask & 0xffffffff) >>> 10;
+    for (var page = first; page <= first + (mask >> 10); page++) {
+      _memoKeys[page & 63] = 0;
+    }
+  }
+
+  @pragma('vm:prefer-inline')
   bool _matches(_TlbEntry entry, int address, bool privileged) =>
       entry.valid &&
       ((entry.high ^ address) & (~entry.offsetMask & 0xffffffff)) == 0 &&
@@ -112,16 +173,36 @@ class DcMmu {
           (privileged && _control & 0x100 != 0) ||
           (entry.high & 255) == (pteh & 255));
 
+  final _memoKeys = Int64List(64), _memoValues = Int32List(64);
+  int _memoVersion = -1;
+
   int _find(List<_TlbEntry> entries, int address, bool privileged,
       {bool instruction = false}) {
+    // Entries match whole 1 KiB pages at least, so the page decides the result.
+    final asid = _control & 0x100 != 0 && privileged ? 256 : pteh & 255;
+    final key = (address >>> 10) |
+        (asid << 22) |
+        (instruction ? 1 << 31 : 0) |
+        (1 << 32);
+    if (_memoVersion != _TlbEntry.version) {
+      _memoKeys.fillRange(0, _memoKeys.length, 0);
+      _memoVersion = _TlbEntry.version;
+    }
+    final slot = (address >>> 10) & 63;
+    if (_memoKeys[slot] == key) return _memoValues[slot];
     var found = -1;
-    for (var i = 0; i < entries.length; i++) {
-      if (!_matches(entries[i], address, privileged)) continue;
+    final length = entries.length;
+    for (var i = 0; i < length; i++) {
+      final entry = entries[i];
+      if (entry.low & 0x100 == 0) continue;
+      if (!_matches(entry, address, privileged)) continue;
       if (found >= 0) {
         throw DcCpuException(0x140, address: address, reset: true);
       }
       found = i;
     }
+    _memoKeys[slot] = key;
+    _memoValues[slot] = found;
     return found;
   }
 
@@ -185,8 +266,7 @@ class DcMmu {
       if (instruction && touch) {
         instructionIndex = _replacement();
         final target = _instruction[instructionIndex];
-        target.high = entry.high;
-        target.low = entry.low & 0x1ffffdda;
+        _assign(target, entry.high, entry.low & 0x1ffffdda);
         target.assistance = entry.assistance;
         entry = target;
       }
@@ -202,7 +282,84 @@ class DcMmu {
     }
     final physical = (entry.low & (0x1ffffc00 & ~entry.offsetMask)) |
         (address & entry.offsetMask);
+    onTranslate?.call(address, physical, entry.offsetMask, write, privileged);
     return DcTranslation(physical, entry.low & 8 != 0, entry.low & 1 != 0);
+  }
+
+  /// Whether a data access at [address] misses the UTLB, where [translate]
+  /// would raise a TLB miss; the miss advances the replacement counter as
+  /// [translate] does. A multiple hit is left to [translate].
+  bool dataMiss(int address, {required bool privileged}) {
+    address = address.mask32;
+    if (!enabled ||
+        (address >= 0x80000000 && address < 0xc0000000) ||
+        address >= 0xe0000000) {
+      return false;
+    }
+    try {
+      if (_find(_unified, address, privileged) >= 0) {
+        prime(address, privileged: privileged);
+        return false;
+      }
+    } on DcCpuException {
+      return false;
+    }
+    _advanceCounter();
+    return true;
+  }
+
+  /// Whether an instruction fetch at [address] misses both the ITLB and the
+  /// UTLB, where [translate] would raise a TLB miss; the miss advances the
+  /// replacement counter as [translate] does. A multiple hit is left to
+  /// [translate].
+  bool instructionMiss(int address, {required bool privileged}) {
+    address = address.mask32;
+    if (!enabled ||
+        (address >= 0x80000000 && address < 0xc0000000) ||
+        address >= 0xe0000000) {
+      return false;
+    }
+    try {
+      if (_find(_instruction, address, privileged, instruction: true) >= 0 ||
+          _find(_unified, address, privileged) >= 0) {
+        return false;
+      }
+    } on DcCpuException {
+      return false;
+    }
+    _advanceCounter();
+    return true;
+  }
+
+  /// Reports to [onTranslate] the data translations of [address] that the
+  /// UTLB grants, the read and, if allowed, the write, as [translate] would
+  /// on an access. Nothing is reported for a miss, a multiple hit or an
+  /// address outside the translated areas.
+  void prime(int address, {required bool privileged}) {
+    final report = onTranslate;
+    address = address.mask32;
+    if (report == null ||
+        !enabled ||
+        (address >= 0x80000000 && address < 0xc0000000) ||
+        address >= 0xe0000000) {
+      return;
+    }
+    final int index;
+    try {
+      index = _find(_unified, address, privileged);
+    } on DcCpuException {
+      return;
+    }
+    if (index < 0) return;
+    final entry = _unified[index];
+    final protection = (entry.low >> 5) & 3;
+    if (!privileged && protection < 2) return;
+    final physical = (entry.low & (0x1ffffc00 & ~entry.offsetMask)) |
+        (address & entry.offsetMask);
+    report(address, physical, entry.offsetMask, false, privileged);
+    if (protection & 1 != 0 && entry.low & 4 != 0) {
+      report(address, physical, entry.offsetMask, true, privileged);
+    }
   }
 
   /// Cache-array associative writes search existing entries without ITLB refill.
@@ -219,8 +376,10 @@ class DcMmu {
         entry.low & 1 != 0);
   }
 
-  static bool isArray(int address) =>
-      [0xf2, 0xf3, 0xf6, 0xf7].contains(address.mask32 >> 24);
+  static bool isArray(int address) => switch (address.mask32 >> 24) {
+        0xf2 || 0xf3 || 0xf6 || 0xf7 => true,
+        _ => false,
+      };
 
   (_TlbEntry, bool, bool) _arrayEntry(int address) {
     if (address & 3 != 0) throw DcUnsupported('unaligned TLB array access');
@@ -245,6 +404,7 @@ class DcMmu {
   void writeArray(int address, int value, {bool privileged = true}) {
     final (entry, data, instruction) = _arrayEntry(address);
     if (data) {
+      _changing(entry);
       if (address & 0x800000 != 0) {
         entry.assistance = value & 15;
       } else {
@@ -256,11 +416,13 @@ class DcMmu {
           instruction: true);
       if (unified >= 0) {
         final target = _unified[unified];
+        _changing(target);
         target.low =
             (target.low & ~0x104) | (value & 0x100) | ((value >> 7) & 4);
       }
       if (insn >= 0) {
         final target = _instruction[insn];
+        _changing(target);
         if (unified >= 0) {
           target.low = _unified[unified].low & 0x1ffffdda;
           target.assistance = _unified[unified].assistance;
@@ -269,6 +431,7 @@ class DcMmu {
         }
       }
     } else {
+      _changing(entry);
       entry.high = value & 0xfffffcff;
       entry.low = (entry.low & ~(instruction ? 0x100 : 0x104)) |
           (value & 0x100) |

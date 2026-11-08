@@ -1,40 +1,33 @@
+import 'dart:typed_data';
+
+import '../../../components/arm7/arm7.dart';
+import '../../../components/arm7/regs.dart';
 import '../../../util/int.dart';
-
+import '../../../util/state.dart';
 import '../bus.dart';
-import 'regs.dart';
 
-part 'arm_alu.dart';
-part 'arm_isa.dart';
-part 'thumb_isa.dart';
-
-/// ARM7TDMI core.
+/// ARM7TDMI core: the GBA embedding of the shared ARM7 engine.
 ///
-/// Implements the ARMv4T instruction set (ARM + THUMB) on top of the
-/// register/pipeline scaffolding.
-class Arm7 {
+/// The engine executes the ARM and Thumb instruction sets; this class
+/// adds what is GBA-specific: the bus interface, the step cycle, the
+/// exception entries the bus and the decoders raise, the BIOS-less boot
+/// sequence, and the CPU save-state format. Cycle costs are the flat
+/// per-instruction table the TDMI core has always charged.
+class Arm7 extends Arm7Core {
   final Bus bus;
-  final regs = Regs();
 
-  Arm7(this.bus);
-
-  // carry-out of the barrel shifter, consumed by logical data-processing ops
-  bool _shiftC = false;
-
-  // carry / overflow produced by the last arithmetic ALU operation
-  bool _aluC = false;
-  bool _aluV = false;
-
-  // 2-stage visible prefetch (ARM7 has a 3-stage pipeline: fetch/decode/exec).
-  // we model fetched opcodes for the decode/exec stages.
-  int _fetched = 0; // opcode at pc (to be decoded next)
-  int _decoded = 0; // opcode being executed now
-  bool _pipelineValid = false;
-  bool _pcDirty = false; // set when a branch/exception refilled the pipeline
+  /// [registers] optionally supplies the register store, so a JIT
+  /// context can share it with the interpreter (see GbaJit).
+  Arm7(this.bus, {Uint32List? registers})
+      : super(registers: registers, hasThumb: true, armV4: true);
 
   int cycles = 0;
 
-  // exception vector addresses
-  static const _vectorReset = 0x00;
+  /// The address of the instruction that executes next: the fetch
+  /// pointer two instructions back, in the current state.
+  int get pc => regs.r[15] - _opSize * 2;
+
+  // Exception vector addresses.
   static const _vectorUndefined = 0x04;
   static const _vectorSwi = 0x08;
   static const _vectorAbortPrefetch = 0x0c;
@@ -42,15 +35,57 @@ class Arm7 {
   static const _vectorIrq = 0x18;
   static const _vectorFiq = 0x1c;
 
-  void reset() {
-    regs.reset();
-    regs.pc = 0x00000000; // BIOS entry
-    _flushPipeline();
+  @override
+  int fetch(int address) =>
+      regs.thumb ? bus.fetch16(address & ~1) : bus.fetch32(address & ~3);
+
+  @override
+  int readMem(int address, int size) => switch (size) {
+        1 => bus.read8(address),
+        2 => bus.read16(address),
+        _ => bus.read32(address),
+      };
+
+  @override
+  void writeMem(int address, int size, int value) {
+    switch (size) {
+      case 1:
+        bus.write8(address, value);
+      case 2:
+        bus.write16(address, value);
+      default:
+        bus.write32(address, value);
+    }
   }
 
-  /// reset without a real BIOS: emulate the boot sequence the BIOS performs
-  /// (set up the SVC/IRQ/SYS stack pointers and jump to the cartridge entry).
-  /// Lets polling-based ROMs run without a copyrighted BIOS image.
+  @override
+  int msrMask(int op, bool toSpsr) {
+    // Field mask bits: 16 control, 17 extension, 18 status, 19 flags.
+    var mask = 0;
+    if (op.bit16) mask |= 0x000000ff;
+    if (op.bit17) mask |= 0x0000ff00;
+    if (op.bit18) mask |= 0x00ff0000;
+    if (op.bit19) mask |= 0xff000000;
+    // In user mode only the flag byte of the CPSR is writable.
+    if (!toSpsr && regs.mode == CpuMode.usr) mask &= 0xff000000;
+    return mask;
+  }
+
+  @override
+  void onSwi() => raiseSwi();
+
+  @override
+  void onUndefined() => raiseUndefined();
+
+  void reset() {
+    regs.reset();
+    regs.r[15] = 8; // fetch pointer for the BIOS entry at 0
+  }
+
+  /// Reset without a real BIOS: emulate the boot sequence the BIOS
+  /// performs (set up the SVC/IRQ/SYS stack pointers and jump to the
+  /// cartridge entry). Lets polling-based ROMs run without a
+  /// copyrighted BIOS image.
   void resetHle() {
     regs.reset();
     regs.switchMode(CpuMode.irq);
@@ -60,146 +95,121 @@ class Arm7 {
     regs.switchMode(CpuMode.sys);
     regs.r[13] = 0x03007f00;
     regs.cpsr = CpuMode.sys; // IRQ/FIQ enabled, ARM state
-    regs.pc = 0x08000000; // cartridge entry point
-    _flushPipeline();
+    regs.r[15] = 0x08000000 + 8; // cartridge entry, as a fetch pointer
   }
 
   int get _opSize => regs.thumb ? 2 : 4;
 
-  void _flushPipeline() {
-    // align pc and refill the pipeline from the current pc
-    final size = _opSize;
-    regs.pc = regs.pc & (size == 2 ? ~1 : ~3);
-    _decoded = _fetch(regs.pc);
-    _fetched = _fetch(regs.pc + size);
-    regs.pc = (regs.pc + size * 2).mask32;
-    _pipelineValid = true;
-    _pcDirty = true;
-  }
-
-  int _fetch(int addr) =>
-      regs.thumb ? bus.fetch16(addr & ~1) : bus.fetch32(addr & ~3);
-
-  /// execute one instruction. returns elapsed cycles (>=1).
-  /// stage 1: decode not implemented yet -> raises undefined.
+  /// Executes one instruction and returns its elapsed cycles (>= 1).
   int step() {
-    if (!_pipelineValid) _flushPipeline();
-
-    final size = _opSize;
-    final op = _decoded;
-    _decoded = _fetched;
-    _fetched = _fetch(regs.pc);
-    // address of `op` (two opcodes behind the fetch pointer)
-    final pcExec = (regs.pc - size * 2).mask32;
-
-    _pcDirty = false; // only a flush *inside* _execute should set this
-    final consumed = _execute(op, pcExec);
-
-    if (_pcDirty) {
-      _pcDirty = false; // pipeline already points at the next instruction
-    } else {
-      regs.pc = (regs.pc + size).mask32;
-    }
+    final address = regs.r[15] - _opSize * 2;
+    final op = fetch(address);
+    final consumed = regs.thumb ? execThumb(op) : execArm(op);
     cycles += consumed;
     return consumed;
   }
 
-  // placeholder dispatcher; Stage 2 implements ARM/THUMB decoders.
-  int _execute(int op, int pcExec) {
-    return regs.thumb ? _executeThumb(op) : _executeArm(op);
-  }
-
-  // --- register / PC helpers ------------------------------------------------
-
-  /// read a register. r15 already reads pipeline-adjusted (instr+8 in ARM,
-  /// instr+4 in THUMB) thanks to the prefetch model.
-  int _rd(int n) => regs.r[n];
-
-  /// write a register; writing r15 triggers a branch (pipeline flush).
-  void _wr(int n, int v) {
-    if (n == 15) {
-      _setPC(v);
-    } else {
-      regs.r[n] = v.mask32;
-    }
-  }
-
-  /// branch to [addr], aligned to the current instruction width.
-  void _setPC(int addr) {
-    regs.pc = addr & (regs.thumb ? ~1 : ~3);
-    _flushPipeline();
-  }
-
-  /// branch-and-exchange: bit0 of [addr] selects THUMB.
-  void _bx(int addr) {
-    regs.thumb = addr.bit0;
-    regs.pc = addr & (regs.thumb ? ~1 : ~3);
-    _flushPipeline();
-  }
-
-  /// condition-code evaluation for ARM instructions (cond field, bits 31..28).
-  bool checkCond(int cond) => switch (cond) {
-        0x0 => regs.zf, // EQ
-        0x1 => !regs.zf, // NE
-        0x2 => regs.cf, // CS
-        0x3 => !regs.cf, // CC
-        0x4 => regs.nf, // MI
-        0x5 => !regs.nf, // PL
-        0x6 => regs.vf, // VS
-        0x7 => !regs.vf, // VC
-        0x8 => regs.cf && !regs.zf, // HI
-        0x9 => !regs.cf || regs.zf, // LS
-        0xa => regs.nf == regs.vf, // GE
-        0xb => regs.nf != regs.vf, // LT
-        0xc => !regs.zf && (regs.nf == regs.vf), // GT
-        0xd => regs.zf || (regs.nf != regs.vf), // LE
-        0xe => true, // AL
-        _ => false, // NV (reserved)
-      };
-
   // --- exceptions -----------------------------------------------------------
 
-  // [retAddr] is the value placed in the banked LR. The BIOS handler restores
-  // PC from it (SWI/UND via `movs pc,lr`; IRQ/FIQ/prefetch-abort via
-  // `subs pc,lr,#4`), so the offsets below account for that.
-  void _enterException(int vector, int newMode, int retAddr,
-      {bool fiqDisable = false}) {
-    final savedCpsr = regs.cpsr;
-    regs.switchMode(newMode);
-    regs.spsr = savedCpsr;
-    regs.r[14] = retAddr.mask32; // lr
-    regs.thumb = false;
-    regs.irqDisabled = true;
-    if (fiqDisable) regs.cpsr = regs.cpsr | 0x40;
-    regs.pc = vector;
-    _flushPipeline();
-  }
-
-  // For SWI/UND the handler returns to the instruction following the offending
-  // one (regs.pc points two opcodes ahead, so subtract one opcode width).
+  // The link values below are what the BIOS handler expects: it returns
+  // from SWI/UND via `movs pc, lr` and from IRQ/FIQ/prefetch-abort via
+  // `subs pc, lr, #4`, so each link accounts for that. regs.r[15] is
+  // the fetch pointer, two instructions past the executing one.
   void raiseUndefined() =>
-      _enterException(_vectorUndefined, CpuMode.und, regs.pc - _opSize);
+      enterException(_vectorUndefined, CpuMode.und, regs.r[15] - _opSize);
   void raiseSwi() =>
-      _enterException(_vectorSwi, CpuMode.svc, regs.pc - _opSize);
-  void raisePrefetchAbort() =>
-      _enterException(_vectorAbortPrefetch, CpuMode.abt, regs.pc - _opSize + 4);
+      enterException(_vectorSwi, CpuMode.svc, regs.r[15] - _opSize);
+  void raisePrefetchAbort() => enterException(
+      _vectorAbortPrefetch, CpuMode.abt, regs.r[15] - _opSize + 4);
   void raiseDataAbort() =>
-      _enterException(_vectorAbortData, CpuMode.abt, regs.pc - _opSize + 8);
+      enterException(_vectorAbortData, CpuMode.abt, regs.r[15] - _opSize + 8);
 
-  /// hardware IRQ line. called by the bus IRQ controller when IF & IE != 0
-  /// and IME is set. returns true if taken. taken between instructions, so
-  /// regs.pc points two opcodes past the instruction that runs on return;
-  /// `subs pc,lr,#4` in the handler lands on it.
+  /// Hardware IRQ line. Called by the bus IRQ controller when IF & IE
+  /// != 0 and IME is set; returns true if taken. Taken between
+  /// instructions, so the fetch pointer is two instructions past the
+  /// instruction that runs on return, and `subs pc, lr, #4` in the
+  /// handler lands on it.
   bool irq() {
     if (regs.irqDisabled) return false;
-    _enterException(_vectorIrq, CpuMode.irq, regs.pc - _opSize * 2 + 4);
+    enterException(_vectorIrq, CpuMode.irq, regs.r[15] - _opSize * 2 + 4);
     return true;
   }
 
   void fiq() {
     if (regs.fiqDisabled) return;
-    _enterException(_vectorFiq, CpuMode.fiq, regs.pc - _opSize * 2 + 4,
-        fiqDisable: true);
+    enterException(_vectorFiq, CpuMode.fiq, regs.r[15] - _opSize * 2 + 4,
+        fiq: true);
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-cpu');
+    // The format predates the shared engine: it stores the two
+    // prefetched opcodes of the old pipeline model. They are exactly
+    // the instructions at the executing address and the one after it,
+    // so they are re-fetched here; the pipeline flags are written as
+    // the always-valid values the new model implies.
+    final size = _opSize;
+    final address = regs.r[15] - size * 2;
+    w.ints([cycles, fetch(address + size), fetch(address)]);
+    for (final b in [shiftCarry, aluCarry, aluOverflow, true, false]) {
+      w.boolean(b);
+    }
+    _saveRegs(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-cpu');
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('gba cpu state layout');
+    final flags = [for (var i = 0; i < 5; i++) s.boolean()];
+    cycles = v[0];
+    // v[1] and v[2] are the old pipeline's prefetched opcodes, which
+    // the fetch-pointer model re-fetches instead of restoring; the
+    // last two flags described that pipeline and are ignored.
+    shiftCarry = flags[0];
+    aluCarry = flags[1];
+    aluOverflow = flags[2];
+    _loadRegs(s);
+  }
+
+  void _saveRegs(StateWriter w) {
+    w.section('gba-regs');
+    w.ints(regs.r);
+    w.ints(regs.fiqHigh);
+    w.ints(regs.userHigh);
+    w.ints([for (var i = 0; i < 6; i++) regs.spLr[i][0]]);
+    w.ints([for (var i = 0; i < 6; i++) regs.spLr[i][1]]);
+    w.ints(regs.saved);
+    w.int32(regs.cpsr);
+  }
+
+  void _loadRegs(StateReader s) {
+    s.section('gba-regs');
+    List<int> read(int length) {
+      final v = s.ints();
+      if (v.length != length) {
+        throw StateMismatch(
+            'gba register array of ${v.length} values, expected $length');
+      }
+      return v;
+    }
+
+    final savedR = read(16);
+    final savedFiq = read(5);
+    final savedUsr = read(5);
+    final savedSp = read(6);
+    final savedLr = read(6);
+    final savedSpsr = read(6);
+    final savedCpsr = s.int32();
+    regs.r.setAll(0, savedR);
+    regs.fiqHigh.setAll(0, savedFiq);
+    regs.userHigh.setAll(0, savedUsr);
+    for (var i = 0; i < 6; i++) {
+      regs.spLr[i][0] = savedSp[i];
+      regs.spLr[i][1] = savedLr[i];
+    }
+    regs.saved.setAll(0, savedSpsr);
+    regs.cpsr = savedCpsr;
   }
 
   String dump() {

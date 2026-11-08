@@ -1,5 +1,5 @@
 import '../../util/int.dart';
-
+import '../../util/state.dart';
 import 'bus.dart';
 
 /// SM83 cpu core. every memory access consumes one machine cycle (4 clocks)
@@ -49,6 +49,34 @@ class Cpu {
   set hl(int v) {
     h = v.shr8.mask8;
     l = v.mask8;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gb-cpu');
+    w.ints([a, f, b, c, d, e, h, l, sp, pc, _eiDelay]);
+    w.boolean(ime);
+    w.boolean(halted);
+    w.boolean(_haltBug);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-cpu');
+    final v = s.ints();
+    if (v.length != 11) throw const StateMismatch('gb cpu state layout');
+    a = v[0];
+    f = v[1];
+    b = v[2];
+    c = v[3];
+    d = v[4];
+    e = v[5];
+    h = v[6];
+    l = v[7];
+    sp = v[8];
+    pc = v[9];
+    _eiDelay = v[10];
+    ime = s.boolean();
+    halted = s.boolean();
+    _haltBug = s.boolean();
   }
 
   /// sets the register state which the boot program leaves

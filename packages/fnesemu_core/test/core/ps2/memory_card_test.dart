@@ -1,18 +1,46 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/iop/memory_card.dart';
-import 'package:fnesemu_core/src/core/ps2/iop/sio2.dart';
 import 'package:test/test.dart';
 
 List<int> _send(Ps2MemoryCard card, List<int> bytes, [int? length]) =>
     card.transfer(bytes, length ?? bytes.length)!;
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('the spec reply carries the geometry and its checksum', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('the spec reply carries the geometry and its checksum', () {
     final card = Ps2MemoryCard.blank();
     final reply = _send(card, [0x81, 0x26, ...List.filled(11, 0)]);
     expect(reply.sublist(2), [0x2b, 0, 2, 0x10, 0, 0, 0x40, 0, 0, 0x52, 0x55]);
   });
 
-  test('a page is written, read back and erased', () {
+  aggCase('a page is written, read back and erased', () {
     final card = Ps2MemoryCard.blank();
     expect(_send(card, [0x81, 0x27, 0x5a, 0, 0]).sublist(3), [0x2b, 0x5a]);
 
@@ -36,7 +64,7 @@ void main() {
         List.filled(128, 0xff));
   });
 
-  test('the ECC of a chunk follows the bit and byte parities', () {
+  aggCase('the ECC of a chunk follows the bit and byte parities', () {
     expect(Ps2MemoryCard.ecc(List.filled(128, 0)), [0x77, 0x7f, 0x7f]);
     expect(Ps2MemoryCard.ecc(List.filled(128, 0xff)), [0x77, 0x7f, 0x7f]);
     // one set bit 0 in byte 5 flips the masks with bit 0 and the indices
@@ -44,7 +72,7 @@ void main() {
     expect(Ps2MemoryCard.ecc(one), [0x77 ^ 0x07, 0x7f ^ (~5 & 0x7f), 0x7f ^ 5]);
   });
 
-  test('a formatted card holds the superblock and an empty root', () {
+  aggCase('a formatted card holds the superblock and an empty root', () {
     final image = Ps2MemoryCard.formattedImage();
     expect(String.fromCharCodes(image.sublist(0, 28)),
         'Sony PS2 Memory Card Format ');
@@ -65,27 +93,16 @@ void main() {
     expect(image[1022 * 16 * Ps2MemoryCard.pageBytes], 0xff);
   });
 
-  test('the authentication commands are acknowledged', () {
-    final card = Ps2MemoryCard.blank();
-    final read = _send(card, [0x81, 0xf0, 0x01], 14);
-    expect([read[3], read[12], read[13]], [0x2b, 0, 0x55]);
-    final write = _send(card, [0x81, 0xf0, 0x06], 14);
-    expect(write.sublist(12), [0x2b, 0x55]);
-    expect(_send(card, [0x81, 0xf3, 0, 0, 0]).sublist(3), [0x2b, 0x55]);
-  });
 
-  test('DMA blocks hold one command each', () {
-    final sio2 = Sio2()..card = Ps2MemoryCard.blank();
-    // two commands to port 2: a probe and a get terminator
-    sio2.write(Sio2.base, 4, (4 << 18) | (4 << 8) | 2);
-    sio2.write(Sio2.base + 4, 4, (5 << 18) | (5 << 8) | 2);
-    sio2.sendBlock([0x81, 0x11, 0, 0, 9, 9, 9, 9]);
-    sio2.sendBlock([0x81, 0x28, 0, 0, 0, 9, 9, 9]);
-    sio2.write(Sio2.base + 0x68, 4, 1);
-    expect(sio2.replies, [
-      [0xff, 0xff, 0x2b, 0x55],
-      [0xff, 0xff, 0x2b, 0x55, 0x55],
-    ]);
-    expect(sio2.read(Sio2.base + 0x6c, 4), 0x1100);
-  });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

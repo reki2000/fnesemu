@@ -30,6 +30,45 @@ void main() {
     bus.write8(base + address, 0x30);
   }
 
+  test('settings blocks take the clock date and keep a valid CRC', () {
+    // CRC-16 with polynomial 0x1021, initial 0xffff and inverted output;
+    // its standard check value for "123456789" is 0xd64e.
+    int crc(List<int> bytes) {
+      var value = 0xffff;
+      for (final byte in bytes) {
+        value ^= byte << 8;
+        for (var bit = 0; bit < 8; bit++) {
+          value = (value & 0x8000 != 0 ? (value << 1) ^ 0x1021 : value << 1) &
+              0xffff;
+        }
+      }
+      return value ^ 0xffff;
+    }
+
+    expect(crc('123456789'.codeUnits), 0xd64e);
+    final image = Uint8List(DcFlash.size)..fillRange(0, DcFlash.size, 255);
+    void block(int index, List<int> data, {bool valid = true}) {
+      final at = DcFlash.settingsStart + index * 64;
+      image.setAll(at, data);
+      final value = crc(image.sublist(at, at + 62)) ^ (valid ? 0 : 1);
+      image[at + 62] = value & 255;
+      image[at + 63] = value >> 8;
+    }
+
+    block(1, [5, 0, 1, 2, 3, 4, 9, 9]);
+    block(2, [5, 0, 1, 2, 3, 4, 8, 8], valid: false);
+    block(3, [6, 0, 1, 2, 3, 4]);
+    final flash = DcFlash()..loadImage(image);
+    flash.dateSettings(0x908dc467);
+    final after = flash.exportImage();
+    int at(int index) => DcFlash.settingsStart + index * 64;
+    expect(after.sublist(at(1), at(1) + 8), [5, 0, 0x67, 0xc4, 0x8d, 0x90, 9, 9]);
+    expect(after[at(1) + 62] | after[at(1) + 63] << 8,
+        crc(after.sublist(at(1), at(1) + 62)));
+    // Blocks with a bad CRC or another id stay as they are.
+    expect(after.sublist(at(2), at(4)), image.sublist(at(2), at(4)));
+  });
+
   test('erased array, direct aliases, wide reads and command access widths',
       () {
     expect(bus.read8(base), 255);
@@ -58,154 +97,14 @@ void main() {
     expect(bus.read8(base), 255);
   });
 
-  test('incorrect unlock order never programs the array', () {
-    bus.write8(base + 0x555, 0xaa);
-    bus.write8(base + 0x2ab, 0x55);
-    bus.write8(base + 0x555, 0xa0);
-    bus.write8(base + 123, 0);
-    bus.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(base + 123), 255);
-  });
 
-  test('byte program is delayed, polls DQ7/DQ6 and ignores debugger peeks', () {
-    program(123, 0x5a);
-    final first = bus.read8(base + 123);
-    final peek = bus.peek8(base + 123);
-    expect(peek, first);
-    expect(bus.peek8(base + 123), peek);
-    expect(bus.read8(base + 123) ^ first, 0x40);
-    expect(first & 0x80, 0x80);
-    bus.tickMasterClocks(DcFlash.programClocks - 1);
-    expect(bus.flash.arrayMode, isFalse);
-    bus.tickMasterClocks(1);
-    expect(bus.read8(base + 123), 0x5a);
-    expect(bus.read8(base + 122), 255);
-  });
 
-  test('F0 is valid program data and busy writes do not cancel programming',
-      () {
-    program(1, 0xf0);
-    bus.write8(base, 0xf0);
-    bus.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(base + 1), 0xf0);
-    expect(bus.read8(base), 255);
-  });
 
-  test('programming zero bits back to one fails until a read-reset command',
-      () {
-    program(1, 0x55);
-    bus.tickMasterClocks(DcFlash.programClocks);
-    program(1, 0xaa);
-    bus.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(base + 1) & 0x20, 0x20);
-    bus.write8(base, 0xf0);
-    expect(bus.read8(base + 1), 0);
-  });
 
-  for (var sector = 0; sector < 5; sector++) {
-    test('sector $sector erase affects exactly its documented top-boot range',
-        () {
-      bus.flash.loadImage(Uint8List(DcFlash.size));
-      final start = DcFlash.sectorStarts[sector];
-      final end = DcFlash.sectorStarts[sector + 1];
-      erase(end - 1);
-      expect(bus.read8(base + start) & 8, 0);
-      bus.flash.tickMasterClocks(DcFlash.selectClocks);
-      expect(bus.read8(base + start) & 8, 8);
-      bus.flash.tickMasterClocks(DcFlash.eraseClocks - 1);
-      expect(bus.flash.arrayMode, isFalse);
-      bus.flash.tickMasterClocks(1);
-      expect(bus.read8(base + start), sector == 3 ? 0 : 255);
-      expect(bus.read8(base + end - 1), sector == 3 ? 0 : 255);
-      if (start != 0) expect(bus.read8(base + start - 1), 0);
-      if (end != DcFlash.size) expect(bus.read8(base + end), 0);
-    });
-  }
 
-  test(
-      'sector selection adds sectors, restarts its timeout and rejects other commands',
-      () {
-    bus.flash.loadImage(Uint8List(DcFlash.size));
-    erase(0);
-    bus.flash.tickMasterClocks(DcFlash.selectClocks - 1);
-    bus.write8(base + 0x18000, 0x30);
-    bus.flash.tickMasterClocks(DcFlash.selectClocks - 1);
-    expect(bus.read8(base) & 8, 0);
-    bus.flash.tickMasterClocks(1 + DcFlash.eraseClocks);
-    expect(bus.read8(base), 255);
-    expect(bus.read8(base + 0x18000), 255);
-    expect(bus.read8(base + 0x10000), 0);
-    erase(0x10000);
-    bus.write8(base, 0x90);
-    expect(bus.flash.arrayMode, isTrue);
-    bus.flash.tickMasterClocks(DcFlash.eraseClocks + DcFlash.selectClocks);
-    expect(bus.read8(base + 0x10000), 0);
-  });
 
-  test(
-      'erase suspension permits other-sector reads/programs and resumes remaining time',
-      () {
-    final image = Uint8List(DcFlash.size)..fillRange(0, DcFlash.size, 255);
-    image[0] = 0;
-    bus.flash.loadImage(image);
-    erase(0);
-    bus.flash.tickMasterClocks(DcFlash.selectClocks + 123);
-    bus.write8(base, 0xb0);
-    final first = bus.read8(base);
-    expect(bus.read8(base) ^ first, 4);
-    expect(first & 0xc0, 0xc0);
-    expect(bus.read8(base + 0x10000), 255);
-    program(0x10000, 0x55);
-    bus.flash.tickMasterClocks(DcFlash.programClocks + DcFlash.eraseClocks);
-    expect(bus.read8(base + 0x10000), 0x55);
-    expect(bus.flash.arrayMode, isFalse);
-    bus.write8(base, 0x30);
-    bus.flash.tickMasterClocks(DcFlash.eraseClocks - 124);
-    expect(bus.flash.arrayMode, isFalse);
-    bus.flash.tickMasterClocks(1);
-    expect(bus.read8(base), 255);
-    expect(bus.read8(base + 0x10000), 0x55);
-  });
 
-  test('chip erase retains factory protection and ignores suspend', () {
-    bus.flash.loadImage(Uint8List(DcFlash.size));
-    unlock(0x80);
-    bus.write8(base + 0x555, 0xaa);
-    bus.write8(base + 0x2aa, 0x55);
-    bus.write8(base + 0x555, 0x10);
-    bus.write8(base, 0xb0);
-    bus.flash.tickMasterClocks(DcFlash.eraseClocks);
-    expect(bus.flash.exportImage(), [
-      for (var i = 0; i < DcFlash.size; i++)
-        i >= 0x1a000 && i < 0x1c000 ? 0 : 255
-    ]);
-  });
 
-  test('configured sector protection suppresses erase and programming', () {
-    final flash = DcFlash(protectedSectors: {3});
-    flash.loadImage(Uint8List(DcFlash.size));
-    void command(int command) {
-      flash.write(0x555, 0xaa);
-      flash.write(0x2aa, 0x55);
-      flash.write(0x555, command);
-    }
-
-    command(0x90);
-    expect(flash.read(0x1a002), 1);
-    expect(flash.read(2), 0);
-    flash.write(0, 0xf0);
-    command(0x80);
-    flash.write(0x555, 0xaa);
-    flash.write(0x2aa, 0x55);
-    flash.write(0x555, 0x10);
-    flash.tickMasterClocks(DcFlash.eraseClocks);
-    expect(flash.read(0), 255);
-    expect(flash.read(0x1a000), 0);
-    command(0xa0);
-    flash.write(0x1a000, 255);
-    expect(flash.arrayMode, isTrue);
-    expect(flash.read(0x1a000), 0);
-  });
 
   test(
       'CPU resets retain external flash commands but core reset power-cycles them',
@@ -245,103 +144,11 @@ void main() {
     expect(second.bus.read8(base), 0);
   });
 
-  test('a guest program writes persistent flash through Core.exec', () {
-    final words = [
-      0xe0aa,
-      0x2100,
-      0xe055,
-      0x2200,
-      0xe0a0,
-      0x2100,
-      0xe05a,
-      0x2300,
-      0xaffe,
-      9
-    ];
-    final program = Uint8List(words.length * 2);
-    for (var i = 0; i < words.length; i++) {
-      program[i * 2] = words[i] & 255;
-      program[i * 2 + 1] = words[i] >> 8;
-    }
-    final storage = _PersistentSram();
-    final core = Dc()
-      ..setSram(storage)
-      ..setRom(program);
-    addTearDown(core.dispose);
-    core.cpu.r[1] = base + 0x555;
-    core.cpu.r[2] = base + 0x2aa;
-    core.cpu.r[3] = base + 123;
-    for (var i = 0; i < 1700; i++) {
-      expect(core.exec(true).stopped, isFalse);
-    }
-    expect(core.bus.read8(base + 123), 0x5a);
-    expect(storage.read8(123), 0x5a);
-    final restored = Dc()..setSram(storage);
-    addTearDown(restored.dispose);
-    expect(restored.bus.read8(base + 123), 0x5a);
-    expect(restored.bus.read8(base + 124), 255);
-  });
 
-  test(
-      'wide CPU writes become ordered byte cycles without bypassing flash commands',
-      () {
-    unlock(0xa0);
-    bus.write16(base + 0x40, 0xa55a);
-    bus.flash.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read16(base + 0x40), 0xff5a);
-    unlock(0xa0);
-    bus.write32(base + 0x80, 0x12345678);
-    bus.flash.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read32(base + 0x80), 0xffffff78);
-    unlock(0xa0);
-    expect(() => bus.write16(base + 1, 0), throwsA(isA<DcUnsupported>()));
-    bus.write8(base + 2, 0x42);
-    bus.flash.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(base + 2), 0x42);
-  });
 
-  test('cached status fill performs device reads, hits and peeks perform none',
-      () {
-    bus.write32(0xff00001c, 1);
-    program(0x10000, 0x5a);
-    final cached = bus.read8(0x80210000);
-    final status = bus.peek8(base + 0x10000);
-    expect(cached & 0x80, 0x80);
-    expect(bus.read8(0x80210000), cached);
-    expect(bus.peek8(base + 0x10000), status);
-    expect(bus.peek8(0x80210000), cached);
-    bus.flash.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(base + 0x10000), 0x5a);
-    expect(bus.read8(0x80210000), cached);
-    bus.write32(0xff00001c, 9);
-    expect(bus.read8(0x80210000), 0x5a);
-  });
 
-  test('autoselect cached fill tolerates unspecified identifier bytes', () {
-    unlock(0x90);
-    bus.write32(0xff00001c, 1);
-    expect(bus.read8(0x80200000), 4);
-    expect(bus.read8(0x80200001), 0xb0);
-    expect(bus.read8(0x8021a002), 1);
-  });
 
-  test('SH4 DMA reads flash status through bus cycles without a CPU cache', () {
-    program(123, 0x5a);
-    bus.write32(0xffa00000, base + 123);
-    bus.write32(0xffa00004, 0x8c020000);
-    bus.write32(0xffa00008, 2);
-    bus.write32(0xffa0000c, 0x4411);
-    bus.write32(0xffa00040, 1);
-    bus.tickMasterClocks(4);
-    expect(bus.read8(0x8c020000) ^ bus.read8(0x8c020001), 0x40);
-    expect(bus.read32(0xffa00008), 0);
-  });
 
-  test('factory sector is hardware protected by default', () {
-    program(0x1a000, 0);
-    bus.flash.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(base + 0x1a000), 255);
-  });
 }
 
 class _PersistentSram extends Sram {

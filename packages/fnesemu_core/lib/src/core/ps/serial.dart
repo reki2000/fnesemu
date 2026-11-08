@@ -4,6 +4,7 @@ import '../../util/debug.dart' show DebugLog;
 import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
+import 'state.dart';
 
 final _log = DebugLog('ps.serial');
 
@@ -19,6 +20,8 @@ abstract class SioDevice {
   void resetStep();
   SioResponse notify(int txData);
   String dump();
+  void saveState(StateWriter w);
+  void loadState(StateReader s);
 }
 
 class SioResponse {
@@ -209,6 +212,37 @@ class Serial {
   void writeBaudrate(int val) {
     // _log.debugc(() => "writeBaudrate: ${val.x4} ${dump()}");
     timerReload = val.mask16;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-serial');
+    w.ints([_prev, ctrl, mode, irqDelay, timer, timerReload, timerFactor]);
+    w.boolean(irq);
+    w.boolean(dsr);
+    w.queue(txFifo);
+    w.queue(rxFifo);
+    pad.saveState(w);
+    memCard1.saveState(w);
+    memCard2.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-serial');
+    final v = s.fields(7, 'ps serial');
+    _prev = v[0];
+    ctrl = v[1];
+    mode = v[2];
+    irqDelay = v[3];
+    timer = v[4];
+    timerReload = v[5];
+    timerFactor = v[6];
+    irq = s.boolean();
+    dsr = s.boolean();
+    s.queueInto(txFifo);
+    s.queueInto(rxFifo);
+    pad.loadState(s);
+    memCard1.loadState(s);
+    memCard2.loadState(s);
   }
 
   String dump() =>

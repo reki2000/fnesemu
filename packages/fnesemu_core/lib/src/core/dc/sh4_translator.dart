@@ -1,29 +1,88 @@
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
-/// SH-4 blocks for privileged code with the MMU off and a coherent cache.
-/// Memory outside mapped main RAM, unaligned accesses, exceptions and mode
-/// changes leave before effects so the owning CPU interprets the instruction.
-/// The block tag holds FPSCR.SZ, FPSCR.PR and SR.FD.
+/// SH-4 blocks for code running with a coherent cache. Memory outside mapped
+/// main RAM, unaligned accesses, exceptions and mode changes leave before
+/// effects so the owning CPU interprets the instruction.
+///
+/// With the MMU on, accesses to the translated P0 area go through two
+/// translation tables of the runtime, one for reads and instruction fetches
+/// and one for writes, whose direct window covers P1 and P2. The owning CPU
+/// fills the tables from successful TLB translations to main RAM; a missing
+/// slot leaves the block. A block in P0 stays within one page, guards the
+/// physical code and leaves at entry when its page has no slot. The owning
+/// CPU retires the block when the page later translates elsewhere.
+/// The block tag holds FPSCR.SZ, FPSCR.PR, SR.FD and whether the MMU is on;
+/// with the MMU on, it also holds user mode and the address space key.
 final class Sh4Translator {
   static const regs = JitCtx.user;
   static const sr = regs + 16, gbr = sr + 1, pr = sr + 2;
   static const mach = sr + 3, macl = sr + 4, fpul = sr + 5, fpscr = sr + 6;
-  static const fr = sr + 7, xf = fr + 16, ctxWords = xf + 16;
+  static const fr = sr + 7, xf = fr + 16;
+
+  /// The priority of the highest pending interrupt, 16 for NMI, which the
+  /// host writes before a run; it does not change while compiled code runs.
+  static const pendingLevel = xf + 16, ctxWords = pendingLevel + 1;
   static const interpret = JitReason.user;
-  static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4;
+
+  /// Exits at a load or a store whose page has no slot, with the address
+  /// in [JitCtx.faultAddr]; the host checks it for a TLB miss.
+  static const readFault = JitReason.user + 1, writeFault = JitReason.user + 2;
+
+  /// Exits after RTE and its NOP slot, which the block counts; the host
+  /// restores SR from SSR and the PC from SPC.
+  static const exceptionReturn = JitReason.user + 3;
+  static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
+  static const tagUser = 16, tagSpaceShift = 5;
+
+  /// User-mode blocks may store to the store queues: MMUCR.SQMD is clear.
+  static const tagUserQueue = 1 << 14;
+
+  /// The untranslated window of the translation tables: P1 and P2.
+  static const directStart = 0x80000000, directEnd = 0xc0000000;
 
   /// Guest page holding the store queues. Store-queue stores are redirected
   /// here; the reserved area 7 page that it shadows is not used by software.
-  static const queueAlias = 0x1ffff000;
+  /// The P1 address lies in the direct window of the translation tables, so
+  /// the redirected stores also skip the tables with the MMU on.
+  static const queueAlias = 0x9ffff000;
 
   /// The block tag for the given status and FPU status registers.
-  static int tagOf(int status, int floatStatus) =>
+  static int tagOf(int status, int floatStatus, {bool mmu = false}) =>
       ((floatStatus >> 20) & 1) |
       ((floatStatus >> 18) & 2) |
-      ((status >> 13) & 4);
+      ((status >> 13) & 4) |
+      (mmu ? tagMmu : 0);
+
+  /// The block tag with the MMU on, for user mode or the privileged mode and
+  /// the 9-bit address space key: 256 when MMUCR.SV shares privileged
+  /// accesses, otherwise PTEH.ASID. In user mode, [queue] tells that the
+  /// store queues accept stores.
+  static int mmuTag(int status, int floatStatus,
+          {required bool user, required int space, bool queue = false}) =>
+      tagOf(status, floatStatus, mmu: true) |
+      (user ? tagUser | (queue ? tagUserQueue : 0) : 0) |
+      (space << tagSpaceShift);
+
+  /// The translation key for accesses under [tag]: bit 11 is always set,
+  /// bit 10 marks user mode and bits 0 to 8 hold the address space key.
+  static int keyBits(int tag) =>
+      0x800 |
+      (tag & tagUser != 0 ? 0x400 : 0) |
+      ((tag >>> tagSpaceShift) & 511);
+
+  /// Whether an address is in the untranslated P1 or P2 area.
+  static bool untranslated(int address) =>
+      address >= 0x80000000 && address < 0xc0000000;
 
   final int? Function(int) fetch;
   final void Function(int) protect;
+
+  /// The physical page of a P0 code address under a tag, or null when the
+  /// read table lacks it.
+  final int? Function(int address, int tag) codePage;
+
+  /// The runtime's read and write translation tables.
+  final int readTable, writeTable;
 
   /// Helper id for FPU arithmetic, called with the opcode and its PC. It
   /// returns 0 on completion or nonzero when the CPU must interpret it.
@@ -32,19 +91,64 @@ final class Sh4Translator {
   /// Helper id for PREF, called with the address. It transfers a store
   /// queue and returns 0, or nonzero when the CPU must interpret it.
   final int prefetchHelper;
+
+  /// Helper ids for a CCN register read, called with the address, and a
+  /// write, called with the address and the value, or -1.
+  final int registerReadHelper, registerWriteHelper;
+
+  /// Helper id for LDTLB, or -1.
+  final int loadTlbHelper;
+
+  /// The value of a context word at the entry of the block being
+  /// translated, or null when it is unknown.
+  final int? Function(int word) entryValue;
   final int maxInstructions;
   Sh4Translator(
       {required this.fetch,
       required this.protect,
+      this.codePage = _noPage,
+      this.readTable = 0,
+      this.writeTable = 1,
       required this.fpuHelper,
       required this.prefetchHelper,
+      this.registerReadHelper = -1,
+      this.registerWriteHelper = -1,
+      this.loadTlbHelper = -1,
+      this.entryValue = _noValue,
       this.maxInstructions = 32});
+
+  static int? _noPage(int _, int __) => null;
+  static int? _noValue(int _) => null;
+
+  /// Whether a CCN register access has no side effect beyond the register
+  /// and leaves the block's tag unchanged.
+  static bool plainRegister(int address, {required bool write}) {
+    final offset = address - 0xff000000;
+    // PTEL, TTB, TEA and PTEA; reads also PTEH, MMUCR, TRA, EXPEVT and INTEVT.
+    return write
+        ? const [4, 8, 12, 52].contains(offset)
+        : const [0, 4, 8, 12, 16, 32, 36, 40, 52].contains(offset);
+  }
 
   late IrBuilder b;
   final values = <int, IrValue>{};
   final _guarded = <int>{};
+  // The context words the block has assigned so far.
+  final _written = <int>{};
   final _constants = <int, int>{};
+  // The translations of the virtual addresses of loads and stores.
+  final _reads = <int, IrTranslation>{}, _writes = <int, IrTranslation>{};
   int spent = 0, tag = 0;
+
+  // FPSCR.PR after an LDS to FPSCR, which ends the block.
+  IrValue? _precision;
+
+  // The virtual and physical pages of a P0 block, or -1.
+  int _page = -1, _physicalPage = -1;
+
+  IrExit _fault(IrExit exit, {required bool write}) =>
+      IrExit(write ? writeFault : readFault, exit.pc,
+          tag: exit.tag, spent: exit.spent, stores: exit.stores);
 
   IrValue c(int x) {
     final value = b.c32(x & 0xffffffff);
@@ -53,7 +157,15 @@ final class Sh4Translator {
   }
 
   IrValue get(int word) => values[word] ??= b.ctxLoad(word);
-  void put(int word, IrValue value) => values[word] = value;
+
+  /// The translation of an address checked for a load or a store, if any.
+  IrTranslation? via(IrValue address, {bool write = false}) =>
+      (write ? _writes : _reads)[address.index];
+  void put(int word, IrValue value) {
+    _written.add(word);
+    values[word] = value;
+  }
+
   IrValue r(int n) => get(regs + n);
   void setR(int n, IrValue value) => put(regs + n, value);
   IrValue get t => b.and(get(sr), c(1));
@@ -69,33 +181,65 @@ final class Sh4Translator {
     }
   }
 
+  /// The physical address of the instruction at [at], or null outside the
+  /// code the block may hold.
+  int? _codeAddress(int at) {
+    if (tag & tagMmu == 0) return at;
+    if (_physicalPage >= 0) {
+      return at & 0xfffff000 == _page ? _physicalPage | (at & 0xfff) : null;
+    }
+    return tag & tagUser == 0 && untranslated(at) ? at : null;
+  }
+
+  /// The instruction word at [at], or null outside the block's code.
+  int? fetchAt(int at) {
+    final address = _codeAddress(at);
+    return address == null ? null : fetch(address);
+  }
+
   bool guard(int at) {
     final aligned = at & ~3;
     if (_guarded.contains(aligned)) return true;
-    final lo = fetch(aligned), hi = fetch((aligned + 2) & 0xffffffff);
+    final lo = fetchAt(aligned), hi = fetchAt((aligned + 2) & 0xffffffff);
     if (hi == null || lo == null) return false;
     _guarded.add(aligned);
-    b.guard(aligned, (hi << 16) | lo);
-    protect(aligned);
+    final physical = _codeAddress(aligned)!;
+    b.guard(physical, (hi << 16) | lo);
+    protect(physical);
     return true;
   }
 
-  IrBlock? translate(int pc, int tag) {
+  IrBlock? translate(int pc, {int tag = 0}) {
     this.tag = tag;
     values.clear();
     _constants.clear();
     _guarded.clear();
+    _written.clear();
+    _precision = null;
+    _reads.clear();
+    _writes.clear();
     spent = 0;
     b = IrBuilder(pc, tag: tag);
+    _page = _physicalPage = -1;
+    if (tag & tagMmu != 0 && pc < 0x80000000) {
+      final physical = codePage(pc, tag);
+      if (physical == null) return null;
+      _page = pc & 0xfffff000;
+      _physicalPage = physical;
+      // A missing slot leaves for the CPU, which refills it.
+      b.load(2, c(pc),
+          unmapped: IrExit(interpret, pc, tag: tag, spent: 0),
+          translation: IrTranslation(readTable, keyBits(tag)));
+    }
     var at = pc;
     var count = 0;
     for (; count < maxInstructions; count++) {
-      final op = fetch(at);
+      final op = fetchAt(at);
       if (op == null) break;
       if (branch(op)) {
         final kind = op >>> 12, n = (op >>> 8) & 15;
         final delayed = kind != 8 || n >= 13;
-        final slot = delayed ? fetch((at + 2) & 0xffffffff) : null;
+        final slot = delayed ? fetchAt((at + 2) & 0xffffffff) : null;
         if (delayed &&
             (slot == null ||
                 !supported(slot, tag, slot: true) ||
@@ -135,18 +279,43 @@ final class Sh4Translator {
             ? IrJumpDyn(dynamicTarget, tag: after)
             : condition == null
                 ? IrJump(target!, tag: after)
-                : IrBranch(
-                    condition,
-                    branchOnT ? target! : next,
+                : IrBranch(condition, branchOnT ? target! : next,
                     branchOnT ? next : target!,
-                    tagTrue: after,
-                    tagFalse: after);
+                    tagTrue: after, tagFalse: after);
         return b.finish(term, cost: spent);
       }
-      if (!supported(op, tag) || !guard(at)) break;
+      if (op == 0x002b &&
+          tag & tagUser == 0 &&
+          fetchAt((at + 2) & 0xffffffff) == 0x0009 &&
+          guard(at) &&
+          guard((at + 2) & 0xffffffff)) {
+        // SSR and SPC stay with the host, and SR may switch the bank.
+        spent += 2;
+        flush();
+        return b.finish(IrExitTerm(IrExit(exceptionReturn, at, tag: tag)),
+            cost: spent);
+      }
+      if (!supported(op, tag) ||
+          op == 0x0038 && loadTlbHelper < 0 ||
+          !guard(at)) {
+        break;
+      }
       emit(op, at, snapshot(at, spent));
       spent++;
       at = (at + 2) & 0xffffffff;
+      if (op == 0x0038) {
+        // LDTLB drops translation slots; the next block starts after it.
+        flush();
+        return b.finish(IrJump(at, tag: tag), cost: spent);
+      }
+      final precision = _precision;
+      if (precision != null) {
+        flush();
+        return b.finish(
+            IrBranch(precision, at, at,
+                tagTrue: tag | tagDouble, tagFalse: tag & ~tagDouble),
+            cost: spent);
+      }
       if (op == 0xf3fd) {
         // FSCHG continues in the block of the other transfer size.
         flush();
@@ -167,6 +336,12 @@ final class Sh4Translator {
       (op >>> 12 == 8 && const [9, 11, 13, 15].contains((op >>> 8) & 15)) ||
       const [0x0003, 0x0023, 0x400b, 0x402b].contains(op & 0xf0ff) ||
       op == 0x000b;
+
+  /// FLOAT, FTRC, FIPR and FTRV, which single-precision blocks run
+  /// natively.
+  static bool nativeConversion(int op) =>
+      const [0xf02d, 0xf03d, 0xf0ed].contains(op & 0xf0ff) ||
+      op & 0xf3ff == 0xf1fd;
 
   /// FPU arithmetic executed through [fpuHelper].
   static bool helperOp(int op, int tag) {
@@ -198,14 +373,24 @@ final class Sh4Translator {
       // Single arithmetic and comparisons run natively, exiting like loads.
       if (helperOp(op, tag)) {
         return !slot ||
-            !double && (low <= 2 || low == 4 || low == 5 || low == 14);
+            !double &&
+                (low <= 2 ||
+                    low == 4 ||
+                    low == 5 ||
+                    low == 14 ||
+                    nativeConversion(op));
       }
       if (code == 0xf00d || code == 0xf01d) return true;
       if (code == 0xf04d || code == 0xf05d) return !double || n.isEven;
-      if (code == 0xf08d || code == 0xf09d) return !double;
+      if (code == 0xf08d || code == 0xf09d) return true;
       return (op == 0xfbfd || op == 0xf3fd) &&
           !double &&
           (!slot || op == 0xf3fd);
+    }
+    // STC SR,Rn and STC.L SR,@-Rn are privileged.
+    if (tag & tagUser != 0 &&
+        (op & 0xf0ff == 0x0002 || op & 0xf0ff == 0x4003)) {
+      return false;
     }
     if (top == 0) {
       if (const [4, 5, 6, 7, 12, 13, 14].contains(low)) return true;
@@ -216,12 +401,18 @@ final class Sh4Translator {
       }
       if (const [0x0093, 0x00a3, 0x00b3, 0x00c3].contains(code)) return true;
       if (code == 0x005a || code == 0x006a) return fpu;
+      // LDTLB is privileged.
+      if (op == 0x0038) return !slot && tag & tagUser == 0;
       return const [0x0008, 0x0018, 0x0009, 0x0019, 0x0028, 0x0048, 0x0058]
           .contains(op);
     }
     if (top == 4) {
       final kind = op & 255;
       if (low == 12 || low == 13) return true;
+      // LDC Rm,SR is privileged.
+      if (kind == 0x0e) return !slot && tag & tagUser == 0;
+      // An LDS to FPSCR ends the block, so it stays out of delay slots.
+      if (kind == 0x66 || kind == 0x6a) return fpu && !slot;
       if (const [0x52, 0x56, 0x5a, 0x62].contains(kind)) return fpu;
       return const [
         0x00, 0x20, 0x01, 0x21, 0x04, 0x05, 0x24, 0x25, //
@@ -244,38 +435,81 @@ final class Sh4Translator {
       return known == null ? b.add(value, c(amount)) : c(known + amount);
     }
 
-    IrValue address(IrValue value, int size) {
+    final mmu = tag & tagMmu != 0, user = tag & tagUser != 0;
+    // [bound] replaces the address in the range check of the access.
+    IrValue address(IrValue value, int size,
+        {bool write = false, IrValue? bound}) {
       final known = _constants[value.index];
-      if (known != null && known < 0xc0000000 && known & (size - 1) == 0) {
-        return value;
+      if (bound == null && known != null && known & (size - 1) == 0) {
+        if (mmu ? !user && untranslated(known) : known < 0xc0000000) {
+          return value;
+        }
+        // The entry check covers reads within the block's own page.
+        if (!write && _physicalPage >= 0 && known & 0xfffff000 == _page) {
+          return c(_physicalPage | (known & 0xfff));
+        }
       }
       // P3 and P4 are never ordinary RAM; unaligned accesses raise errors.
-      final outside = b.ltU(c(0xbfffffff), value);
+      // In user mode, everything from P1 up raises an address error.
+      final outside =
+          b.ltU(c(user ? 0x7fffffff : 0xbfffffff), bound ?? value);
       b.exitIf(
           size == 1 ? outside : b.or(outside, b.and(value, c(size - 1))), exit);
+      if (mmu) {
+        (write ? _writes : _reads)[value.index] =
+            IrTranslation(write ? writeTable : readTable, keyBits(tag));
+      }
       return value;
     }
 
     IrValue storeAddress(IrValue value, int size) {
-      if (size < 4) return address(value, size);
+      // The TLB does not translate store-queue stores; only PREF uses it. In
+      // user mode they raise an address error when MMUCR.SQMD is set, so the
+      // interpreter takes them.
+      if (size < 4 || user && tag & tagUserQueue == 0) {
+        return address(value, size, write: true);
+      }
       final known = _constants[value.index];
       if (known != null) {
-        return address(
-            known - 0xe0000000 < 0x04000000 && known >= 0xe0000000
-                ? c(queueAlias | (known & 63))
-                : value,
-            size);
+        final queue = known - 0xe0000000 < 0x04000000 && known >= 0xe0000000;
+        return address(queue ? c(queueAlias | (known & 63)) : value, size,
+            write: true, bound: queue && user ? c(0) : null);
       }
       final queue = b.ltU(b.sub(value, c(0xe0000000)), c(0x04000000));
       return address(
           b.select(queue, b.or(b.and(value, c(63)), c(queueAlias)), value),
-          size);
+          size,
+          write: true,
+          bound: user ? b.select(queue, c(0), value) : null);
     }
 
-    IrValue read(IrValue a, int size) =>
-        b.load(size, address(a, size), signed: size < 4, unmapped: exit);
-    void write(IrValue a, IrValue v, int size) =>
-        b.store(size, storeAddress(a, size), v, unmapped: exit);
+    // The CCN register at [offset] from Rn while Rn holds its entry value,
+    // which a guard checks; such registers are reached through helpers.
+    int? registerAt(int n, int offset, {required bool write}) {
+      final helper = write ? registerWriteHelper : registerReadHelper;
+      if (helper < 0 || _written.contains(regs + n)) return null;
+      final value = entryValue(regs + n);
+      if (value == null) return null;
+      final address = (value + offset) & 0xffffffff;
+      if (!plainRegister(address, write: write)) return null;
+      b.exitIf(b.ne(r(n), c(value)), exit);
+      return address;
+    }
+
+    IrValue read(IrValue a, int size) {
+      final checked = address(a, size);
+      return b.load(size, checked,
+          signed: size < 4,
+          unmapped: _fault(exit, write: false),
+          translation: via(checked));
+    }
+
+    void write(IrValue a, IrValue v, int size) {
+      final checked = storeAddress(a, size);
+      b.store(size, checked, v,
+          unmapped: _fault(exit, write: true),
+          translation: via(checked, write: true));
+    }
 
     if (top == 14) {
       setR(n, c((op & 255).toSigned(8)));
@@ -293,11 +527,21 @@ final class Sh4Translator {
       return;
     }
     if (top == 1) {
-      write(add(r(n), low * 4), r(m), 4);
+      final register = registerAt(n, low * 4, write: true);
+      if (register != null) {
+        b.call(registerWriteHelper, c(register), r(m));
+      } else {
+        write(add(r(n), low * 4), r(m), 4);
+      }
       return;
     }
     if (top == 5) {
-      setR(n, read(add(r(m), low * 4), 4));
+      final register = registerAt(m, low * 4, write: false);
+      setR(
+          n,
+          register != null
+              ? b.call(registerReadHelper, c(register))
+              : read(add(r(m), low * 4), 4));
       return;
     }
     if (top == 6) {
@@ -547,11 +791,27 @@ final class Sh4Translator {
           put(sr, b.and(get(sr), c(~2)));
         case 0x0058:
           put(sr, b.or(get(sr), c(2)));
+        case 0x0038:
+          b.call(loadTlbHelper);
       }
       return;
     }
     if (top == 4) {
       final kind = op & 255;
+      if (kind == 0x0e) {
+        final old = get(sr), next = b.and(r(n), c(0x700083f3));
+        // MD and FD select the tag, and RB the register bank.
+        b.exitIf(b.ne(b.and(b.xor(next, old), c(0x60008000)), c(0)), exit);
+        put(sr, next);
+        // The interpreter takes an interrupt that the new SR admits.
+        final level = get(pendingLevel);
+        final unmasked = b.ltU(b.and(b.shrU(next, c(4)), c(15)), level);
+        final unblocked = b.or(
+            b.eq(b.and(next, c(0x10000000)), c(0)), b.eq(level, c(16)));
+        b.exitIf(b.and(unmasked, unblocked),
+            snapshot((at + 2) & 0xffffffff, spent + 1));
+        return;
+      }
       if (low == 12 || low == 13) {
         final a = r(n), shift = r(m);
         final count = b.and(shift, c(31));
@@ -562,6 +822,19 @@ final class Sh4Translator {
             ? b.select(zero, b.shrS(a, c(31)), b.shrS(a, reverse))
             : b.select(zero, c(0), b.shrU(a, reverse));
         setR(n, b.select(b.ltS(shift, c(0)), right, left));
+        return;
+      }
+      if (kind == 0x66 || kind == 0x6a) {
+        final pointer = r(n);
+        final value = b.and(
+            kind == 0x6a ? pointer : read(pointer, 4), c(0x003fffff));
+        // FPSCR.FR swaps the banks and SZ selects the tag; the block ends
+        // after the load on the tag of the new PR.
+        b.exitIf(
+            b.ne(b.and(b.xor(value, get(fpscr)), c(0x300000)), c(0)), exit);
+        put(fpscr, value);
+        if (kind == 0x66) setR(n, add(pointer, 4));
+        _precision = b.and(b.shrU(value, c(19)), c(1));
         return;
       }
       final special = switch (kind) {
@@ -624,15 +897,15 @@ final class Sh4Translator {
     }
   }
 
-  /// Single FADD, FSUB, FMUL, FMAC, FCMP/EQ and FCMP/GT on host doubles.
-  /// Operands must be normal or zero; anything that could round twice,
-  /// leave the normal range or raise an exception exits to the CPU.
+  /// Single FADD, FSUB, FMUL, FDIV, FMAC, FCMP/EQ and FCMP/GT on host
+  /// doubles. Operands must be normal or zero; anything that could round
+  /// twice, leave the normal range or raise an exception exits to the CPU.
   bool _nativeFloat(int op, int n, int m, int low, IrExit exit) {
     if (op >>> 12 != 15 || tag & (tagDouble | tagFpuDisabled) != 0) {
       return false;
     }
     if (low == 13) return _nativeConversion(op, n, exit);
-    if (!(low <= 2 || low == 4 || low == 5 || low == 14)) return false;
+    if (!(low <= 5 || low == 14)) return false;
     IrValue magnitude(IrValue x) => b.and(x, c(0x7fffffff));
     IrValue zero(IrValue x) => b.eq(magnitude(x), c(0));
     final special = _special;
@@ -653,17 +926,22 @@ final class Sh4Translator {
       return true;
     }
     final status = get(fpscr);
-    // Enabled exceptions and round-to-zero stay with the exact model.
-    bad = b.or(bad, b.and(status, c(0xf83)));
+    // Enabled exceptions and the reserved rounding mode stay with the exact
+    // model. Round-to-zero is handled below.
+    bad = b.or(bad, b.and(status, c(0xf82)));
     final f0 = low == 14 ? get(fr) : null;
     if (f0 != null) {
       // The exact model owns the sign of a zero sum of zeros.
       bad = b.or(bad, special(f0));
       bad = b.or(bad, b.and(b.or(zero(f0), zero(y)), zero(x)));
     }
+    if (low == 3) return _nativeDivide(n, x, y, status, bad, exit);
     b.exitIf(bad, exit);
     final wx = b.floatConvert(x), wy = b.floatConvert(y);
     final IrValue sum, error;
+    // Whether the exact value lies on the other side of the rounded result
+    // than zero is only needed for a sum, whose error has a sign.
+    IrValue errorSign = c(0);
     if (low == 2) {
       // A product of two singles is exact in a double.
       sum = b.floatBinary(IrOp.floatMul, wx, wy);
@@ -687,9 +965,22 @@ final class Sh4Translator {
           b.floatBinary(IrOp.floatSub, right, virtual));
       error =
           b.ne(b.and(residual, b.c64Parts(-1, 0x7fffffff)), b.c64Parts(0, 0));
+      // The error and the value have opposite signs.
+      errorSign = b.ne(b.and(b.xor(residual, sum), b.c64Parts(0, 0x80000000)),
+          b.c64Parts(0, 0));
     }
-    final result = b.floatConvert(sum);
-    final inexact = b.or(b.ne(b.floatConvert(result), sum), error);
+    final nearest = b.floatConvert(sum);
+    final rounded = b.floatConvert(nearest);
+    final inexact = b.or(b.ne(rounded, sum), error);
+    // Round-to-zero steps one unit back when the nearest result lies beyond
+    // the exact value in magnitude, or on it with the error toward zero.
+    final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+    final sumMagnitude = b.and(sum, magnitudeMask),
+        roundedMagnitude = b.and(rounded, magnitudeMask);
+    final beyond = b.or(b.ltU(sumMagnitude, roundedMagnitude),
+        b.and(b.eq(sumMagnitude, roundedMagnitude), b.and(error, errorSign)));
+    final toZero = b.and(b.and(status, c(1)), beyond);
+    final result = b.select(toZero, b.sub(nearest, c(1)), nearest);
     // Denormal, infinite or underflowed-to-zero results, and a double on a
     // single midpoint with a nonzero error, take the exact path.
     var unusual = b.or(
@@ -708,6 +999,42 @@ final class Sh4Translator {
     return true;
   }
 
+  /// FDIV of normal or zero singles, the divisor nonzero. The double
+  /// quotient has more than twice the single precision plus two bits, so
+  /// rounding it to single gives the correctly rounded quotient. The
+  /// product of that single and the divisor is exact in a double, which
+  /// decides whether the result is inexact and lies beyond the exact
+  /// quotient.
+  bool _nativeDivide(
+      int n, IrValue x, IrValue y, IrValue status, IrValue bad, IrExit exit) {
+    final magnitude = c(0x7fffffff);
+    b.exitIf(b.or(bad, b.eq(b.and(y, magnitude), c(0))), exit);
+    final wx = b.floatConvert(x), wy = b.floatConvert(y);
+    final nearest =
+        b.floatConvert(b.floatBinary(IrOp.floatDiv, wx, wy));
+    final product = b.floatBinary(IrOp.floatMul, b.floatConvert(nearest), wy);
+    final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+    final productMagnitude = b.and(product, magnitudeMask),
+        dividendMagnitude = b.and(wx, magnitudeMask);
+    final inexact = b.ne(productMagnitude, dividendMagnitude);
+    // Round-to-zero steps one unit back when the nearest single lies beyond
+    // the exact quotient in magnitude.
+    final beyond = b.ltU(dividendMagnitude, productMagnitude);
+    final result = b.select(b.and(b.and(status, c(1)), beyond),
+        b.sub(nearest, c(1)), nearest);
+    // Denormal, infinite or underflowed-to-zero results take the exact path.
+    b.exitIf(
+        b.or(
+            _special(result),
+            b.and(b.eq(b.and(result, magnitude), c(0)),
+                b.ne(b.and(x, magnitude), c(0)))),
+        exit);
+    put(fr + n, result);
+    put(fpscr,
+        b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
+    return true;
+  }
+
   /// Denormal, infinity or NaN: field 0 or 255 without being zero.
   IrValue _special(IrValue x) => b.and(
       b.ltU(c(253), b.sub(b.and(b.shrU(x, c(23)), c(255)), c(1))),
@@ -715,13 +1042,11 @@ final class Sh4Translator {
 
   /// FLOAT, FTRC, FIPR and FTRV on host doubles. Inner products sum the
   /// exact products in double precision and round once more to single,
-  /// where the exact model rounds the exact sum once.
+  /// where the exact model rounds the exact sum once. Round-to-zero applies
+  /// to that last rounding only.
   bool _nativeConversion(int op, int n, IrExit exit) {
-    final code = op & 0xf0ff;
-    final transform = op & 0xf3ff == 0xf1fd;
-    if (code != 0xf02d && code != 0xf03d && code != 0xf0ed && !transform) {
-      return false;
-    }
+    if (!nativeConversion(op)) return false;
+    final code = op & 0xf0ff, transform = op & 0xf3ff == 0xf1fd;
     final status = get(fpscr);
     if (code == 0xf03d) {
       // From 2^31 in magnitude, and for NaN, the exact model saturates.
@@ -731,8 +1056,9 @@ final class Sh4Translator {
       put(fpscr, b.and(status, c(~0x3f000)));
       return true;
     }
-    // Enabled exceptions and round-to-zero stay with the exact model.
-    var bad = b.ne(b.and(status, c(0xf83)), c(0));
+    // Enabled exceptions and the reserved rounding mode stay with the exact
+    // model. Round-to-zero steps back below.
+    var bad = b.ne(b.and(status, c(0xf82)), c(0));
     if (code == 0xf02d) {
       b.exitIf(bad, exit);
       // The word biased into a double mantissa at 2^52, minus the bias.
@@ -741,8 +1067,15 @@ final class Sh4Translator {
           b.or(b.zext32(b.xor(get(fpul), c(0x80000000))),
               b.c64Parts(0, 0x43300000)),
           b.c64Parts(0x80000000, 0x43300000));
-      final result = b.floatConvert(wide);
-      final inexact = b.ne(b.floatConvert(result), wide);
+      final nearest = b.floatConvert(wide);
+      final rounded = b.floatConvert(nearest);
+      final inexact = b.ne(rounded, wide);
+      final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+      final over =
+          b.ltU(b.and(wide, magnitudeMask), b.and(rounded, magnitudeMask));
+      // A converted word is exact in a double, so only an overshoot matters.
+      final result = b.select(
+          b.and(b.and(status, c(1)), over), b.sub(nearest, c(1)), nearest);
       put(fr + n, result);
       put(fpscr,
           b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
@@ -767,7 +1100,14 @@ final class Sh4Translator {
             b.floatBinary(
                 IrOp.floatMul, wideVector[i], b.floatConvert(row[i])));
       }
-      return b.floatConvert(sum);
+      // Round-to-zero steps one unit back when the nearest single lies
+      // beyond the double sum in magnitude.
+      final nearest = b.floatConvert(sum);
+      final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+      final beyond = b.ltU(b.and(sum, magnitudeMask),
+          b.and(b.floatConvert(nearest), magnitudeMask));
+      return b.select(
+          b.and(b.and(status, c(1)), beyond), b.sub(nearest, c(1)), nearest);
     }
 
     final List<IrValue> results;
@@ -871,19 +1211,24 @@ final class Sh4Translator {
     // Both words of an 8-byte access share one page.
     final register = file(load ? n : m);
     if (load) {
-      final checked = address(a, size);
-      final first = b.load(4, checked, unmapped: exit);
+      final checked = address(a, size), translation = via(checked);
+      final first = b.load(4, checked,
+          unmapped: _fault(exit, write: false), translation: translation);
       if (pair) {
-        final second = b.load(4, b.add(checked, c(4)), unmapped: exit);
+        final second = b.load(4, b.add(checked, c(4)),
+            unmapped: _fault(exit, write: false), translation: translation);
         put(register + 1, second);
       }
       put(register, first);
       if (low == 9) setR(m, b.add(a, c(size)));
     } else {
-      final checked = storeAddress(a, size);
-      b.store(4, checked, get(register), unmapped: exit);
+      final checked = storeAddress(a, size),
+          translation = via(checked, write: true);
+      b.store(4, checked, get(register),
+          unmapped: _fault(exit, write: true), translation: translation);
       if (pair) {
-        b.store(4, b.add(checked, c(4)), get(register + 1), unmapped: exit);
+        b.store(4, b.add(checked, c(4)), get(register + 1),
+            unmapped: _fault(exit, write: true), translation: translation);
       }
       if (low == 11) setR(n, a);
     }

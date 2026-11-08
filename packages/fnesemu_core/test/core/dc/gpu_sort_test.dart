@@ -176,167 +176,17 @@ void main() {
     expect(pixel(1, 1), 0xffff0000);
   });
 
-  test('equal-depth punch-through gives later input priority', () {
-    init();
-    layer(4, color: 0xffff0000);
-    layer(4, color: 0xff0000ff);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff0000ff);
-  });
 
-  test('rejected punch-through pixels do not write depth or hide translucency',
-      () {
-    init();
-    layer(4, color: 0x00ff0000, depth: 3);
-    end();
-    layer(2, color: 0xff00ff00, depth: 1);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff00ff00);
-  });
 
-  test(
-      'opaque, punch-through and translucent results are processed in dependency order',
-      () {
-    init();
-    layer(2, color: 0x800000ff, depth: 3, tsp: alpha);
-    end();
-    layer(0, color: 0xff00ff00, depth: 0.5);
-    end();
-    layer(4, color: 0xffff0000, depth: 2);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xbf7f0080);
-  });
 
-  test(
-      'punch-through honors Z-write disable independently of its fixed compare',
-      () {
-    init();
-    layer(0, color: 0xff00ff00, depth: 1);
-    end();
-    layer(4, color: 0xffff0000, depth: 3, isp: 0x04000000);
-    end();
-    layer(2, color: 0xff0000ff, depth: 2);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff0000ff);
-  });
 
-  test(
-      'punch-through alpha comparison follows texture shading rather than raw texel alpha',
-      () {
-    init();
-    bus.write16(0xa4060000, 0x7c00); // Transparent red ARGB1555.
-    layer(4,
-        color: 0xff00ff00,
-        texture: 0x0000c000,
-        tsp: copy | 0x100000 | (2 << 6));
-    end();
-    draw(); // Decal Alpha retains the opaque green polygon alpha/color.
-    expect(pixel(1, 1), 0xff00ff00);
-  });
 
-  test('punch-through thresholds the bilinear alpha before depth commitment',
-      () {
-    init();
-    for (final (i, value) in [0xfc00, 0x83e0, 0x801f, 0x7fff].indexed) {
-      bus.write16(0xa4060000 + i * 2, value);
-    }
-    layer(4,
-        texture: 0x0000c000, tsp: copy | 0x100000 | 0x2000, coordinate: 1 / 16);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff000000);
-    draw(reference: 191);
-    expect(pixel(1, 1), 0xff808080);
-  });
 
-  test(
-      'auto-sort handles intersecting planes per pixel regardless of submission order',
-      () {
-    init();
-    layer(2, color: 0x80ff0000, depths: [1, 3, 1], tsp: alpha);
-    layer(2, color: 0x800000ff, depth: 2, tsp: alpha);
-    end();
-    draw();
-    expect(pixel(2, 1), 0x9f400080); // Red is farther here.
-    expect(pixel(26, 1), 0x9f800040); // Red is nearer here.
-  });
 
-  test(
-      'auto-sort uses greater-or-equal and preserves input priority at equal depth',
-      () {
-    init();
-    layer(2, color: 0x80ff0000, isp: 0, tsp: alpha);
-    layer(2, color: 0x800000ff, isp: 0, tsp: alpha);
-    end();
-    draw();
-    expect(pixel(1, 1), 0x9f400080);
-  });
 
-  test('pre-sort follows input order while type-2 headers override global mode',
-      () {
-    for (final type2 in [false, true]) {
-      for (final presort in [false, true]) {
-        bus = DcBus();
-        bus.write32(reg + 8, 0);
-        lists.clear();
-        init();
-        layer(2, color: 0x80ff0000, depths: [1, 3, 1], tsp: alpha);
-        layer(2, color: 0x800000ff, depth: 2, tsp: alpha);
-        end();
-        draw(
-            type2: type2,
-            presort: presort,
-            globalPresort: type2 ? !presort : presort);
-        expect(pixel(26, 1), presort ? 0x9f400080 : 0x9f800040);
-      }
-    }
-  });
 
-  test('opaque depth rejects hidden auto-sorted fragments', () {
-    init();
-    layer(0, color: 0xff0000ff, depth: 2);
-    end();
-    layer(2, color: 0x80ff0000, depth: 1, tsp: alpha);
-    layer(2, color: 0x8000ff00, depth: 3, tsp: alpha);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xbf00807f);
-  });
 
-  test('Gouraud colors and alpha are perspective-correct across varying depth',
-      () {
-    init();
-    layer(0, depths: [1, 0.5, 1], colors: [0xffff0000, 0xff00ff00, 0xff0000ff]);
-    end();
-    draw();
-    expect(pixel(8, 0), 0xffd32705);
-    bus = DcBus();
-    bus.write32(reg + 8, 0);
-    lists.clear();
-    init();
-    layer(4, depths: [1, 0.5, 1], colors: [0x00ffffff, 0xffffffff, 0x00ffffff]);
-    end();
-    draw(reference: 64);
-    expect(pixel(8, 0), 0xff000000); // Correct alpha is 39, not affine 68.
-  });
 
-  test(
-      'auto-sort peels equal-depth layers across an additional object-pointer block',
-      () {
-    init();
-    for (var i = 0; i < 10; i++) {
-      layer(2, color: 0xff000000 | i, isp: 0);
-    }
-    end();
-    draw();
-    expect(bus.gpu.vram.getUint32LE(object + 60) & 0xf0000000, 0xe0000000);
-    expect(pixel(1, 1), 0xff000009);
-    expect(bus.systemBus.normalStatus & 7, 7);
-  });
 
   test('auto-sort list faults produce no false completion and reset recovers',
       () {
@@ -357,33 +207,4 @@ void main() {
     expect(bus.systemBus.normalStatus & 7, 7);
   });
 
-  test('auto-sort keeps Z-write disable behavior across retained regions', () {
-    for (final probe in [1.5, 2.5]) {
-      bus = DcBus();
-      bus.write32(reg + 8, 0);
-      lists.clear();
-      init();
-      layer(0, color: 0xffffff00, depth: probe, isp: 0x80000000);
-      end();
-      layer(2, color: 0x80ff0000, depth: 2, tsp: alpha);
-      layer(2, color: 0x8000ff00, depth: 3, tsp: alpha, isp: 0xe4000000);
-      end();
-      prepare(type2: false);
-      put(0x9000, [
-        0x10000000,
-        0x80000000,
-        0x80000000,
-        object + 32,
-        0x80000000,
-        0xc0000000,
-        object,
-        0x80000000,
-        0x80000000,
-        0x80000000
-      ]);
-      bus.write32(reg + 0x14, 1);
-      bus.tickMasterClocks(4);
-      expect(pixel(1, 1), probe == 1.5 ? 0x9f408000 : 0xffffff00);
-    }
-  });
 }

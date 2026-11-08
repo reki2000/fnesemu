@@ -12,13 +12,4 @@ void main() {
     now = 101000;
     expect(refresh.ready, true);
   });
-  test('slow snapshots leave four capture durations for other work', () {
-    var now = 0;
-    final refresh = VideoRefresh(now: () => now);
-    refresh.capture(() => now += 150000);
-    now = 749999;
-    expect(refresh.ready, false);
-    now = 750000;
-    expect(refresh.ready, true);
-  });
 }

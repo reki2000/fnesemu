@@ -6,6 +6,7 @@ import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
 import '../bus.dart';
 import '../interrupt.dart';
+import '../state.dart';
 import 'point_color.dart';
 
 part 'gpu0.dart';
@@ -144,6 +145,77 @@ class Gpu {
 
     displayMode = 0;
     frameBuffer.fillRange(0, frameBuffer.length, 0);
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-gpu');
+    w.ints([
+      status, gp0, gp1, width, dotClockDivider, height, scanline, frame, //
+      cmdSize, textureMaskX, textureMaskY, textureOffsetX, textureOffsetY, //
+      textureMaskX2, textureMaskY2, textureOffsetX2, textureOffsetY2, //
+      drawingX1, drawingY1, drawingX2, drawingY2, drawingOffsetX, drawingOffsetY, //
+      bltSizeX, bltSizeY, bltPosX, bltPosY, bltFromX, bltFromY, //
+      debugCmdIndexInFrame, startDisplayX, startDisplayY, //
+      displayX1, displayY1, displayX2, displayY2, displayMode, readValue,
+    ]);
+    w.ints(cmd);
+    for (final b in [isOddFrame, isVblank, vramToCpuReady, irq1, textureDisableAllowed]) {
+      w.boolean(b);
+    }
+    w.bytes(frameBuffer);
+    w.typed(buffer);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-gpu');
+    final v = s.fields(38, 'ps gpu');
+    status = v[0];
+    gp0 = v[1];
+    gp1 = v[2];
+    width = v[3];
+    dotClockDivider = v[4];
+    height = v[5];
+    scanline = v[6];
+    frame = v[7];
+    cmdSize = v[8];
+    textureMaskX = v[9];
+    textureMaskY = v[10];
+    textureOffsetX = v[11];
+    textureOffsetY = v[12];
+    textureMaskX2 = v[13];
+    textureMaskY2 = v[14];
+    textureOffsetX2 = v[15];
+    textureOffsetY2 = v[16];
+    drawingX1 = v[17];
+    drawingY1 = v[18];
+    drawingX2 = v[19];
+    drawingY2 = v[20];
+    drawingOffsetX = v[21];
+    drawingOffsetY = v[22];
+    bltSizeX = v[23];
+    bltSizeY = v[24];
+    bltPosX = v[25];
+    bltPosY = v[26];
+    bltFromX = v[27];
+    bltFromY = v[28];
+    debugCmdIndexInFrame = v[29];
+    startDisplayX = v[30];
+    startDisplayY = v[31];
+    displayX1 = v[32];
+    displayY1 = v[33];
+    displayX2 = v[34];
+    displayY2 = v[35];
+    displayMode = v[36];
+    readValue = v[37];
+    s.intsInto(cmd);
+    isOddFrame = s.boolean();
+    isVblank = s.boolean();
+    vramToCpuReady = s.boolean();
+    irq1 = s.boolean();
+    textureDisableAllowed = s.boolean();
+    s.bytesInto(frameBuffer);
+    if (buffer.length != width * height) buffer = Uint32List(width * height);
+    s.typed(buffer);
   }
 
   int readReg() {

@@ -86,6 +86,50 @@ class _DebugControllerState extends State<DebugController> {
   CoreController get controller => widget.controller;
   Debugger get debugger => controller.debugger;
   bool _copying = false;
+  late final TextEditingController _breakClockInput;
+  late final TextEditingController _breakPointInput;
+  String? _breakClockText;
+  String? _breakPointText;
+
+  @override
+  void initState() {
+    super.initState();
+    _breakClockText = debugger.state.breakClock.toString();
+    _breakClockInput = TextEditingController(text: _breakClockText);
+    if (debugger.cpuInfos.isNotEmpty) {
+      _breakPointText = _formatPc(debugger.state.breakPoint,
+          _targetCpu(debugger.state).pcBitWidth);
+    }
+    _breakPointInput = TextEditingController(text: _breakPointText);
+  }
+
+  @override
+  void dispose() {
+    _breakClockInput.dispose();
+    _breakPointInput.dispose();
+    super.dispose();
+  }
+
+  // Reflects a break point or break clock changed outside the text fields (including a target CPU switch, which changes the break point width) without overwriting text the user is editing, and defers the update until after the build so the controllers are not mutated during it.
+  void _syncInputs(DebugState state) {
+    final clockText = state.breakClock.toString();
+    final pointText =
+        _formatPc(state.breakPoint, _targetCpu(state).pcBitWidth);
+    if (clockText == _breakClockText && pointText == _breakPointText) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (clockText != _breakClockText) {
+        _breakClockText = clockText;
+        _breakClockInput.text = clockText;
+      }
+      if (pointText != _breakPointText) {
+        _breakPointText = pointText;
+        _breakPointInput.text = pointText;
+      }
+    });
+  }
   Future<void> _copyTrace() async {
     if (_copying) return;
     setState(() => _copying = true);
@@ -129,6 +173,9 @@ class _DebugControllerState extends State<DebugController> {
     try {
       final breakPoint = int.parse(v, radix: 16);
       debugger.setBreakPoint(breakPoint);
+      _breakPointText =
+          _formatPc(breakPoint, _targetCpu(state).pcBitWidth);
+      _breakPointInput.text = _breakPointText!;
       _showSnackBar(context, "breakpoint: ${breakPoint.x6}");
     } catch (e) {
       _showSnackBar(context, e.toString());
@@ -143,6 +190,8 @@ class _DebugControllerState extends State<DebugController> {
     try {
       final clock = int.parse(v);
       debugger.setBreakClock(clock);
+      _breakClockText = clock.toString();
+      _breakClockInput.text = _breakClockText!;
       _showSnackBar(context, "breakClock: $clock");
     } catch (e) {
       _showSnackBar(context, e.toString());
@@ -160,24 +209,23 @@ class _DebugControllerState extends State<DebugController> {
   String _formatPc(int pc, int bit) =>
       pc.toRadixString(16).padLeft((bit + 3) ~/ 4, '0');
 
-  Widget body(BuildContext context, DebugState state) =>
-      debugger.cpuInfos.isEmpty
-          ? const SizedBox.shrink()
-          : Wrap(spacing: 3, runSpacing: 3, children: [
+  Widget body(BuildContext context, DebugState state) {
+    if (debugger.cpuInfos.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    _syncInputs(state);
+    return Wrap(spacing: 3, runSpacing: 3, children: [
               SizedBox(
                   width: 90,
                   child: TextField(
-                    controller: TextEditingController(
-                        text: state.breakClock.toString()),
+                    controller: _breakClockInput,
                     decoration: denseTextDecoration,
                     onSubmitted: (v) => _setBreakClock(context, v),
                   )),
               SizedBox(
                   width: 70,
                   child: TextField(
-                    controller: TextEditingController(
-                        text: _formatPc(
-                            state.breakPoint, _targetCpu(state).pcBitWidth)),
+                    controller: _breakPointInput,
                     decoration: denseTextDecoration,
                     onSubmitted: (v) => _setBreakPoint(context, v, state),
                   )),
@@ -193,4 +241,5 @@ class _DebugControllerState extends State<DebugController> {
                 }
               }),
             ]);
+  }
 }

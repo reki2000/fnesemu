@@ -73,7 +73,8 @@ void main() {
     target.bus.tickMasterClocks(1000000);
     advance(source, target, 10000);
     expect(target.bus.aica.memory.sublist(0x2000, 0x2040), everyElement(0x6d));
-    expect(target.bus.ram.getUint32LE(0x60000), 0x07002000);
+    // The AP byte shows the default memory card in the first slot.
+    expect(target.bus.ram.getUint32LE(0x60000), 0x07002100);
     expect(target.bus.systemBus.normalStatus & ((1 << 12) | (1 << 15)),
         (1 << 12) | (1 << 15));
     equalBytes(target.saveState(), source.saveState());

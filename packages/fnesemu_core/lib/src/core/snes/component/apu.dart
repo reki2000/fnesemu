@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/state.dart';
 import 'dsp.dart';
 import 'spc700.dart';
 
@@ -25,6 +26,31 @@ class Apu {
 
   final _bufL = <double>[];
   final _bufR = <double>[];
+
+  /// Saves the SPC700 and DSP state, the clock cross-multiplication accumulators and the samples not yet flushed.
+  void saveState(StateWriter w) {
+    w.section('snes-apu');
+    w.ints([_spcCycleBudget, _dspCycleAccum]);
+    w.floats(_bufL);
+    w.floats(_bufR);
+    spc.saveState(w);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-apu');
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('snes apu state layout');
+    _spcCycleBudget = v[0];
+    _dspCycleAccum = v[1];
+    _bufL
+      ..clear()
+      ..addAll(s.floats());
+    _bufR
+      ..clear()
+      ..addAll(s.floats());
+    spc.loadState(s);
+  }
 
   void reset() {
     spc.reset();

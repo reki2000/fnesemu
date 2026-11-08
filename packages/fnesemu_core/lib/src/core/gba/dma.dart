@@ -1,5 +1,5 @@
 import '../../util/int.dart';
-
+import '../../util/state.dart';
 import 'bus.dart';
 import 'irq.dart';
 
@@ -174,6 +174,20 @@ class Dma {
       _srcLatch[ch] = 0;
       _dstLatch[ch] = 0;
       _countLatch[ch] = 0;
+    }
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-dma');
+    for (final list in [_src, _dst, _count, _control, _srcLatch, _dstLatch, _countLatch]) {
+      w.ints(list);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-dma');
+    for (final list in [_src, _dst, _count, _control, _srcLatch, _dstLatch, _countLatch]) {
+      s.intsInto(list);
     }
   }
 }

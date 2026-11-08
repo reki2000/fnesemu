@@ -30,7 +30,7 @@ Loading flash uses the same core API as the boot ROM, without a probe-only bus m
 Strict hardware matching and unrelated peripheral expansion are deferred while blocking startup operations are implemented.
 The normal core factory now enables the provisional BIOS startup profile by default; `DC_BOOT_BRINGUP=false` selects strict operation.
 Low-level callers can explicitly select `Dc(bootBringUp: true)`; direct `Dc()` construction remains strict unless the build-time define enables the profile.
-This profile bundles verification bypass, the provisional GPIO 0/1 shared net, eight master clocks per instruction, whole-program fallback for unsupported AICA DSP instructions, provisional AICA low-pass filtering and the diagnostic byte-addressed short-ADPCM policy inside the core.
+This profile bundles verification bypass, the provisional GPIO 0/1 shared net, whole-program fallback for unsupported AICA DSP instructions, provisional AICA low-pass filtering and the diagnostic byte-addressed short-ADPCM policy inside the core.
 The debugger identifies the profile, and its states have a distinct configuration identity.
 It enables BIOS bring-up through the ordinary core API without GUI-specific device setup, but does not add an automatic ISO bootstrap fallback or override disc format.
 The same profile can be exercised without individual GPIO/timing flags:
@@ -224,6 +224,7 @@ Tests validate the agreed arithmetic and these deliberate stops; they do not est
 ## Floating-point implementation
 
 Scalar binary32/binary64 arithmetic uses exact BigInt significands and rational rounding, rather than host floating-point results.
+Common cases take host arithmetic where it gives the same result: single operations on normal or zero operands, and double operations on operands within 2^±400 while rounding to nearest with no exception enabled. Exact error terms from two-sum and Dekker's product decide the inexact flag.
 RN uses nearest-even and RZ truncates magnitude; the engine tracks inexact, underflow, overflow, divide-by-zero, invalid operation and denormal-input error.
 SH-4's signaling-NaN fraction bit is the inverse of modern host IEEE conventions; quiet results use the documented canonical payloads.
 Arithmetic refreshes FPSCR causes and preserves sticky flags; enabled exceptions suppress destination updates, including the documented unconditional O/U/I traps for normal arithmetic paths.
@@ -511,7 +512,7 @@ The TA writes the documented packed ISP/TSP parameters and object pointers direc
 OPBs reserve a link/end entry and allocate additional blocks in either programmed address direction when full.
 Object List Set can register independently supplied VRAM parameters without regenerating them.
 End of List writes terminators for every tile of the selected list and raises its corresponding HOLLY completion source.
-Disabled/repeated lists and invalid sequences raise the TA parameter error and stop explicitly; parameter/OPB limit failures raise their separate overflow sources without reporting completion.
+Disabled/repeated lists and invalid sequences raise the TA parameter error and stop explicitly; an End of List with no open list is ignored, because the documents do not describe it and a game sends one; parameter/OPB limit failures raise their separate overflow sources without reporting completion.
 TA illegal-input recovery, pointer merging/array compaction and TA_OL_POINTERS inspection remain pending.
 
 `DcGpuRender` reads the CPU-authored five- or six-word Region Array, follows object-list links and fetches vertex data from VRAM at each tile deadline.
@@ -550,9 +551,9 @@ The alpha-test point follows PT_ALPHA_REF's pixel-alpha wording and the texture/
 These source discrepancies, exact tie precision and Z-mask interactions still require physical validation.
 
 Translucent pre-sort draws in input order using the programmed depth function.
-Auto-sort ignores that function and uses greater-or-equal, replaying the object list to select each pixel's next farthest eligible fragment before blending it.
-A previous (depth, primitive-order) key prevents equal-depth fragments from repeating and ensures that earlier input is farther away at a tie.
-Only one candidate and one previous key per pixel are held, so temporary storage does not grow with the number of overlap layers.
+Auto-sort ignores that function and uses greater-or-equal.
+The object list is rasterized once into per-pixel fragment lists, which are blended in ascending (depth, primitive order), so earlier input is farther away at a tie.
+This order equals peeling one layer per pass, because depth writes only grow along it; the temporary storage grows with the number of fragments.
 Opaque/punch-through depth rejection and programmed Z-write disable remain effective through retained multipass regions.
 Type-1 Region Arrays use ISP_FEED_CFG's sort mode, while type-2 arrays select it per region.
 Hardware ISP-cache capacities/overflow, discard scheduling, texture-cache phases and sort latency remain unmodeled; functional region timing is still the placeholder described above.
@@ -575,6 +576,7 @@ Quad vertices follow the perimeter sequence in figure 3-1, with ABC defining the
 The same ABC plane supplies reciprocal depth, perspective UV, flat/Gouraud base and offset colors and MIP derivatives across both raster coverage triangles.
 Invalid fourth-vertex Z/UV/color fields are not fetched, including when they contain NaN bit patterns.
 Quad culling uses the defining ABC determinant once, and the shared diagonal uses the same top-left coverage convention to avoid double blending.
+The quick rows divide each edge value by its horizontal step to find the covered columns of a row under the same convention, and skip the coverage test per fragment.
 This is a functional triangulated coverage implementation; exact hardware quad edge precision, plane arithmetic and degenerate-case behavior remain unverified.
 Concave/crossed quads stop explicitly pending hardware evidence.
 
@@ -586,6 +588,8 @@ Rendered scenes check flat/textured/offset sprites, derived depth/UV/color in th
 TA parameters retain 32-bit IEEE UV values or the documented packed upper halves of IEEE UV values; the latter are not IEEE binary16.
 Generated object pointers carry the corresponding skip size, and the CORE validates it against the parameter format before reading vertices.
 Texture UVs and Gouraud base/offset RGBA are interpolated using reciprocal depth for perspective correction, as required by section 3.1.1.8, independently of the integer/half-pixel position chosen for coverage through HALF_OFFSET.
+The color weights of the second and third vertices are quantized to 1/65536 and the first takes the rest, so a channel may differ from exact interpolation by one unit.
+In the quick rows of wrapped textures that replace the color, texel positions, color weights and the weight of table fog without a color clamp are exact every 16 fragments and step linearly between them; depth stays exact per fragment.
 Zero perspective denominators and nonfinite/overflowing coordinates stop explicitly without a render-completion interrupt.
 
 `DcGpuTexture` reads texture data from the 64-bit VRAM layout and supports uncompressed ARGB1555, RGB565 and ARGB4444; format code 7 uses ARGB1555 as specified.
@@ -761,17 +765,23 @@ Memory card physical LCD/buzzer behavior, factory media parameters and complete 
 `DcMapleDevice` separates packet endpoints from the host DMA engine.
 The controller owns two expansion slots and advertises connected children in its response AP; child discovery and transfers are routed only through an identified, operating parent.
 `Dc.attachMemoryCard` attaches a core-owned memory card to a port/slot and connects persistence regardless of whether `setSram` was called before or after attachment.
-No memory card is attached by default while factory initialization and standalone/pin behavior remain incomplete.
+One memory card is attached to the first slot of the first controller by default.
+A new card holds the empty file system that the boot ROM file screen writes with its default choices: 200 user blocks, a 13-block directory from block 253 down, the FAT in block 254 and the system block 255 with an opaque white card color.
+User blocks stay erased (0xff), and the system block repeats the `Get_Media_Info` fields from offset 0x40.
+The format date is fixed at 2000-01-01, where the boot ROM writes the clock, so that runs repeat.
+Persistent storage that already holds data replaces this image when `setSram` binds the card, so the card is formatted only when no saved data exists.
+The system block words from 0x52 take the values the boot ROM writes; their meaning is not documented.
+Standalone and pin behavior remain incomplete.
 The endpoint advertises FT1/FT2/FT3 definitions, ordered by descending function number, and the documented product name.
-It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error`, documented partition/block/phase/length errors, reset and kill.
+It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error` (after a write group with the next phase, or after a read with the same phase), documented partition/block/phase/length errors, reset and kill.
 A complete write group commits after phase 3; an interrupted or invalid group is discarded without changing the block.
 The functional packet endpoint applies effects when the host consumes the descriptor, not at individual wire-bit boundaries; flash programming latency, power-loss behavior and physical write failures remain pending.
 
-Raw 128 KiB byte images can be imported/exported without filesystem synthesis.
+Raw 128 KiB byte images can be imported/exported; an imported image is used as is.
 For a formatted card, `Get_Media_Info` returns ROM-fixed capacity/partition/root values and the remaining metadata from the system block, following FT1.
 Unformatted factory media parameters and extended device information remain explicit development stops until their exact memory card definitions are verified.
 The original generic FT1 layout and independent memory card root observations name some fields differently; memory card-specific factory responses still need stronger hardware evidence.
-LCD packet state supports FT2 media information (48×32 dots, two levels, no contrast adjustment), a single 192-byte horizontal-1 plane, contrast reset/query and documented LCD error bits.
+LCD packet state supports FT2 media information (48×32 dots, two levels, no contrast adjustment, and a last byte of 2 that the documents do not describe but game system software requires), a single 192-byte horizontal-1 plane, contrast reset/query and documented LCD error bits.
 `lcd.exportPixels` returns an independent copy of panel bytes; `lcd.image` produces a 48×32 RGBA image using the row-major, left-MSB arrangement in FT2 figures 2.5/2.9 and memory card peripheral specification figure 4.6.
 Attached LCDs appear as core-owned memory card A1–D2 debug layers through the existing video descriptor interface.
 Physical mounting orientation, icon segments and display timing still need hardware validation.
@@ -1155,7 +1165,7 @@ Vertex fog uses flat or perspective-correct Gouraud offset alpha and its separat
 Normal fog changes RGB while preserving the shaded alpha, and Mode 2 replaces RGB and alpha with the table fog color and coefficient before blending.
 The Mode 2 implementation follows the explicit assignments in §3.4.8.1; the abbreviated wording in §3.7.9.2 is ambiguous about the substitution direction.
 Flat untextured backgrounds use the same clamp/fog stage with the programmed background depth.
-Table interpolation and RGB mixing use host double arithmetic with nearest integer color rounding; physical internal precision, coefficient quantization and rounding remain unverified.
+Table interpolation uses host double arithmetic; RGB mixing quantizes the coefficient to 1/256 steps and blends in integer lanes. Physical internal precision, coefficient quantization and rounding remain unverified.
 Table power-on contents are unspecified and initialized to zero for deterministic execution; physical table retention through pipeline resets is unverified.
 Reversed clamp bounds stop explicitly because their hardware behavior is not documented.
 
@@ -1213,17 +1223,20 @@ Triangle and quad arrays support counted records and OPB links, with cycle detec
 The functional parameter representation follows the generic three-word ISP/TSP header in §3.7.9 with XYZ-only vertices and skip zero; physical modifier packing still requires independent hardware confirmation.
 In-front tests use GEq as a functional coplanar policy; exact equality, raster precision and internal flag transitions remain unverified.
 A volume without a last polygon stops rather than emitting an incomplete area.
-Per-tile last-polygon propagation when the final face is clipped from a tile remains pending; such a tile can currently stop as an unfinished volume.
+TA also lists the last polygon in every tile that an earlier triangle of the volume reaches, so each tile list closes its volumes; the documents do not describe this binning, and the hardware output for such a tile remains unverified.
+A modifier triangle that directly follows the last triangle array of a tile in parameter memory joins that array, up to 16 triangles, so the renderer reads the same triangles in the same order with fewer object pointers.
+The documents do not say whether the TA packs volumes this way; a game's shadow volumes overflow its object list area with one pointer per triangle.
 
 FPU_SHAD_SCALE exposes the documented intensity enable bit and unsigned factor divided by 256.
-Area-one pixels on Shadow-enabled objects scale interpolated base and offset channels before texture/shading, clamp, fog and blending.
+Area-one pixels on Shadow-enabled objects scale the interpolated base and offset RGB channels before texture/shading, clamp, fog and blending. The documents describe the scale of the color but not its alpha, so the alpha is kept and a shadow changes neither blending nor the punch-through test; this needs hardware validation.
 The model applies the literal color multiplier to ARGB, then applies Use Alpha normally; the physical alpha/offset-alpha gating and multiplier rounding still require hardware observations.
 Opaque/punch-through depths are resolved before area evaluation, after which the tile is replayed from saved color, depth and secondary-buffer state to avoid duplicate blending.
 A failed depth/area prepass restores those buffers as well, allowing repaired VRAM data to be retried on a retained tile without applying the failed prepass twice.
-Auto-sorted translucent modifiers evaluate against each selected layer's fragment depths before that layer is shaded and composited.
+Auto-sorted translucent modifiers evaluate against the fragment depths of each layer before that layer is composited.
+A fragment whose material or intensity shadow depends on the area is collected for both areas, and the layer takes the one that matches the area of its pixel.
 Opaque and translucent area masks are independent; pre-sorted translucent modifiers stop because §3.4.5.3 permits only auto-sort.
 Replay is a functional implementation strategy and does not model the hardware ISP/TSP phases or render duration.
-Modifier-enabled backgrounds and punch-through intensity shadows with Use Alpha remain explicit development stops; two-volume parameter selection is described below.
+Modifier-enabled backgrounds remain an explicit development stop; two-volume parameter selection is described below.
 Tests use analytical planes, closed slabs, inclusion/exclusion combinations and self-authored TA scenes, including secondary writes and per-layer translucent blending; they are not physical hardware measurements.
 
 ## Two-volume parameter selection
@@ -2191,7 +2204,7 @@ These component sections are integrated into the complete native DC save/load pa
 
 ## GPU CORE rendering component state
 
-`DcGpuRender` saves its register map, region cursor, retained tile coordinates, remaining functional tile deadline, sort/material state, primary/secondary color buffers, secondary-valid bits, depth buffer, shadow mask, depth-peeling history, fragment candidates and fog component.
+`DcGpuRender` saves its register map, region cursor, retained tile coordinates, remaining functional tile deadline, sort/material state, primary/secondary color buffers, secondary-valid bits, depth buffer, shadow mask, an unused depth-peeling history kept for the state format, fragment candidates and fog component.
 The negative-infinity depth-peeling sentinel is retained without conversion to a finite depth.
 Destination VRAM, palette and completion callbacks stay attached; their owning components restore VRAM bytes and palette state separately.
 The modifier evaluator has only scratch data and destination-owned callbacks, so it requires no independent persistent section.
@@ -2317,7 +2330,7 @@ That run loads only the supplied boot ROM and flash, in reverse selection order,
 The lower part of the capture still contains visible rendering artifacts; this result establishes the default startup path, not strict hardware matching or complete BIOS navigation.
 A further 50 million observations of the no-disc core-profile run retain the logo and repeatedly sample VSYNC at `0xa05f810c` from `0x8c00cb2e`; progression to the date dialog or main menu on this particular path remains unresolved.
 Tracing that checkpoint shows that the 32-clock approximation lets interrupt service consume the VSYNC pulse before the foreground wait observes it: pulses occur, but the wait never returns during one million observations.
-The core-owned profile now uses eight master clocks per instruction instead.
+The core-owned profile then used eight master clocks per instruction instead.
 At the same checkpoint, the original BIOS returns through `0x8c00cb3a`, continues display initialization and executes five million additional observations without a development stop; this provisional timing adjustment is not a cycle-accurate SH-4 model.
 The earlier 32-clock cold-boot captures above describe the previous profile revision.
 Another 20 million observations with the eight-clock profile complete without a development stop and fade the logo to a plain background while native BIOS service processing continues; the date dialog and main menu are not yet established on this no-disc path.
@@ -2670,7 +2683,53 @@ No unit-test case was added, and the retained 30 DSP/public-state scenarios pass
 
 ## Optional expansion devices and pipeline reset
 
-No optional G2 network adapter is attached. Byte identification reads at 0x00600000/0x00600004 and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
-The electrical value of an unconnected bus remains unverified; writes and other unimplemented peripheral registers retain explicit unsupported behavior.
+No optional G2 network adapter is attached. Byte reads in the absent modem window 0x00600000–0x006007ff and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
+The electrical value of an unconnected bus remains unverified. Byte writes to the absent modem window are ignored; writes to the expansion window and other unimplemented peripheral registers retain explicit unsupported behavior.
 A pipeline-only GPU reset aborts pipeline work while preserving drawing and fog configuration; a full device reset restores register defaults.
 Descending additional OPB allocation subtracts the new list block's size before storing it, allowing the cursor to begin at the lower boundary of the initial OPBs without overwriting them.
+
+## Instruction timing
+
+Each SH-4 instruction advances the devices by one CPU clock (`cpuPeriod` master clocks), in the interpreter and in compiled code alike.
+The boot profile previously charged eight CPU clocks per instruction to work around a BIOS VSYNC wait; that slowed guest computation to about an eighth of the hardware rate, so CPU-bound titles ran at a fraction of their intended speed.
+Dual issue and pipeline stalls are not modeled.
+When compiled code spends its whole budget and ends at the PC, the tag and the registers of one of the last four such runs, it is taken to wait in a loop for an interrupt or for memory that a device or a DMA writes.
+The next 15 runs in that state then consume their budget without executing, and the run after them executes the loop again; any run that ends for another reason, such as the RTE of an interrupt handler, stops the skipping.
+A loop that changes memory but leaves the registers equal at those points would lose its effect on memory; such loops are not supported.
+
+## System settings date
+
+The boot ROM asks for the date when the RTC is earlier than the date saved in the flash settings blocks, or 30 days or more past it.
+The RTC follows the host's local time, so a flash image saved long ago would ask at every start.
+At each power-on reset, the core writes the RTC time into every settings block (id 5 in the block-allocated partition at `0x1c000`) and recomputes its CRC-16 (polynomial 0x1021, initial value 0xffff, inverted output, stored little-endian over the first 62 bytes).
+An image without settings blocks is left as it is, so that the boot ROM runs its first setup.
+
+## Compiled code with the MMU on
+
+With the MMU on, compiled code runs in P0 in both modes and in P1 and P2 in privileged mode.
+Two translation tables of the JIT runtime, 1024 slots each, one for reads and instruction fetches and one for writes, cache translations of 4 KiB pages to main RAM; P1 and P2 form their direct window.
+The interpreter fills a slot from each successful TLB translation of a page of 4 KiB or more; a missing slot returns the access to the interpreter.
+LDTLB also fills the slots of the page at TEA, in the mode of SSR.MD, so the access that missed resumes in compiled code after the handler's RTE.
+A slot key holds the virtual page, user mode and the address space key (256 when MMUCR.SV shares privileged accesses, otherwise PTEH.ASID), so the tables need no flush when the ASID changes.
+The slot index also depends on the key, so a page used in both modes or by two address spaces keeps a slot for each.
+Changing a valid TLB entry drops the slots of its old range; MMUCR.TI and changes of MMUCR.AT or MMUCR.SV drop every slot.
+The block tag includes user mode and the address space key, so each process has its own blocks.
+A block in P0 stays within one page, guards the physical code, and leaves at entry when its page has no slot.
+When the interpreter refills the slot of a page with another physical page, the blocks built from the old page are retired.
+User-mode blocks exclude the privileged STC SR forms.
+The TLB does not translate stores to the store queues, so privileged blocks send them to the queue page at a P1 alias of the reserved area-7 page `0x1ffff000`, which the direct window passes without a table lookup; user-mode blocks do the same when MMUCR.SQMD is clear, which the block tag records, and otherwise return them to the interpreter.
+A longword access with displacement whose base register is unchanged since block entry, and whose entry value then points at a CCN register without side effects (reads of PTEH, PTEL, TTB, TEA, MMUCR, TRA, EXPEVT, INTEVT and PTEA, writes of PTEL, TTB, TEA and PTEA), calls a helper instead of leaving the block; the block guards the base value, which it takes from the context when it is translated at its entry, and leaves when the value differs.
+Privileged blocks call a helper for LDTLB and end after it.
+They also end at RTE with NOP in its slot and leave with their own reason, so that the host restores SR from SSR, which may switch the register bank, and the PC from SPC.
+A load or store whose page has no slot leaves with its own reason; when the UTLB has no entry for the address, the host raises the TLB miss at once instead of interpreting the access, unless SR.BL, an admitted interrupt or a pending reset comes first; when it has one, the host fills the slots of the page and compiled code resumes at the access.
+In both MMU modes, privileged blocks run LDC Rm,SR unless it changes SR.MD, SR.RB or SR.FD; they leave after it when the new mask and SR.BL admit the highest pending interrupt, whose level the host writes to the context before each run and a store-queue transfer raises to 16.
+LDS and LDS.L to FPSCR end the block and continue on the tag of the new FPSCR.PR; a change of FPSCR.SZ or FPSCR.FR leaves the block before them. Single-precision FLOAT, FTRC, FIPR and FTRV, which run natively, are also accepted in delay slots.
+Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.
+
+## Reserved and sub-word register accesses
+
+Undefined addresses among the CPU control registers in the area-7 alias (`0x1f000000`–`0x1f0000ff`) ignore writes and read as zero; the defined registers keep their behavior.
+Byte and word reads of PVR and HOLLY interrupt registers return the addressed lanes of the longword.
+Zero writes after the end of the AICA DSP register map (`0x45c8`–`0x47ff`) are ignored, like the other gaps in the map.
+Reads of the write-only G2 protection register return zero; the hardware value is undocumented.
+FLDI0 and FLDI1 load their single values regardless of FPSCR.PR; the manual leaves the PR = 1 case undefined, but a shipped title executes it.

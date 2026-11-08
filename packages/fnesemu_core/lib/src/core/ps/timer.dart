@@ -2,6 +2,7 @@
 import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
+import 'state.dart';
 
 // final _log = DebugLog('ps.timer');
 
@@ -171,6 +172,26 @@ class Timer {
     }
   }
 
+  void saveState(StateWriter w) {
+    w.ints([counter, target, mode_]);
+    for (final b in [reachTarget, reachFfff, intRequested, sync, pause, triggered]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(3, 'ps timer');
+    counter = v[0];
+    target = v[1];
+    mode_ = v[2];
+    reachTarget = s.boolean();
+    reachFfff = s.boolean();
+    intRequested = s.boolean();
+    sync = s.boolean();
+    pause = s.boolean();
+    triggered = s.boolean();
+  }
+
   String dump() => "Timer$no: ${mode.x4} ${counter.x4}/${target.x4} "
       "sy:${!sync ? '-' : _syncMode} ${(no == 2 ? !mode_.bit9 : !mode_.bit8) ? 'S' : 'E'} "
       "${_repeatMode ? "rep" : "one"} ${_toggleMode ? "tgl" : "pls"} "
@@ -289,6 +310,25 @@ class TimerController {
     t.counter = 0;
     t.reachTarget = false;
     t.reachFfff = false;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-timers');
+    w.ints([_lastClocks, systemClockCounter, dotClockCounter]);
+    for (final t in timers) {
+      t.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-timers');
+    final v = s.fields(3, 'ps timers');
+    _lastClocks = v[0];
+    systemClockCounter = v[1];
+    dotClockCounter = v[2];
+    for (final t in timers) {
+      t.loadState(s);
+    }
   }
 
   int target(int no) => timers[no].target;

@@ -2,10 +2,11 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../components/r3000/jit/r3000_translator.dart';
 import '../../../util/int.dart';
+import '../../../util/jit_adapter.dart';
 import '../bus.dart';
 import '../r3000/r3000.dart';
-import 'r3000_translator.dart';
 
 /// Runs the R3000 with [JitRuntime] blocks and falls back to the
 /// interpreter for what the blocks leave out.
@@ -16,36 +17,26 @@ import 'r3000_translator.dart';
 /// interrupts, COP0, cache isolation and the BIOS hooks. It is entered and
 /// left only at instruction boundaries outside a branch delay slot; a load
 /// still in its delay is carried as the block tag, see [R3000Translator].
-final class PsJit {
-  final JitRuntime rt;
+final class PsJit extends JitAdapter {
   late final diagnostics =
       JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little)
         ..memoryRegion = _memoryRegion;
 
-  /// Whether this runtime executes compiled host code rather than reference IR.
-  final bool native;
-
-  /// Runs the CPU interpreter instead while keeping compiled blocks and the
-  /// shared guest state, for tools that warm up with compiled code.
-  bool suspended = false;
-
-  /// Guest clocks executed by compiled code, excluding interpreter fallbacks.
-  int get compiledClocks => native ? _driver.executedClocks : 0;
   late final R3000 cpu;
   late final Bus bus;
   late final R3000Translator _translator;
 
-  static const ctxRegs = JitCtx.user;
-  static const ctxHi = ctxRegs + 32, ctxLo = ctxHi + 1;
-  static const ctxPendingValue = ctxLo + 1;
+  static const ctxRegs = R3000Translator.ctxRegs;
+  static const ctxHi = R3000Translator.ctxHi, ctxLo = R3000Translator.ctxLo;
+  static const ctxPendingValue = R3000Translator.ctxPendingValue;
   static const _ctxWords = ctxPendingValue + 1;
 
   /// the exit of an instruction run by the interpreter
-  static const reasonInterpret = JitReason.user;
+  static const reasonInterpret = R3000Translator.reasonInterpret;
 
   /// the exit of a store to an unmapped page: a device or a page with
   /// translated code, which the interpreter runs
-  static const reasonStore = JitReason.user + 1;
+  static const reasonStore = R3000Translator.reasonStore;
 
   late final Uint8List ram = rt.alloc(2 * 1024 * 1024);
   late final Uint8List rom = rt.alloc(512 * 1024);
@@ -60,20 +51,20 @@ final class PsJit {
   late final _code = JitCodeMemory(rt);
   (int, int) _translating = (0, 0);
 
-  /// blocks are translated once they would have run this often; until
-  /// then the interpreter runs them, as most code runs only a few times
-  final int compileThreshold;
   late final _driver = JitDriver(rt, translate: (pc, tag) {
     _translating = (pc, tag);
-    return _translator.translate(pc, tag);
+    return _translator.translate(pc, tag: tag);
   },
       codeWord: _codeWord,
       codeMemory: _code,
       threshold: compileThreshold,
       recompileInvalid: true);
 
-  PsJit._(this.rt, this.native, int? compileThreshold)
-      : compileThreshold = compileThreshold ?? rt.compileThreshold;
+  PsJit._(super.rt, super.native, int? compileThreshold)
+      : super(compileThreshold: compileThreshold);
+
+  @override
+  JitDriver get driver => _driver;
 
   /// the recompiler of this host, or null if it has none; [native] false
   /// interprets the blocks instead, for tests. [compileThreshold] replaces
@@ -124,23 +115,38 @@ final class PsJit {
     final cop2 = cpu.cop2;
     _translator = R3000Translator(
       fetch: _fetch,
-      mfc0: rt.addHelper((reg, _, __) => cpu.readCop0(reg)),
       endsAfterStore: _endsAfterStore,
-      cop2Cmd: rt.addHelper((inst, _, __) {
-        cop2.execCmd(inst);
-        return 0;
-      }),
-      mfc2: rt.addHelper((reg, _, __) => cop2.readReg(reg)),
-      cfc2: rt.addHelper((reg, _, __) => cop2.readCtrl(reg)),
-      mtc2: rt.addHelper((reg, value, _) {
-        cop2.writeReg(reg, value);
-        return 0;
-      }),
-      ctc2: rt.addHelper((reg, value, _) {
-        cop2.writeCtrl(reg, value);
-        return 0;
-      }),
+      mfc0: rt.addHelper((reg, _, __) => cpu.readCop0(reg)),
+      cop2: (
+        cmd: rt.addHelper((inst, _, __) {
+          cop2.execCmd(inst);
+          return 0;
+        }),
+        mfc: rt.addHelper((reg, _, __) => cop2.readReg(reg)),
+        cfc: rt.addHelper((reg, _, __) => cop2.readCtrl(reg)),
+        mtc: rt.addHelper((reg, value, _) {
+          cop2.writeReg(reg, value);
+          return 0;
+        }),
+        ctc: rt.addHelper((reg, value, _) {
+          cop2.writeCtrl(reg, value);
+          return 0;
+        }),
+      ),
+      isHook: _isHook,
+      maxInstructions: 64,
+      clocksPerInstruction: 2,
     );
+  }
+
+  /// the addresses where [R3000.step] calls its hook first: the BIOS
+  /// entry points and the boot address
+  static bool _isHook(int pc) {
+    final vector = pc & 0x1fffff;
+    return vector == 0xa0 ||
+        vector == 0xb0 ||
+        vector == 0xc0 ||
+        pc == 0x80030000;
   }
 
   static String _memoryRegion(int address) {
@@ -228,14 +234,6 @@ final class PsJit {
   bool _endsAfterStore(int pc) =>
       (pc & 0x1fffffff) < 0x800000 && _code.isReleased(pc);
 
-  /// drops every block, after the rom or the whole memory changes
-  void reset() {
-    _driver.reset();
-  }
-
-  /// frees the runtime with the memory; nothing runs afterwards
-  void dispose() => rt.dispose();
-
   bool _yieldRequested = false;
 
   /// Returns to the device scheduler after an interpreted register write.
@@ -293,7 +291,7 @@ final class PsJit {
   /// of a taken branch
   void _interpretBlock() {
     final cpu = this.cpu;
-    for (int n = 0; n < R3000Translator.maxInstructions; n++) {
+    for (int n = 0; n < _translator.maxInstructions; n++) {
       final slot = cpu.nextPc != cpu.pc.inc4.mask32;
       cpu.step();
       if (_yieldRequested || (slot && cpu.nextPc == cpu.pc.inc4.mask32)) break;

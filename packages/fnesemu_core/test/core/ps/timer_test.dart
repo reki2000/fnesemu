@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:fnesemu_core/src/core/ps/bus.dart';
@@ -11,8 +12,36 @@ class _Bus extends Bus {
   void setIrq(int no) => requests.add(no);
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('all target crossings preserve IRQ toggle parity', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('all target crossings preserve IRQ toggle parity', () {
     for (final batch in [100, 200, 300, 600]) {
       final bus = _Bus();
       final timer = Timer(0, bus)
@@ -27,7 +56,7 @@ void main() {
     }
   });
 
-  test('timer IRQ counts and state do not depend on update batch size', () {
+  aggCase('timer IRQ counts and state do not depend on update batch size', () {
     final random = Random(53);
     for (final irqBits in [0, 0x10, 0x20, 0x30]) {
       for (final reset in [false, true]) {
@@ -68,4 +97,15 @@ void main() {
       }
     }
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/gif.dart';
@@ -38,9 +39,40 @@ void _sprite(Gs gs, num x0, num y0, num x1, num y1, int color,
   gs.writeRegister(0x05, _xyz(x1, y1, z));
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  group('transfers', () {
-    test('host to local and back in PSMCT32', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggGroup(String name, void Function() body, {Object? skip}) {
+    if (skip == null || skip == false) body();
+  }
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggGroup('transfers', () {
+    aggCase('host to local and back in PSMCT32', () {
       final gs = _gs();
       gs.writeRegister(0x50, 0 | (1 << 16) | (0 << 24) | (0 << 32) | (1 << 48));
       gs.writeRegister(0x51, 0);
@@ -64,7 +96,7 @@ void main() {
       expect(out[1], (0x103 << 32) | 0x102);
     });
 
-    test('24-bit pixels are packed across words', () {
+    aggCase('24-bit pixels are packed across words', () {
       final gs = _gs();
       gs.writeRegister(0x50, (1 << 32) * 0 | (1 << 48) | (1 << 56));
       gs.writeRegister(0x52, 4 | (1 << 32));
@@ -78,8 +110,7 @@ void main() {
       expect(gs.mem.read(GsPsm.ct24, 0, 1, 3, 0), 0x0c0b0a);
     });
 
-    test('8-bit pixels use four to a word and the transfer stops at the end',
-        () {
+    aggCase('8-bit pixels use four to a word and the transfer stops at the end', () {
       final gs = _gs();
       gs.writeRegister(0x50, (1 << 48) | (GsPsm.t8 << 56));
       gs.writeRegister(0x52, 3 | (1 << 32));
@@ -90,7 +121,7 @@ void main() {
       expect(gs.mem.read(GsPsm.t8, 0, 1, 3, 0), 0);
     });
 
-    test('local to local copy', () {
+    aggCase('local to local copy', () {
       final gs = _gs();
       gs.mem.write(GsPsm.ct32, 0, 1, 1, 1, 0xabcdef01);
       gs.writeRegister(
@@ -101,7 +132,7 @@ void main() {
       expect(gs.mem.read(GsPsm.ct32, 32, 1, 4, 5), 0xabcdef01);
     });
 
-    test('a local copy follows the transmission order of TRXPOS', () {
+    aggCase('a local copy follows the transmission order of TRXPOS', () {
       final gs = _gs();
       for (var x = 0; x < 4; x++) {
         gs.mem.write(GsPsm.ct32, 0, 1, x, 0, x + 1);
@@ -115,8 +146,8 @@ void main() {
     });
   });
 
-  group('drawing', () {
-    test('a sprite covers the pixels whose centres are inside', () {
+  aggGroup('drawing', () {
+    aggCase('a sprite covers the pixels whose sample points are inside', () {
       final gs = _gs();
       _sprite(gs, 2, 3, 6, 5, _rgba(10, 20, 30));
       var count = 0;
@@ -131,17 +162,17 @@ void main() {
       expect(count, 8);
     });
 
-    test('fractional sprite corners follow pixel centres', () {
+    aggCase('fractional sprite corners follow integer sample points', () {
       final gs = _gs();
       _sprite(gs, 1.5, 0, 3.5, 1, _rgba(1, 2, 3));
-      // pixel centres 1.5 (inclusive), 2.5; 3.5 is excluded
-      expect(_px(gs, 1, 0), _rgba(1, 2, 3));
+      // the sample points 2 and 3 are inside; 1 is before the left edge
+      expect(_px(gs, 1, 0), 0);
       expect(_px(gs, 2, 0), _rgba(1, 2, 3));
-      expect(_px(gs, 3, 0), 0);
-      expect(_px(gs, 0, 0), 0);
+      expect(_px(gs, 3, 0), _rgba(1, 2, 3));
+      expect(_px(gs, 4, 0), 0);
     });
 
-    test('two triangles of a quad cover every pixel exactly once', () {
+    aggCase('two triangles of a quad cover every pixel exactly once', () {
       final gs = _gs();
       // additive blend: Cs + Cd
       gs.writeRegister(0x42, 0 | (2 << 2) | (2 << 4) | (1 << 6) | (0x80 << 32));
@@ -165,7 +196,7 @@ void main() {
       expect(doubled, 0, reason: 'the shared edge must not be drawn twice');
     });
 
-    test('a list triangle ends at its third vertex even without a kick', () {
+    aggCase('a list triangle ends at its third vertex even without a kick', () {
       final gs = _gs();
       gs.writeRegister(0x01, _rgba(0x20, 0x20, 0x20));
       gs.writeRegister(0x00, 3);
@@ -181,7 +212,7 @@ void main() {
       expect(_px(gs, 2, 2), 0);
     });
 
-    test('Gouraud shading interpolates colours', () {
+    aggCase('Gouraud shading interpolates colours', () {
       final gs = _gs();
       gs.writeRegister(0x00, 3 | 0x08);
       gs.writeRegister(0x01, _rgba(0, 0, 0));
@@ -195,7 +226,7 @@ void main() {
       expect(mid, inInclusiveRange(90, 110));
     });
 
-    test('depth test rejects a farther sprite and the Z buffer is written', () {
+    aggCase('depth test rejects a farther sprite and the Z buffer is written', () {
       final gs = _gs();
       gs.writeRegister(0x4e, 64 | ((GsPsm.z32 - 0x30) << 24));
       gs.writeRegister(0x47, (1 << 16) | (2 << 17)); // ZTE, GEQUAL
@@ -207,7 +238,7 @@ void main() {
       expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, 1, 1), 1500);
     });
 
-    test('depth comparisons and masked writes work for every Z format', () {
+    aggCase('depth comparisons and masked writes work for every Z format', () {
       for (final psm in [GsPsm.z32, GsPsm.z24, GsPsm.z16, GsPsm.z16s]) {
         final gs = _gs();
         for (final enabled in [false, true]) {
@@ -238,7 +269,7 @@ void main() {
       }
     });
 
-    test('alpha and destination tests still control depth writes', () {
+    aggCase('alpha and destination tests still control depth writes', () {
       final gs = _gs();
       gs.writeRegister(0x4e, 64); // Z32 at block 2048
       gs.mem.write(GsPsm.ct32, 0, 1, 0, 0, 0x00112233);
@@ -257,7 +288,7 @@ void main() {
       expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, 0, 0), 750);
     });
 
-    test('alpha blending mixes with the destination', () {
+    aggCase('alpha blending mixes with the destination', () {
       final gs = _gs();
       _sprite(gs, 0, 0, 4, 4, _rgba(200, 100, 0, 0xff));
       // Cv = (Cs - Cd) * As >> 7 + Cd
@@ -272,7 +303,7 @@ void main() {
       expect((p >> 16) & 0xff, 100);
     });
 
-    test('dithering adds the DIMX entry to a 16-bit frame', () {
+    aggCase('dithering adds the DIMX entry to a 16-bit frame', () {
       final gs = _gs(psm: GsPsm.ct16);
       gs.writeRegister(0x44, 3); // +3 at (0, 0)
       gs.writeRegister(0x45, 1);
@@ -281,14 +312,14 @@ void main() {
       expect(_px(gs, 1, 0, GsPsm.ct16) & 31, 0);
     });
 
-    test('the destination alpha test passes every pixel of a 24-bit frame', () {
+    aggCase('the destination alpha test passes every pixel of a 24-bit frame', () {
       final gs = _gs(psm: GsPsm.ct24);
       gs.writeRegister(0x47, (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17));
       _sprite(gs, 0, 0, 2, 2, _rgba(0x12, 0x34, 0x56));
       expect(_px(gs, 0, 0, GsPsm.ct24), 0x563412);
     });
 
-    test('frame mask keeps masked bits', () {
+    aggCase('frame mask keeps masked bits', () {
       final gs = _gs();
       _sprite(gs, 0, 0, 2, 2, _rgba(0xff, 0xff, 0xff, 0xff));
       gs.writeRegister(0x4c, _frame(0, 1, 0, 0x0000ffff));
@@ -296,13 +327,13 @@ void main() {
       expect(_px(gs, 0, 0), 0x0000ffff);
     });
 
-    test('16-bit frames pack 5551', () {
+    aggCase('16-bit frames pack 5551', () {
       final gs = _gs(psm: GsPsm.ct16);
       _sprite(gs, 0, 0, 2, 2, _rgba(0xf8, 0x80, 0x08, 0x80));
       expect(_px(gs, 0, 0, GsPsm.ct16), 0x861f);
     });
 
-    test('alpha test with FB_ONLY style failure skips the pixel', () {
+    aggCase('alpha test with FB_ONLY style failure skips the pixel', () {
       final gs = _gs();
       gs.writeRegister(0x47, 1 | (6 << 1) | (0x80 << 4)); // ATE, GREATER 0x80
       _sprite(gs, 0, 0, 2, 2, _rgba(5, 5, 5, 0x80));
@@ -312,7 +343,7 @@ void main() {
     });
   });
 
-  group('texturing', () {
+  aggGroup('texturing', () {
     void upload(Gs gs, int bp, int psm, int w, int h, List<int> words,
         {int bw = 1}) {
       gs.writeRegister(0x50, (bp << 32) | (bw << 48) | (psm << 56));
@@ -343,7 +374,7 @@ void main() {
         (csa << 56) |
         (cld << 61);
 
-    test('a LOD above 0 samples the mipmap level that MIPTBP1 points to', () {
+    aggCase('a LOD above 0 samples the mipmap level that MIPTBP1 points to', () {
       final gs = _gs();
       upload(gs, 100, GsPsm.ct32, 4, 4, List.filled(16, _rgba(10, 0, 0)));
       upload(gs, 200, GsPsm.ct32, 2, 2, List.filled(4, _rgba(20, 0, 0)));
@@ -364,7 +395,7 @@ void main() {
       expect(_px(gs, 11, 11) & 0xff, 10);
     });
 
-    test('a decal sprite maps texels one to one', () {
+    aggCase('a decal sprite maps texels one to one', () {
       final gs = _gs();
       upload(gs, 100, GsPsm.ct32, 4, 4, [
         for (var i = 0; i < 16; i++) _rgba(i * 10, 0, 0, 0xff),
@@ -383,7 +414,7 @@ void main() {
       }
     });
 
-    test('textured pixels keep alpha-failure and depth-write behavior', () {
+    aggCase('textured pixels keep alpha-failure and depth-write behavior', () {
       final gs = _gs();
       upload(gs, 100, GsPsm.ct32, 2, 1,
           [_rgba(1, 2, 3, 0x40), _rgba(4, 5, 6, 0x80)]);
@@ -418,8 +449,7 @@ void main() {
       }
     });
 
-    test('a Z buffer read as a texture and drawn as a frame keeps its value',
-        () {
+    aggCase('a Z buffer read as a texture and drawn as a frame keeps its value', () {
       final gs = _gs();
       for (var y = 0; y < 4; y++) {
         for (var x = 0; x < 4; x++) {
@@ -441,7 +471,7 @@ void main() {
       }
     });
 
-    test('ST coordinates are divided by Q', () {
+    aggCase('ST coordinates are divided by Q', () {
       final gs = _gs();
       upload(gs, 100, GsPsm.ct32, 2, 2,
           [_rgba(10, 0, 0), _rgba(20, 0, 0), _rgba(30, 0, 0), _rgba(40, 0, 0)]);
@@ -463,7 +493,7 @@ void main() {
       expect(one[0], 1.0);
     });
 
-    test('an indexed texture reads its palette', () {
+    aggCase('an indexed texture reads its palette', () {
       final gs = _gs();
       // a 16x16 CSM1 palette at block 200 in CT32, where the image position
       // of an entry swaps bits 3 and 4 of the index
@@ -488,7 +518,7 @@ void main() {
       expect(_px(gs, 3, 0) & 0xffffff, 0xffffff);
     });
 
-    test('a 4-bit texture reads 16 palette entries at CSA', () {
+    aggCase('a 4-bit texture reads 16 palette entries at CSA', () {
       final gs = _gs();
       // an 8x2 CSM1 palette in CT16: entry 1 = red, entry 9 = blue
       upload(gs, 200, GsPsm.ct16, 8, 2,
@@ -508,7 +538,7 @@ void main() {
       expect(_px(gs, 1, 0) & 0xffffff, 0xf80000);
     });
 
-    test('modulate scales the texel by the vertex colour', () {
+    aggCase('modulate scales the texel by the vertex colour', () {
       final gs = _gs();
       upload(gs, 100, GsPsm.ct32, 1, 1, [_rgba(200, 100, 50, 0x80)]);
       gs.writeRegister(0x06, tex0(100, 1, GsPsm.ct32, 0, 0, tfx: 0));
@@ -525,7 +555,7 @@ void main() {
     });
   });
 
-  group('GIF', () {
+  aggGroup('GIF', () {
     int tag(int nloop, int flg, int nreg, int regs,
             {bool eop = true, int prim = -1}) =>
         nloop |
@@ -534,7 +564,7 @@ void main() {
         (flg << 58) |
         (nreg << 60);
 
-    test('packed A+D writes general registers', () {
+    aggCase('packed A+D writes general registers', () {
       final gs = _gs();
       final path = GifPath(gs);
       path.put(tag(2, 0, 1, 0xe), 0xe);
@@ -545,7 +575,7 @@ void main() {
       expect(path.busy, isFalse);
     });
 
-    test('a tag sets Q to 1.0 and NLOOP 0 ignores PRIM', () {
+    aggCase('a tag sets Q to 1.0 and NLOOP 0 ignores PRIM', () {
       final gs = _gs();
       final path = GifPath(gs);
       gs.writeRegister(0x00, 3);
@@ -555,7 +585,7 @@ void main() {
       expect(gs.qBits, 0x3f800000);
     });
 
-    test('packed RGBAQ and XYZ2 draw a sprite', () {
+    aggCase('packed RGBAQ and XYZ2 draw a sprite', () {
       final gs = _gs();
       final path = GifPath(gs);
       // PRIM sprite via PRE, then RGBAQ, XYZ2, XYZ2 per loop
@@ -566,7 +596,7 @@ void main() {
       expect(_px(gs, 1, 1), _rgba(0x10, 0x20, 0x30));
     });
 
-    test('image data goes to the transfer', () {
+    aggCase('image data goes to the transfer', () {
       final gs = _gs();
       gs.writeRegister(0x50, (1 << 48));
       gs.writeRegister(0x52, 2 | (2 << 32));
@@ -580,7 +610,7 @@ void main() {
       expect(path.busy, isFalse);
     });
 
-    test('reglist carries two registers per quadword', () {
+    aggCase('reglist carries two registers per quadword', () {
       final gs = _gs();
       final path = GifPath(gs);
       // registers 0x0a (FOG) is not needed; use TEX0_1 (6) and CLAMP_1 (8)
@@ -591,8 +621,8 @@ void main() {
     });
   });
 
-  group('status', () {
-    test('vblank sets CSR and interrupts unless masked', () {
+  aggGroup('status', () {
+    aggCase('vblank sets CSR and interrupts unless masked', () {
       final gs = _gs();
       var interrupts = 0;
       gs.onInterrupt = () => interrupts++;
@@ -607,14 +637,14 @@ void main() {
       expect(interrupts, 1);
     });
 
-    test('FINISH sets its flag', () {
+    aggCase('FINISH sets its flag', () {
       final gs = _gs();
       gs.writePrivileged(0x12001010, 0);
       gs.writeRegister(0x61, 0);
       expect(gs.readPrivileged(0x12001000) & 2, 2);
     });
 
-    test('the display circuit is read into the image', () {
+    aggCase('the display circuit is read into the image', () {
       final gs = _gs();
       _sprite(gs, 0, 0, 8, 8, _rgba(9, 8, 7));
       gs.writePrivileged(0x12000000, 1); // PMODE EN1
@@ -626,7 +656,7 @@ void main() {
       expect(image.buffer[63], 0xff000000);
     });
 
-    test('a display taller than the visible lines is cut', () {
+    aggCase('a display taller than the visible lines is cut', () {
       final gs = _gs();
       gs.writePrivileged(0x12000000, 1);
       gs.writePrivileged(0x12000070, 1 << 9);
@@ -636,4 +666,15 @@ void main() {
       expect(gs.image().height, 480);
     });
   });
+
+  const chunkCount = 3;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

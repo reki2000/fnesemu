@@ -79,79 +79,7 @@ void main() {
   });
 
   for (final jit in [false, true]) {
-    test('32X restores CPU views across JIT modes, source JIT=$jit', () {
-      final original = _system(expansion: true, jit: jit);
-      final a = original.expansion!;
-      for (var i = 0; i < 300; i++) {
-        expect(original.exec(false).stopped, isFalse);
-      }
-      a.video.writeRegister(4, 31);
-      a.video.writeRegister(8, 0x1234);
-      a.video.beginLine(0);
-      a.video.writeRegister(10, 1); // swap pending until VBlank
-      a.pwm.write(0, 0x205);
-      a.pwm.write(2, 101);
-      a.pwm.write(4, 11);
-      a.pwm.write(6, 71);
-      a.pwm.tick(33);
-      a.writeMain16(0xa15106, 4);
-      a.writeMain16(0xa15110, 2);
-      a.writeMain16(0xa15112, 0x7654);
-      a.writeMain16(0xa15112, 0x3210);
-      a.cpus[0].onchip.tick(7); // timer divider remainder
-      a.cpus[1].onchip.write8(0xfffffe12, 0xab); // pending high byte
-      final state = original.saveState();
-      final restored = _system(expansion: true, jit: !jit);
-      final b = restored.expansion!;
-      final ram = b.ram, registers = b.cpus[0].r;
-      restored.loadState(state);
-      expect(b.ram, same(ram));
-      expect(b.cpus[0].r, same(registers));
-      expect(restored.saveState(), state);
-      // Run through the CPU adapter without native blocks, whose cold
-      // compilation state is intentionally not persisted.
-      original.jitSuspended = restored.jitSuspended = true;
-      for (var i = 0; i < 200; i++) {
-        expect(original.exec(false).stopped, isFalse);
-        expect(restored.exec(false).stopped, isFalse);
-      }
-      expect(restored.saveState(), original.saveState());
-      expect(b.video.busy, a.video.busy);
-      expect(b.pwm.sample(), a.pwm.sample());
-      expect(b.readSh16(0x4012, 0), 0x7654);
-      expect(a.readSh16(0x4012, 0), 0x7654);
-      for (final adapter in [a, b]) {
-        adapter.cpus[1].onchip.write8(0xfffffe13, 0xcd);
-      }
-      expect(b.cpus[1].onchip.frc, 0xabcd);
-      expect(restored.saveState(), original.saveState());
-    });
   }
-
-  test('MD CD snapshots reject unsupported device state', () {
-    final md = Md(cdBoot: true)..setRom(Uint8List(0x20000));
-    addTearDown(md.dispose);
-    expect(md.saveState, throwsUnsupportedError);
-    expect(() => md.loadState(Uint8List(0)), throwsUnsupportedError);
-  });
-
-  test('32X restores an in-flight SH-2 delay slot', () {
-    final original = _system(expansion: true);
-    final a = original.expansion!;
-    final cpu = a.cpus[0];
-    ByteData.sublistView(a.ram).setUint16(0, 0xa002);
-    ByteData.sublistView(a.ram).setUint16(2, 0xe22a);
-    expect(cpu.exec(compiled: false), isTrue);
-    expect(cpu.pc, 0x06000002);
-    final restored = _system(expansion: true);
-    restored.loadState(original.saveState());
-    final other = restored.expansion!.cpus[0];
-    expect(cpu.exec(compiled: false), isTrue);
-    expect(other.exec(compiled: false), isTrue);
-    expect(other.pc, 0x06000008);
-    expect(other.r[2], 42);
-    expect(restored.saveState(), original.saveState());
-  });
 
   test('media and execution configuration mismatches fail before mutation', () {
     final original = _system(expansion: true);

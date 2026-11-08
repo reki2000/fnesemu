@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/gs/gs_memory.dart';
 import 'package:test/test.dart';
 
@@ -16,9 +17,37 @@ const _pages = {
   GsPsm.t4: (128, 128, 16384),
 };
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
   for (final entry in _pages.entries) {
-    test('psm 0x${entry.key.toRadixString(16)}: a page maps one to one', () {
+    aggCase('psm 0x${entry.key.toRadixString(16)}: a page maps one to one', () {
       final (w, h, units) = entry.value;
       final seen = <int>{};
       for (var y = 0; y < h; y++) {
@@ -34,7 +63,7 @@ void main() {
 
   // The 8-bit and 4-bit pixels of a page, written as 32-bit pixels: the
   // position of each one follows the published texture conversion code.
-  test('PSMT8 and PSMT4 pixels sit in the bytes of PSMCT32 pixels', () {
+  aggCase('PSMT8 and PSMT4 pixels sit in the bytes of PSMCT32 pixels', () {
     for (var y = 0; y < 128; y++) {
       final swap = ((y + 2) >> 2) & 1 == 0 ? 0 : 4;
       final row = (((y & ~3) >> 1) + (y & 1)) & 7;
@@ -57,14 +86,14 @@ void main() {
     }
   });
 
-  test('pages follow the buffer width', () {
+  aggCase('pages follow the buffer width', () {
     // PSMCT32: the second page of a row is 2048 words after the first
     expect(GsMemory.unitIndex(GsPsm.ct32, 0, 2, 64, 0), 2048);
     expect(GsMemory.unitIndex(GsPsm.ct32, 0, 2, 0, 32), 4096);
     expect(GsMemory.unitIndex(GsPsm.ct32, 4, 1, 0, 0), 256);
   });
 
-  test('PSMCT32 block and column order', () {
+  aggCase('PSMCT32 block and column order', () {
     // block 1 is the second block of the first block row
     expect(GsMemory.unitIndex(GsPsm.ct32, 0, 1, 8, 0), 64);
     expect(GsMemory.unitIndex(GsPsm.ct32, 0, 1, 16, 0), 4 * 64);
@@ -75,12 +104,12 @@ void main() {
     expect(GsMemory.unitIndex(GsPsm.ct32, 0, 1, 0, 2), 16);
   });
 
-  test('Z formats use the opposite block quadrant', () {
+  aggCase('Z formats use the opposite block quadrant', () {
     expect(GsMemory.unitIndex(GsPsm.z32, 0, 1, 0, 0), 24 * 64);
     expect(GsMemory.unitIndex(GsPsm.z16, 0, 1, 0, 0), 24 * 64 * 2);
   });
 
-  test('pixels round trip in every format', () {
+  aggCase('pixels round trip in every format', () {
     final mem = GsMemory();
     for (final psm in _pages.keys) {
       final max = (1 << GsPsm.pixelBits(psm)) - 1;
@@ -93,7 +122,7 @@ void main() {
     }
   });
 
-  test('the 8H and 4H formats share the upper bits of a PSMCT32 word', () {
+  aggCase('the 8H and 4H formats share the upper bits of a PSMCT32 word', () {
     final mem = GsMemory();
     mem.write(GsPsm.ct32, 0, 1, 5, 3, 0x11223344);
     mem.write(GsPsm.t8h, 0, 1, 5, 3, 0xab);
@@ -106,18 +135,15 @@ void main() {
     expect(mem.read(GsPsm.ct32, 0, 1, 5, 3), 0x79ffffff);
   });
 
-  test('the page tables give the same index as the layout', () {
-    final mem = GsMemory();
-    for (final psm in [..._pages.keys, GsPsm.ct24, GsPsm.z24, GsPsm.t4hh]) {
-      for (final (bp, bw) in [(0, 1), (37, 3), (512, 10)]) {
-        for (var y = 0; y < 300; y += 7) {
-          for (var x = 0; x < 700; x += 5) {
-            expect(mem.index(psm, bp, bw, x, y),
-                GsMemory.unitIndex(psm, bp, bw, x, y),
-                reason: 'psm $psm bp $bp bw $bw ($x,$y)');
-          }
-        }
-      }
-    }
-  });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

@@ -7,6 +7,7 @@ import '../../types.dart';
 import '../../util/crc32.dart';
 import '../../util/disasm.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 import 'display.dart';
 import 'sound.dart';
@@ -162,6 +163,56 @@ class Ws extends Core {
   @override
   void setSram(Sram sram) {
     _sram = sram;
+  }
+
+  static const _stateVersion = 1;
+
+  int get _stateMedia {
+    final w = StateWriter('ws-media', 1, stateMediaHash(bus.rom));
+    w.boolean(color);
+    return stateMediaHash(w.take());
+  }
+
+  void _requireRom() {
+    if (crc.isEmpty) throw StateError('WS ROM not loaded');
+  }
+
+  @override
+  Uint8List saveState() {
+    _requireRom();
+    final w = StateWriter('ws', _stateVersion, _stateMedia);
+    w.section('ws');
+    w.ints([_nextLineCycles, _soundCycles, frames, speakerVolume]);
+    w.boolean(_soundHeld);
+    w.boolean(_rotateHeld);
+    bus.saveState(w);
+    return w.take();
+  }
+
+  void _loadDirect(Uint8List state) {
+    final s = StateReader(state, 'ws', _stateVersion, _stateMedia);
+    s.section('ws');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('ws core state layout');
+    _nextLineCycles = v[0];
+    _soundCycles = v[1];
+    frames = v[2];
+    speakerVolume = v[3];
+    _soundHeld = s.boolean();
+    _rotateHeld = s.boolean();
+    bus.loadState(s);
+    s.end();
+  }
+
+  /// Loads into a fresh instance with the same ROM first, so that a state
+  /// which fails partway cannot leave this core half restored; the staged
+  /// state is then re-serialized and applied, as in the DC core.
+  @override
+  void loadState(Uint8List state) {
+    _requireRom();
+    final staged = Ws(color: color)..setRom(bus.rom);
+    staged._loadDirect(state);
+    _loadDirect(staged.saveState());
   }
 
   @override

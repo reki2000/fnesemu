@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../../../util/uint8list.dart';
 import 'mapper.dart';
 import 'mirror.dart';
@@ -73,6 +74,43 @@ class MapperMMC1 extends Mapper {
   @override
   Uint8List defaultSram() {
     return Uint8List(4 * 8 * 1024);
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('mmc1');
+    w.ints([
+      _shiftReg, _counter, _ramBank, _prgBankMode, _prgBank0, //
+      _chrReg[0], _chrReg[1], _chrBank[0], _chrBank[1], _prgBank[0], _prgBank[1]
+    ]);
+    w.boolean(_ramEnabled);
+    w.boolean(_chrBank4k);
+    w.boolean(_prgBank512);
+    w.bytes(_vram4k[0]);
+    w.bytes(_vram4k[1]);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('mmc1');
+    final v = s.ints();
+    if (v.length != 11) throw const StateMismatch('mmc1 state layout');
+    _shiftReg = v[0];
+    _counter = v[1];
+    _ramBank = v[2];
+    _prgBankMode = v[3];
+    _prgBank0 = v[4];
+    _chrReg[0] = v[5];
+    _chrReg[1] = v[6];
+    _chrBank[0] = v[7];
+    _chrBank[1] = v[8];
+    _prgBank[0] = v[9];
+    _prgBank[1] = v[10];
+    _ramEnabled = s.boolean();
+    _chrBank4k = s.boolean();
+    _prgBank512 = s.boolean();
+    s.bytesInto(_vram4k[0]);
+    s.bytesInto(_vram4k[1]);
   }
 
   @override

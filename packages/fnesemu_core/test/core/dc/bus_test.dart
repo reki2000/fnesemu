@@ -10,8 +10,11 @@ void main() {
     for (final address in [0x00600000, 0x02600000, 0x80600000, 0xa0600000]) {
       expect(bus.read8(address), 255);
       expect(bus.read8(address + 4), 255);
+      expect(bus.read8(address + 0x480), 255);
+      bus.write8(address + 0x480, 1);
     }
-    expect(() => bus.read8(0xa0600008), throwsA(isA<DcUnsupported>()));
+    expect(() => bus.read16(0xa0600008), throwsA(isA<DcUnsupported>()));
+    expect(() => bus.read8(0xa0600800), throwsA(isA<DcUnsupported>()));
     for (final address in [0x01000400, 0x81000400, 0xa1000400]) {
       expect(bus.read8(address + 15), 255);
       expect(bus.read16(address + 14), 65535);
@@ -21,6 +24,24 @@ void main() {
     }
     expect(bus.read32(0xa1fffffc), 0xffffffff);
     expect(() => bus.read16(0xa1000401), throwsA(isA<DcUnsupported>()));
+  });
+
+  test('undefined CPU control registers ignore writes and read zero', () {
+    for (final address in [0x1f000084, 0xff000084, 0x1f0000fc]) {
+      bus.write16(address, 0xe001);
+      bus.write32(address & ~3, 1);
+      expect(bus.read16(address), 0);
+      expect(bus.read32(address & ~3), 0);
+    }
+    expect(bus.read32(0xff000030), isNot(0xdeadbeef));
+    expect(() => bus.read32(0xa0600800), throwsA(isA<DcUnsupported>()));
+  });
+
+  test('byte and word reads of a GPU register return its lanes', () {
+    final word = bus.read32(0xa05f8004);
+    expect(bus.read8(0xa05f8004), word & 255);
+    expect(bus.read8(0xa05f8005), (word >>> 8) & 255);
+    expect(bus.read16(0xa05f8006), word >>> 16);
   });
 
   test('little-endian reads, writes and direct aliases', () {

@@ -119,7 +119,18 @@ abstract class JitRuntime {
 
   /// Validate before compiling or publishing links to a block. Every
   /// executor supports the complete IR on every platform.
-  void checkBlock(IrBlock block) => block.checkContext(ctx.length);
+  void checkBlock(IrBlock block) {
+    block.checkContext(ctx.length);
+    for (final inst in block.insts) {
+      if (inst.translation < 0) continue;
+      final id = inst.translationTable;
+      if (id >= translationTables.length ||
+          translationTables[id].write != (inst.op == IrOp.store) ||
+          inst.translationKey >= pageBytes) {
+        throw ArgumentError('invalid translation $id/${inst.translationKey}');
+      }
+    }
+  }
 
   /// zeroed memory which can be mapped with [mapPages]
   Uint8List alloc(int size);
@@ -166,8 +177,144 @@ abstract class JitRuntime {
     }
   }
 
-  void setPage(bool write, int page, (Uint8List, int)? host) =>
-      (write ? writePages : readPages)[page] = host;
+  void setPage(bool write, int page, (Uint8List, int)? host) {
+    (write ? writePages : readPages)[page] = host;
+    // Slots follow their guest page, for example into code protection.
+    for (var id = 0; id < translationTables.length; id++) {
+      final table = translationTables[id];
+      if (table.write != write || table._live == 0) continue;
+      final pages = table._pages;
+      for (var slot = 0; slot < pages.length; slot++) {
+        if (pages[slot] != page) continue;
+        if (host == null) {
+          _clearSlot(id, slot);
+        } else {
+          writeTranslationSlot(id, slot, table._keys[slot], host);
+        }
+      }
+    }
+  }
+
+  /// The translation tables, by the id that [IrTranslation.table] holds.
+  final translationTables = <JitTranslationTable>[];
+
+  /// Adds a table of [slots] virtual pages, a power of two, for loads or,
+  /// with [write], for stores, and returns its id. Guest addresses from
+  /// [directStart] up to [directEnd] bypass the table. In a [keyed] table
+  /// the slot of a page also depends on the key, so one page under a few
+  /// keys keeps a slot for each.
+  int addTranslationTable({
+    required bool write,
+    int slots = 1024,
+    int directStart = 0,
+    int directEnd = 0,
+    bool keyed = false,
+  }) {
+    if (slots <= 0 || slots & (slots - 1) != 0 || slots > 1 << 20) {
+      throw ArgumentError.value(slots, 'slots', 'expected a power of two');
+    }
+    if (directStart < 0 ||
+        directEnd > 0x100000000 ||
+        directEnd < directStart ||
+        (directStart | directEnd) & (pageBytes - 1) != 0) {
+      throw ArgumentError('invalid direct window');
+    }
+    translationTables.add(
+      JitTranslationTable._(write, slots, directStart, directEnd, keyed),
+    );
+    final id = translationTables.length - 1;
+    createTranslationTable(id);
+    return id;
+  }
+
+  /// Maps the virtual page of [address] under [key] to the guest page of
+  /// [physical]. The slot stays empty while that page is unmapped for the
+  /// table's access.
+  void mapTranslation(int table, int address, int key, int physical) {
+    if (key <= 0 || key >= pageBytes) {
+      throw ArgumentError.value(key, 'key', 'expected 1 to the page size');
+    }
+    final t = translationTables[table];
+    final slot = t.slotOf(address, pageShift, key);
+    final page = (physical & addrMask) >>> pageShift;
+    final host = (t.write ? writePages : readPages)[page];
+    if (host == null) {
+      _clearSlot(table, slot);
+      return;
+    }
+    if (t._keys[slot] == 0) t._live++;
+    if (t.keyed) {
+      final page = (address & 0xffffffff) >>> pageShift;
+      final keys = t._pageKeys[page] ??= <int>[];
+      if (!keys.contains(key)) keys.add(key);
+    }
+    final slotKey = (address & ~(pageBytes - 1) & 0xffffffff) | key;
+    t._keys[slot] = slotKey;
+    t._pages[slot] = page;
+    writeTranslationSlot(table, slot, slotKey, host);
+  }
+
+  /// Empties the slots of [address] when they hold that virtual page, under
+  /// every key that a [keyed] table has mapped it under.
+  void unmapTranslation(int table, int address) {
+    final t = translationTables[table];
+    if (!t.keyed) {
+      _unmapSlot(table, t.slotOf(address, pageShift, 0), address);
+      return;
+    }
+    final keys = t._pageKeys.remove((address & 0xffffffff) >>> pageShift);
+    if (keys == null) return;
+    for (final key in keys) {
+      _unmapSlot(table, t.slotOf(address, pageShift, key), address);
+    }
+  }
+
+  void _unmapSlot(int table, int slot, int address) {
+    final keys = translationTables[table]._keys;
+    if (keys[slot] != 0 &&
+        (keys[slot] ^ address) & ~(pageBytes - 1) & 0xffffffff == 0) {
+      _clearSlot(table, slot);
+    }
+  }
+
+  /// Empties every slot of a table.
+  void clearTranslations(int table) {
+    final t = translationTables[table];
+    t._pageKeys.clear();
+    if (t._live == 0) return;
+    for (var slot = 0; slot < t.slots; slot++) {
+      if (t._keys[slot] != 0) _clearSlot(table, slot);
+    }
+  }
+
+  /// The guest address that [address] translates to under [key], or null
+  /// when its slot misses. Addresses in the direct window are returned as
+  /// they are.
+  int? translate(int table, int key, int address) {
+    final t = translationTables[table];
+    address &= 0xffffffff;
+    if (t.isDirect(address)) return address;
+    final slot = t.slotOf(address, pageShift, key);
+    if (t._keys[slot] != ((address & ~(pageBytes - 1)) | key)) return null;
+    return (t._pages[slot] << pageShift) | (address & (pageBytes - 1));
+  }
+
+  void _clearSlot(int table, int slot) {
+    final t = translationTables[table];
+    if (t._keys[slot] != 0) t._live--;
+    t._keys[slot] = 0;
+    t._pages[slot] = -1;
+    writeTranslationSlot(table, slot, 0, null);
+  }
+
+  /// Backend hooks for the storage of a table that compiled code reads.
+  void createTranslationTable(int table) {}
+  void writeTranslationSlot(
+    int table,
+    int slot,
+    int key,
+    (Uint8List, int)? host,
+  ) {}
 
   /// the word at [addr] in mapped memory, or null if it is unmapped
   int? mappedWord(int addr, {IrEndian endian = IrEndian.little}) {
@@ -211,4 +358,94 @@ abstract class JitRuntime {
   int run(int pc, int tag);
 
   void dispose();
+}
+
+/// Lifecycle helpers shared by the compiled runtimes (native and Wasm), which enter generated code, profile block entries and report native exits the same way; the interpreter does not use them.
+mixin CompiledRuntimeHelpers on JitRuntime {
+  int? _profileBudget;
+
+  /// Starts profiling a block entry: the entry first closes the previous block's profile, then records the budget it starts from.
+  void beginProfileBlock() {
+    finishProfileBlock();
+    _profileBudget = ctx[JitCtx.budget].toSigned(32);
+  }
+
+  /// Closes the current block's profile, recording the guest cycles it spent.
+  void finishProfileBlock() {
+    final before = _profileBudget;
+    _profileBudget = null;
+    if (before == null) return;
+    final spent = before - ctx[JitCtx.budget].toSigned(32);
+    // Refunded entries which execute no guest work are not executed blocks.
+    if (spent > 0) {
+      executedBlockCycles.update(spent, (n) => n + 1, ifAbsent: () => 1);
+    }
+  }
+
+  /// Refreshes the direct-mapped dynamic table entry for the current exit target, which a miss may have evicted, through the runtime's own table accessors.
+  void refreshExitTarget(int? Function(int pc, int tag) lookup,
+      void Function(int pc, int tag, int target) write) {
+    final pc = exitPc, tag = exitTag;
+    final target = lookup(pc, tag);
+    if (target == null) return;
+    write(pc, tag, target);
+  }
+
+  /// Enters compiled code for (pc, tag) through [enter], refreshes the dynamic table on a miss through [refresh], reports the exit to [onNativeExit] when one is registered, and closes the block profile when [profiled].
+  int enterCompiled(int pc, int Function() enter, void Function() refresh,
+      {required bool profiled}) {
+    final observe = onNativeExit;
+    final budget = ctx[JitCtx.budget].toSigned(32);
+    if (observe != null) ctx[JitCtx.faultAddr] = 0xffffffff;
+    try {
+      final reason = enter();
+      if (reason == JitReason.miss) refresh();
+      if (observe != null) {
+        final fault = ctx[JitCtx.faultAddr];
+        observe(
+          pc,
+          exitPc,
+          reason,
+          budget,
+          budget - ctx[JitCtx.budget].toSigned(32),
+          ctx[JitCtx.stop],
+          fault == 0xffffffff ? null : fault,
+        );
+      }
+      return reason;
+    } finally {
+      if (profiled) finishProfileBlock();
+    }
+  }
+}
+
+/// A translation table of a runtime, see [JitRuntime.addTranslationTable].
+final class JitTranslationTable {
+  final bool write, keyed;
+  final int slots, directStart, directEnd;
+  final Uint32List _keys;
+  final Int32List _pages;
+
+  /// The keys that a [keyed] table has mapped each virtual page under, by
+  /// page number, until the page is unmapped.
+  final _pageKeys = <int, List<int>>{};
+  int _live = 0;
+  JitTranslationTable._(
+    this.write,
+    this.slots,
+    this.directStart,
+    this.directEnd,
+    this.keyed,
+  ) : _keys = Uint32List(slots),
+      _pages = Int32List(slots)..fillRange(0, slots, -1);
+
+  bool isDirect(int address) => address >= directStart && address < directEnd;
+
+  /// The value that the page number of an address under [key] is XORed with
+  /// before it is masked to a slot; compiled lookups use it as a constant.
+  int slotHash(int key) =>
+      keyed ? ((key * 0x9e3779b1) & 0xffffffff) >>> 12 : 0;
+
+  int slotOf(int address, int pageShift, int key) =>
+      (((address & 0xffffffff) >>> pageShift) ^ slotHash(key)) & (slots - 1);
 }

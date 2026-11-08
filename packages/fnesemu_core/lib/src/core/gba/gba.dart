@@ -8,9 +8,11 @@ import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/disasm.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import 'arm7tdmi/arm7.dart';
 import 'arm7tdmi/arm_disasm.dart';
+import 'arm_jit.dart';
 import 'bus.dart';
 import 'irq.dart';
 import 'ppu.dart';
@@ -32,6 +34,11 @@ class Gba extends Core {
   late final Bus bus;
   late final Arm7 cpu;
   late final Ppu ppu;
+  final GbaJit? _jit;
+
+  /// Whether this core executes compiled code: false when no JIT was
+  /// requested or the host has no recompiler.
+  bool get jitActive => _jit != null;
 
   static const screenWidth = 240;
   static const screenHeight = 160;
@@ -42,10 +49,12 @@ class Gba extends Core {
   static const _hblankStart = 960; // cycles into the line where HBlank begins
   static const _scanlines = 228; // 160 visible + 68 vblank
 
-  Gba() {
-    bus = Bus();
+  Gba({bool jit = const bool.fromEnvironment('GBA_JIT', defaultValue: true)})
+      : _jit = jit ? GbaJit.create() : null {
+    bus = Bus(ewram: _jit?.ewram, iwram: _jit?.iwram);
     bus.pad.source = padPort;
-    cpu = Arm7(bus);
+    _jit?.attach(bus);
+    cpu = Arm7(bus, registers: _jit?.registers);
     ppu = Ppu(bus);
   }
 
@@ -83,7 +92,7 @@ class Gba extends Core {
   @override
   ExecResult exec(bool step) {
     // Advancing also updates _rendered; capture the result after that update.
-    final elapsedClocks = _advanceClocks();
+    final elapsedClocks = _advanceClocks(singleStep: step);
     return ExecResult(elapsedClocks, false, _rendered);
   }
 
@@ -101,7 +110,7 @@ class Gba extends Core {
   }
 
   @pragma('vm:prefer-inline')
-  int _advanceClocks() {
+  int _advanceClocks({bool singleStep = false}) {
     _rendered = false;
 
     final int consumed;
@@ -111,7 +120,17 @@ class Gba extends Core {
       consumed = (_nextEventClock - _clocks).clamp(1, _cyclesPerScanline);
     } else {
       bus.halted = false;
-      consumed = cpu.step();
+      final jit = _jit;
+      if (jit != null && !singleStep && !bus.irq.pending) {
+        // Compiled code runs up to the next display event, so timers
+        // and event boundaries keep their exact clocks; a zero return
+        // (an exit the interpreter must handle first) steps instead.
+        final budget = _nextEventClock - _clocks;
+        final spent = budget > 0 ? jit.run(cpu, budget) : 0;
+        consumed = spent > 0 ? spent : cpu.step();
+      } else {
+        consumed = cpu.step();
+      }
     }
 
     _clocks += consumed;
@@ -207,7 +226,7 @@ class Gba extends Core {
   void setCdromDrive(CdromDrive drive) {}
 
   @override
-  void dispose() {}
+  void dispose() => _jit?.dispose();
 
   @override
   void setSram(Sram sram) => _sram = sram;
@@ -229,6 +248,69 @@ class Gba extends Core {
     _scanline = 0;
   }
 
+  static const _stateVersion = 1;
+
+  /// The cartridge ROM and, when one is loaded, the BIOS bytes.
+  int get _media {
+    var h = stateMediaHash(bus.cart.rom);
+    h = stateMediaHashAll(h, [bus.biosLoaded ? 1 : 0, bus.cart.backup.type.index]);
+    if (bus.biosLoaded) h = stateMediaHashAll(h, bus.bios);
+    return h;
+  }
+
+  @override
+  Uint8List saveState() {
+    if (bus.cart.rom.isEmpty) {
+      throw const StateMismatch('GBA state requires a cartridge');
+    }
+    final w = StateWriter('gba', _stateVersion, _media);
+    w.section('gba');
+    w.ints([_clocks, _nextEventClock, _scanline, _audioIndex]);
+    w.boolean(_inHblank);
+    w.boolean(_rendered);
+    w.bytes(_audio.buffer.asUint8List(_audio.offsetInBytes, _audio.lengthInBytes));
+    cpu.saveState(w);
+    bus.saveState(w);
+    ppu.saveState(w);
+    return w.take();
+  }
+
+  /// The whole state is first read into throwaway components, so a state that fails validation leaves this core unchanged; only a state that parses completely is read again into the live components.
+  @override
+  void loadState(Uint8List state) {
+    if (bus.cart.rom.isEmpty) {
+      throw const StateMismatch('GBA state requires a cartridge');
+    }
+    final stagedBus = Bus();
+    stagedBus.cart.backup.init(bus.cart.backup.type, Sram(), 'gba-state-stage');
+    final stagedAudio = Float32List(_audio.length);
+    _restore(StateReader(state, 'gba', _stateVersion, _media), Arm7(stagedBus), stagedBus, Ppu(stagedBus), stagedAudio);
+    _restore(StateReader(state, 'gba', _stateVersion, _media), cpu, bus, ppu, _audio);
+  }
+
+  // Reads one state body into [cpu], [bus], [ppu] and [audio] and applies the core scheduling fields of this instance only when [bus] is the live bus.
+  void _restore(StateReader s, Arm7 cpu, Bus bus, Ppu ppu, Float32List audio) {
+    final live = identical(bus, this.bus);
+    s.section('gba');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('gba core state layout');
+    final inHblank = s.boolean();
+    final rendered = s.boolean();
+    s.bytesInto(audio.buffer.asUint8List(audio.offsetInBytes, audio.lengthInBytes));
+    cpu.loadState(s);
+    bus.loadState(s);
+    ppu.loadState(s);
+    s.end();
+    if (live) {
+      _clocks = v[0];
+      _nextEventClock = v[1];
+      _scanline = v[2];
+      _audioIndex = v[3];
+      _inHblank = inHblank;
+      _rendered = rendered;
+    }
+  }
+
   @override
   List<PadButton> get buttons => bus.pad.buttons;
 
@@ -236,6 +318,7 @@ class Gba extends Core {
   void setRom(Uint8List body) {
     bus.cart.load(body);
     bus.cart.initBackup(_sram);
+    _jit?.mapRom();
     reset();
   }
 

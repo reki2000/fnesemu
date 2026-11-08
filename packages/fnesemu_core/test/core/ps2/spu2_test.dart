@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/iop/spu2.dart';
 import 'package:test/test.dart';
 
@@ -14,8 +15,36 @@ void _block(Spu2 s, int at, int flags, int nibble) {
   }
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('the transfer port writes sound memory at TSA', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('the transfer port writes sound memory at TSA', () {
     final s = Spu2();
     _w(s, 0x1a8, 0x1);
     _w(s, 0x1aa, 0x2345);
@@ -26,7 +55,7 @@ void main() {
     expect(_r(s, 0x1aa), 0x2347);
   });
 
-  test('a voice plays a block, sets ENDX and stops without repeat', () {
+  aggCase('a voice plays a block, sets ENDX and stops without repeat', () {
     final s = Spu2();
     _block(s, 0x5000, 1, 3); // end, no repeat
     _w(s, 0x760, 0x3fff); // core 0 MVOLL
@@ -51,7 +80,7 @@ void main() {
     expect(s.cores[0].voices[0].phase, Spu2Voice.off);
   });
 
-  test('a voice read at the interrupt address raises the interrupt', () {
+  aggCase('a voice read at the interrupt address raises the interrupt', () {
     final s = Spu2();
     var raised = 0;
     s.onInterrupt = () => raised++;
@@ -69,7 +98,7 @@ void main() {
     expect(_r(s, 0x7c2), 0);
   });
 
-  test('AutoDMA takes a block for every 256 samples played', () {
+  aggCase('AutoDMA takes a block for every 256 samples played', () {
     final s = Spu2();
     _w(s, 0x1b0, 1);
     expect(s.autoDma(0), isTrue);
@@ -81,4 +110,15 @@ void main() {
     expect(s.ram[0x2000], 0x100);
     expect(s.ram[0x2300], 0x200);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

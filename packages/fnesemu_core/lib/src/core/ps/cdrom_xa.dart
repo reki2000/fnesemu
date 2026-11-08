@@ -184,6 +184,20 @@ class XaResampler {
     _step.setAll(0, [6, 6]);
   }
 
+  void saveState(StateWriter w) {
+    w.ints(_ring[0]);
+    w.ints(_ring[1]);
+    w.ints(_p);
+    w.ints(_step);
+  }
+
+  void loadState(StateReader s) {
+    s.intsInto(_ring[0]);
+    s.intsInto(_ring[1]);
+    s.intsInto(_p);
+    s.intsInto(_step);
+  }
+
   int _applyZigzag(List<int> ring, int table, int p) {
     int sum = 0;
     for (int i = 1; i < 29; i++) {

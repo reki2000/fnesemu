@@ -2,14 +2,14 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../util/jit_adapter.dart';
 import 'translator.dart';
 
 /// State and cache for one SH-2. The owning CPU supplies side-effect-free fetch
 /// and maps ordinary RAM/ROM. Other reads return to the CPU unless the adapter
 /// explicitly registers a helper for native continuation.
-final class Sh2Jit {
+final class Sh2Jit extends JitAdapter {
   static const idleBranchDistance = Sh2Translator.idleBranchDistance;
-  final JitRuntime rt;
   late final diagnostics = JitDiagnostics(rt,
       instructionBytes: 2, byteOrder: Endian.big, guestExit: _diagnosticExit);
 
@@ -27,10 +27,6 @@ final class Sh2Jit {
     return null;
   }
 
-  final bool native;
-
-  /// Number of cold-entry samples required before compilation.
-  final int compileThreshold;
   final int maxInstructions;
   final bool alignMemory;
 
@@ -88,14 +84,10 @@ final class Sh2Jit {
   final _readHelpers = <(bool Function(int, int), int)>[];
   bool _foldHelperLiterals = false;
 
-  /// Runs the CPU interpreter instead while keeping compiled blocks and the
-  /// shared guest state, for tools that warm up with compiled code.
-  bool suspended = false;
-  int get compiledClocks => native ? _driver.executedClocks : 0;
   Sh2Jit._(
-      this.rt,
-      this.native,
-      this.compileThreshold,
+      super.rt,
+      super.native,
+      int compileThreshold,
       this.maxInstructions,
       this.alignMemory,
       this.stopOnNoStore,
@@ -104,7 +96,11 @@ final class Sh2Jit {
       this.profileMemory,
       this.macLong,
       this.macWord,
-      this.idleGuards);
+      this.idleGuards)
+      : super(compileThreshold: compileThreshold);
+
+  @override
+  JitDriver get driver => _driver;
 
   static Sh2Jit? create(
       {bool native = true,
@@ -212,8 +208,9 @@ final class Sh2Jit {
     _code.map(at, size, buffer, offset: offset, writable: writable);
   }
 
+  @override
   void reset() {
-    _driver.reset();
+    super.reset();
     rt.ctx[JitCtx.stop] = 0;
   }
 
@@ -268,5 +265,4 @@ final class Sh2Jit {
     return _translator.translate(pc, memoryBases: constants);
   }
 
-  void dispose() => rt.dispose();
 }

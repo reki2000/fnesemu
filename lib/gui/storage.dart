@@ -8,6 +8,7 @@ import 'package:fnesemu_core/app_api.dart';
 import 'blob_store/blob_store.dart';
 import 'recent_game.dart';
 import 'rom_directory.dart';
+import 'state_slot.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;
@@ -90,7 +91,8 @@ class Storage extends Sram {
           .toList();
       games.sort((a, b) => b.lastPlayed.compareTo(a.lastPlayed));
       return games;
-    } catch (_) {
+    } catch (e) {
+      onEvent('failed to load game history: $e');
       return [];
     }
   }
@@ -98,15 +100,23 @@ class Storage extends Sram {
   Future<Uint8List?> recentRom(RecentGame game) async =>
       _recentRomData[game.blobKey] ?? await _store?.get(game.blobKey);
 
-  Future<void> recordRecent(String core, String name,
-      {Uint8List? rom, String? folder, String? path}) async {
-    assert(rom != null || folder != null);
-    // ROM identity is independent of the directory, preserving old counts
-    // when switching from individual file selection to directory selection.
+  /// the identity of a game in the recent list.
+  /// ROM identity is independent of the directory, preserving old counts
+  /// when switching from individual file selection to directory selection.
+  /// the state slots of a game are keyed by the same identity, so they
+  /// follow the game the recent list shows.
+  static String gameId(String core, String name,
+      {Uint8List? rom, String? folder}) {
     final identity = rom == null
         ? [core, name, folder]
         : [core, name, null, rom.length, getCrc32(rom)];
-    final id = base64Url.encode(utf8.encode(jsonEncode(identity)));
+    return base64Url.encode(utf8.encode(jsonEncode(identity)));
+  }
+
+  Future<void> recordRecent(String core, String name,
+      {Uint8List? rom, String? folder, String? path}) async {
+    assert(rom != null || folder != null);
+    final id = gameId(core, name, rom: rom, folder: folder);
     final games = recentGames;
     final matches = games.where((game) => game.id == id);
     final previous = matches.isEmpty ? null : matches.first;
@@ -142,6 +152,76 @@ class Storage extends Sram {
     }
   }
 
+  /// the number of state slots of a game
+  static const stateSlotCount = 10;
+
+  // state blobs kept on memory when the persistent store is unavailable
+  final Map<String, Uint8List> _stateBlobs = {};
+
+  static String _stateSlotKey(String core, String gameId, int slot) {
+    if (slot < 0 || slot >= stateSlotCount) {
+      throw RangeError.range(slot, 0, stateSlotCount - 1, 'slot');
+    }
+    return StorageKey.of(core, 'state', '$gameId/$slot');
+  }
+
+  Future<Uint8List?> _stateBlob(String key) async {
+    final store = _store;
+    return store == null ? _stateBlobs[key] : await store.get(key);
+  }
+
+  /// the saved state slots of the game [gameId] of [core]: one entry per
+  /// slot, null for an empty slot. a blob which cannot be read is reported
+  /// and treated as empty.
+  Future<List<StateSlotInfo?>> stateSlots(String core, String gameId) async {
+    final slots = List<StateSlotInfo?>.filled(stateSlotCount, null);
+    for (var slot = 0; slot < stateSlotCount; slot++) {
+      final blob = await _stateBlob(_stateSlotKey(core, gameId, slot));
+      if (blob == null) continue;
+      try {
+        slots[slot] = StateSlotBlob.header(blob, slot);
+      } catch (e) {
+        onEvent('failed to read state slot $slot of $gameId: $e');
+      }
+    }
+    return slots;
+  }
+
+  /// the metadata of slot [slot] of the game [gameId] of [core], or null
+  /// if the slot is empty. throws a FormatException if the blob is corrupt.
+  Future<StateSlotInfo?> stateSlot(String core, String gameId, int slot) async {
+    final blob = await _stateBlob(_stateSlotKey(core, gameId, slot));
+    return blob == null ? null : StateSlotBlob.header(blob, slot);
+  }
+
+  /// saves [state] in slot [slot] of the game [gameId] of [core],
+  /// replacing a state saved before. [thumbnail] is a PNG image of the
+  /// game screen at the save.
+  Future<void> saveStateSlot(String core, String gameId, int slot,
+      Uint8List state,
+      {Uint8List? thumbnail, DateTime? savedAt}) async {
+    final blob = StateSlotBlob.build(state,
+        thumbnail: thumbnail, savedAt: savedAt ?? DateTime.now());
+    final key = _stateSlotKey(core, gameId, slot);
+    final store = _store;
+    if (store == null) {
+      _stateBlobs[key] = blob;
+    } else {
+      await store.put(key, blob);
+    }
+  }
+
+  /// the state saved in slot [slot] of the game [gameId] of [core].
+  /// throws a StateError if the slot is empty, and a FormatException if
+  /// the saved blob is corrupt.
+  Future<Uint8List> loadStateSlot(String core, String gameId, int slot) async {
+    final blob = await _stateBlob(_stateSlotKey(core, gameId, slot));
+    if (blob == null) {
+      throw StateError('state slot $slot is empty');
+    }
+    return StateSlotBlob.state(blob);
+  }
+
   // the directories, the last opened first. the older setting kept them the
   // last opened last.
   static const _directoriesKey = 'game_directories_recent_first';
@@ -156,7 +236,8 @@ class Storage extends Sram {
           .map((json) => RomDirectory.fromJson(json as Map<String, dynamic>))
           .toList();
       return saved == null ? directories.reversed.toList() : directories;
-    } catch (_) {
+    } catch (e) {
+      onEvent('failed to load game directories: $e');
       return [];
     }
   }

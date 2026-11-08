@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// S-DD1: a cartridge chip which maps 1MB rom banks into $C0-$FF and
 /// decompresses graphics while a DMA channel reads them.
@@ -23,6 +24,27 @@ class Sdd1 {
   int _dmaEnable = 0; // $4800: channels that may decompress
   int _dmaReady = 0; // $4801: channels that decompress on their next DMA
   final _mmc = List<int>.filled(4, 0); // $4804-$4807: 1MB bank of $C0-$FF
+
+  /// Saves the DMA control registers, the MMC banks and the decompressor state.
+  void saveState(StateWriter w) {
+    w.section('snes-sdd1');
+    w.ints([_dmaEnable, _dmaReady]);
+    w.ints(_mmc);
+    _decompressor.saveState(w);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-sdd1');
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('snes sdd1 state layout');
+    _dmaEnable = v[0];
+    _dmaReady = v[1];
+    final mmc = s.ints();
+    if (mmc.length != 4) throw const StateMismatch('snes sdd1 state layout');
+    _mmc.setAll(0, mmc);
+    _decompressor.loadState(s);
+  }
 
   late final _decompressor = _Decompressor(this);
 
@@ -110,6 +132,39 @@ class _Decompressor {
   final _prevBits = List<int>.filled(8, 0);
   final _states = List<int>.filled(32, 0);
   final _mps = List<int>.filled(32, 0);
+
+  /// Saves the bit reader position and the context model state.
+  void saveState(StateWriter w) {
+    w.section('snes-sdd1-dec');
+    w.ints([
+      _src, _input, _validBits, _planes, _highContext, _lowContext, _plane,
+      _yloc, _raw,
+    ]);
+    w.ints(_bitCtr);
+    w.ints(_prevBits);
+    w.ints(_states);
+    w.ints(_mps);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-sdd1-dec');
+    final v = s.ints();
+    if (v.length != 9) throw const StateMismatch('snes sdd1 state layout');
+    _src = v[0];
+    _input = v[1];
+    _validBits = v[2];
+    _planes = v[3];
+    _highContext = v[4];
+    _lowContext = v[5];
+    _plane = v[6];
+    _yloc = v[7];
+    _raw = v[8];
+    _bitCtr.setAll(0, s.ints());
+    _prevBits.setAll(0, s.ints());
+    _states.setAll(0, s.ints());
+    _mps.setAll(0, s.ints());
+  }
 
   int _byte() => chip.mmcRead(_src++);
 

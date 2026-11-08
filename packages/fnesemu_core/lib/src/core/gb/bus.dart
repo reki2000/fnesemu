@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'apu.dart';
 import 'cartridge.dart';
 import 'cpu.dart';
@@ -72,6 +73,60 @@ class Bus {
     timer = Timer(this);
     pad = Pad(this);
     hdma = Hdma(this);
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gb-bus');
+    w.ints([
+      clocks, dotClocks, ie, _if, _wramBank, _sb, _sc, _serialClocks, //
+      _dmaReg, _dmaSource, _dmaIndex, _dmaDelay
+    ]);
+    w.boolean(gbc);
+    w.boolean(doubleSpeed);
+    w.boolean(_speedArmed);
+    w.bytes(wram);
+    w.bytes(hram);
+    w.string(serialOutput.toString());
+    cpu.saveState(w);
+    ppu.saveState(w);
+    apu.saveState(w);
+    timer.saveState(w);
+    pad.saveState(w);
+    hdma.saveState(w);
+    cart.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-bus');
+    final v = s.ints();
+    if (v.length != 12) throw const StateMismatch('gb bus state layout');
+    clocks = v[0];
+    dotClocks = v[1];
+    ie = v[2];
+    _if = v[3];
+    _wramBank = v[4];
+    _sb = v[5];
+    _sc = v[6];
+    _serialClocks = v[7];
+    _dmaReg = v[8];
+    _dmaSource = v[9];
+    _dmaIndex = v[10];
+    _dmaDelay = v[11];
+    gbc = s.boolean();
+    doubleSpeed = s.boolean();
+    _speedArmed = s.boolean();
+    s.bytesInto(wram);
+    s.bytesInto(hram);
+    final serial = s.string();
+    serialOutput.clear();
+    if (serial.isNotEmpty) serialOutput.write(serial);
+    cpu.loadState(s);
+    ppu.loadState(s);
+    apu.loadState(s);
+    timer.loadState(s);
+    pad.loadState(s);
+    hdma.loadState(s);
+    cart.loadState(s);
   }
 
   void reset() {

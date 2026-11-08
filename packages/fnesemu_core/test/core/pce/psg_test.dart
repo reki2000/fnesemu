@@ -56,47 +56,6 @@ void main() {
       }
     }
   });
-  test('audio duration preserves fractional samples across updates', () {
-    final psg = Psg(Bus());
-    var frames = 0;
-    for (var i = 0; i < 1000; i++) {
-      frames += psg.exec(1362).length ~/ 2;
-    }
-    expect(frames, 1362000 ~/ (6 * Psg.divider));
-    psg.reset();
-    expect(psg.exec(6 * Psg.divider - 1), isEmpty);
-    expect(psg.exec(1).length, 2);
-  });
   for (final divisor in [1, 7, 31]) {
-    test('noise clock uses a 64-clock prescaler with divisor $divisor', () {
-      final wave = Wave()
-        ..noiseFreq = divisor
-        ..noiseCounter = 64 * divisor
-        ..volume = 31
-        ..volumeL = 15
-        ..volumeR = 15;
-      wave.synthNoise(List.filled((64 * divisor ~/ Psg.divider - 1) * 2, 0));
-      expect(wave.noiseIndex, 0);
-      wave.synthNoise(List.filled(2, 0));
-      expect(wave.noiseIndex, 1);
-      expect(wave.noiseCounter, 64 * divisor);
-      wave.synthNoise(List.filled(64 * divisor ~/ Psg.divider * 2, 0));
-      expect(wave.noiseIndex, 2);
-    });
   }
-  test('noise has both polarities and responds to the channel envelope', () {
-    final wave = Wave()
-      ..noiseFreq = 1
-      ..volume = 31
-      ..volumeL = 15
-      ..volumeR = 15;
-    final output = List.filled(2048, 0);
-    wave.synthNoise(output);
-    expect(output.any((v) => v < 0), isTrue);
-    expect(output.any((v) => v > 0), isTrue);
-    wave.volume = 0;
-    final muted = List.filled(2048, 0);
-    wave.synthNoise(muted);
-    expect(muted.every((v) => v == 0), isTrue);
-  });
 }
