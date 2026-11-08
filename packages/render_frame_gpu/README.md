@@ -4,7 +4,7 @@ An experimental renderer that draws a core's `RenderFrame`s with Flutter GPU.
 
 ## Use in the app
 
-`GpuFrameSink.create()` returns a `RenderFrameSink`, or null when Flutter GPU is not available. The app sets it as `CoreController.renderFrameSink` when the GPU setting selects it. A core that supports it then submits each 3D render as a `RenderFrame` and goes on without waiting. The sink draws the frame, reads the pixels back and passes them to `RenderFrame.onDrawn`, and the core writes them to its video memory. The pixels arrive about two frames later than with the core's renderer. While a frame is drawn, only the newest of the frames submitted meanwhile waits, and the older ones are dropped.
+`GpuFrameSink.create()` returns a `RenderFrameSink`, or null when Flutter GPU is not available. The app sets it as `CoreController.renderFrameSink` when the GPU setting selects it. A core that supports it then submits each 3D render as a `RenderFrame` and goes on without waiting. The sink draws the frame, reads the pixels back and passes them to `RenderFrame.onDrawn`, and the core writes them to its video memory. The pixels arrive about two frames later than with the core's renderer. The frames submitted while others are drawn wait and are then drawn together, each into a target of its own, and read back after one frame of the engine. When more than eight frames wait, the oldest ones are dropped.
 
 A core passes the same texel list for a texture that has not changed, and the renderer uploads a texel list only once.
 
@@ -29,10 +29,14 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
   build/linux/x64/profile/bundle/render_frame_gpu_example <file.rframe> [draws] [out dir] [--exit]
 ```
 
+## Drawing
+
+- A textured or Gouraud background is drawn as a plane over the whole frame. Where its colors leave the range, the frame is cut so that the clamped colors interpolate like the plane.
+- The triangles of an object list are clipped to the tiles that refer to the list, so that a list used by only some tiles stays inside them.
+
 ## Known limits
 
 - Modifier volumes, the secondary accumulation buffer, bump maps and mipmaps are not drawn.
-- The background plane becomes a flat clear color.
 - Automatic sorting of translucent triangles is approximated by the mean depth of each triangle.
 - Renders through the strip buffer or the scaler stay with the core's renderer.
 

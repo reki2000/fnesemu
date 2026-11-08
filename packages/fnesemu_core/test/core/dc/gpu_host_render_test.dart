@@ -30,14 +30,19 @@ void main() {
 
   // An untextured red background and one region entry, written to a
   // 32-pixel wide framebuffer at 0x400000.
-  void render({int pack = 6, int control = 0x80000000, int scale = 0x400}) {
-    final words = <int>[0, 0, 0];
+  void render(
+      {int pack = 6,
+      int control = 0x80000000,
+      int scale = 0x400,
+      int isp = 0,
+      List<int> colors = const [0xffff0000, 0xffff0000, 0xffff0000]}) {
+    final words = <int>[isp, 0, 0];
     for (var i = 0; i < 3; i++) {
       words.addAll([
         bits(i == 1 ? 32.0 : 0.0),
         bits(i == 2 ? 32.0 : 0.0),
         bits(1),
-        0xffff0000
+        colors[i]
       ]);
     }
     put(0x8000, words);
@@ -107,6 +112,42 @@ void main() {
     bus.gpu.render.reset(registers: false);
     frame.onDrawn!(rgba(frame, [1, 2, 3, 255]));
     expect(bus.gpu.vram.getUint32LE(0x400000), 0);
+  });
+
+  // The red channels of the background triangles at their vertices.
+  List<(double, double, int)> backgroundReds(RenderFrame frame) {
+    final batch = frame.batches.first;
+    const n = RenderFrame.vertexFloats;
+    return [
+      for (var i = batch.first * 3; i < (batch.first + batch.count) * 3; i++)
+        (
+          frame.vertices[i * n],
+          frame.vertices[i * n + 1],
+          (frame.vertices[i * n + 5] * 255).round()
+        )
+    ];
+  }
+
+  test('a Gouraud background covers the frame with its plane', () {
+    render(
+        isp: 0x00800000, colors: [0xff100000, 0xff100000, 0xff900000]);
+    final reds = backgroundReds(host.frames.single);
+    expect(reds, hasLength(6));
+    for (final (_, y, red) in reds) {
+      expect(red, 0x10 + (y / 32 * 0x80).round());
+    }
+  });
+
+  test('a background plane is cut where its colors leave the range', () {
+    // Red reaches 0x180 at the far corner and is clamped beyond 0xff.
+    render(
+        isp: 0x00800000, colors: [0xff000000, 0xffc00000, 0xffc00000]);
+    final reds = backgroundReds(host.frames.single);
+    expect(reds.length, greaterThan(6));
+    for (final (x, y, red) in reds) {
+      final plane = ((x + y) / 32 * 0xc0).round();
+      expect(red, plane > 255 ? 255 : plane);
+    }
   });
 
   test('a render through the scaler stays with the core renderer', () {

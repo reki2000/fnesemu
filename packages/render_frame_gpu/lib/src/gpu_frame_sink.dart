@@ -21,55 +21,76 @@ class GpuFrameSink implements RenderFrameSink {
   static Future<GpuFrameSink?> create() async {
     try {
       final sink = GpuFrameSink._(await FrameRenderer.create());
-      return await sink._target(8, 8) == null ? null : sink;
+      final target = await sink._target(8, 8);
+      if (target == null) return null;
+      sink._free.add(target);
+      return sink;
     } catch (_) {
       return null;
     }
   }
 
   final FrameRenderer _renderer;
-  gpu.Texture? _texture;
 
-  // The frames are drawn one by one. While one is drawn, only the newest of
-  // the frames submitted meanwhile waits; the older ones are dropped, so
-  // that a slow GPU makes the pixels late by at most a frame.
+  // Targets that were read back once and are free.
+  final _free = <gpu.Texture>[];
+
+  // The frames submitted while others are drawn. They are drawn together,
+  // each into a target of its own, and read back after one frame of the
+  // engine. A GPU that falls far behind drops the oldest ones.
+  static const _maximumWaiting = 8;
+  final _waiting = <RenderFrame>[];
   bool _drawing = false;
-  RenderFrame? _waiting;
 
   @override
   void submit(RenderFrame frame) {
-    _waiting = frame;
+    _waiting.add(frame);
+    if (_waiting.length > _maximumWaiting) _waiting.removeAt(0);
     if (!_drawing) unawaited(_drawWaiting());
   }
 
   Future<void> _drawWaiting() async {
     _drawing = true;
     try {
-      while (true) {
-        final frame = _waiting;
-        if (frame == null) break;
-        _waiting = null;
-        final target = await _target(frame.width, frame.height);
-        if (target == null) continue;
-        final rgba = await _draw(frame, target);
-        if (rgba != null) frame.onDrawn?.call(rgba);
+      while (_waiting.isNotEmpty) {
+        final frames = [..._waiting];
+        _waiting.clear();
+        final drawn = <(RenderFrame, gpu.Texture)>[];
+        for (final frame in frames) {
+          final target = await _target(frame.width, frame.height);
+          if (target == null) continue;
+          _renderer.draw(frame, target: target);
+          drawn.add((frame, target));
+        }
+        await SchedulerBinding.instance.endOfFrame;
+        for (final (frame, target) in drawn) {
+          final rgba = await _read(target);
+          _free.add(target);
+          if (rgba != null) frame.onDrawn?.call(rgba);
+        }
       }
     } catch (_) {
-      _waiting = null;
+      _waiting.clear();
     } finally {
       _drawing = false;
     }
   }
 
   /// Draws [frame] into [target] and reads it back.
+  Future<Uint8List?> _draw(RenderFrame frame, gpu.Texture target) async {
+    _renderer.draw(frame, target: target);
+    await SchedulerBinding.instance.endOfFrame;
+    return _read(target);
+  }
+
+  /// Reads [target] back after a frame of the engine passed since it was
+  /// drawn.
   ///
   /// On the GLES backend, a read often showed the texture as it was at the
   /// read before. The pixels are read twice after the next frame of the
   /// engine; that was right for all but about one frame in a few hundred,
   /// which then shows the frame before.
-  Future<Uint8List?> _draw(RenderFrame frame, gpu.Texture target) async {
-    _renderer.draw(frame, target: target);
-    await SchedulerBinding.instance.endOfFrame;
+  static Future<Uint8List?> _read(gpu.Texture target) async {
     Future<ByteData?> read() async {
       final image = target.asImage();
       try {
@@ -84,16 +105,17 @@ class GpuFrameSink implements RenderFrameSink {
     return data == null ? null : Uint8List.sublistView(data);
   }
 
-  /// A target of the size, or null when it cannot be read back.
+  /// A free target of the size, or a new one; null when a new one cannot
+  /// be read back.
   ///
   /// A new target is filled with a white textured triangle until the white
   /// comes back, which also tells whether Flutter GPU works at all. A pass
   /// that draws nothing was not run on the GLES backend.
   Future<gpu.Texture?> _target(int width, int height) async {
-    final current = _texture;
-    if (current != null && current.width == width && current.height == height) {
-      return current;
-    }
+    final index = _free.indexWhere(
+      (t) => t.width == width && t.height == height,
+    );
+    if (index >= 0) return _free.removeAt(index);
     final target = FrameRenderer.createTarget(width, height);
     final vertices = Float32List(3 * RenderFrame.vertexFloats);
     final corners = [(0.0, 0.0), (2.0 * width, 0.0), (0.0, 2.0 * height)];
@@ -147,9 +169,7 @@ class GpuFrameSink implements RenderFrameSink {
     final watch = Stopwatch()..start();
     while (watch.elapsedMilliseconds < 2000) {
       final rgba = await _draw(frame, target);
-      if (rgba != null && rgba.every((byte) => byte == 255)) {
-        return _texture = target;
-      }
+      if (rgba != null && rgba.every((byte) => byte == 255)) return target;
     }
     return null;
   }
