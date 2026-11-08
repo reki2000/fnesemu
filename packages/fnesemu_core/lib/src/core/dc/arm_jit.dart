@@ -74,11 +74,14 @@ final class DcArmJit extends JitAdapter {
     final ctx = rt.ctx;
     if (_driver.isFallback(arm.pc, 0)) return 0;
     ctx[ArmTranslator.cpsr] = arm.cpsr;
+    ctx[ArmTranslator.pending] = (arm.irq ? 0x80 : 0) | (arm.fiq ? 0x40 : 0);
     ctx[JitCtx.faultAddr] = 0;
     final reason = _driver.runBudgeted(arm.pc, 0, budget);
     final cycles = _driver.lastClocks;
     if (cycles > 0) {
-      arm.flags = ctx[ArmTranslator.cpsr];
+      // Blocks change the flags, and the interrupt masks through MSR; the
+      // mode stays, so no register bank switches.
+      arm.cpsr = ctx[ArmTranslator.cpsr];
       arm.pc = rt.exitPc;
     }
     if (reason == ArmTranslator.interpret) {

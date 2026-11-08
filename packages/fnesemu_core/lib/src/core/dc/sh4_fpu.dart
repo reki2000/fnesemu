@@ -202,6 +202,81 @@ extension _Sh4Fpu on Sh4 {
     return true;
   }
 
+  /// The double in the register pair at [register], an even number.
+  double _toDouble(int register) {
+    _doubleData.setUint32(0, fr[register]);
+    _doubleData.setUint32(4, fr[register + 1]);
+    return _doubleData.getFloat64(0);
+  }
+
+  /// Whether the double whose upper word is [high] is normal, with an
+  /// exponent within 2^±400, or zero, given its lower word [low].
+  static bool _moderateDouble(int high, int low) {
+    final field = (high >> 20) & 0x7ff;
+    if (field == 0) return high & 0xfffff == 0 && low == 0;
+    return field > 1023 - 400 && field < 1023 + 400;
+  }
+
+  /// The error of the product [x] * [y], exact for moderate operands:
+  /// Dekker's product with Veltkamp's split, which needs no fused multiply.
+  static double _productError(double x, double y, double product) {
+    const split = 134217729.0; // 2^27 + 1
+    final cx = split * x, cy = split * y;
+    final xh = cx - (cx - x), yh = cy - (cy - y);
+    final xl = x - xh, yl = y - yh;
+    return ((xh * yh - product) + xh * yl + xl * yh) + xl * yl;
+  }
+
+  /// Fast double-precision FADD, FSUB, FMUL, FDIV, FCMP/EQ and FCMP/GT for
+  /// moderate operands while rounding to nearest with no FPU exception
+  /// enabled. A double result of one host operation is the correctly
+  /// rounded result; the exact error terms decide the inexact flag. Returns
+  /// false when the exact path must decide.
+  bool _fastDouble(int low, int n, int m) {
+    if (fpscr & 0xf83 != 0 || n.isOdd || m.isOdd) return false;
+    if (!_moderateDouble(fr[n], fr[n + 1]) ||
+        !_moderateDouble(fr[m], fr[m + 1])) {
+      return false;
+    }
+    final x = _toDouble(n), y = _toDouble(m);
+    if (low == 4 || low == 5) {
+      t = low == 4 ? x == y : x > y;
+      _setFloatFlags(0);
+      return true;
+    }
+    final double result;
+    bool inexact;
+    switch (low) {
+      case 0:
+      case 1:
+        final z = low == 0 ? y : -y;
+        result = x + z;
+        final virtual = result - x;
+        inexact = (x - (result - virtual)) + (z - virtual) != 0;
+      case 2:
+        result = x * y;
+        inexact = _productError(x, y, result) != 0;
+      default:
+        if (y == 0) return false;
+        result = x / y;
+        // The remainder x - result * y is exact; x - p is exact as p is
+        // close to x.
+        final p = result * y;
+        inexact = x - p != _productError(result, y, p);
+    }
+    _doubleData.setFloat64(0, result);
+    final high = _doubleData.getUint32(0), lowWord = _doubleData.getUint32(4);
+    final field = (high >> 20) & 0x7ff;
+    if (field == 0x7ff || (field == 0 && (high & 0xfffff != 0 || lowWord != 0))) {
+      return false;
+    }
+    if (result == 0 && inexact) return false;
+    fr[n] = high;
+    fr[n + 1] = lowWord;
+    _setFloatFlags(inexact ? DcFloat.inexact : 0);
+    return true;
+  }
+
   /// FSQRT, or FSRRA with [reciprocal], of a positive normal single when no
   /// exception is enabled. The double square root and quotient of singles,
   /// rounded to single, equal the exact results (double rounding is
@@ -397,23 +472,28 @@ extension _Sh4Fpu on Sh4 {
       if (fpscr.bit19) _illegal();
       final phase = fpul & 0xffff;
       final angle = phase * math.pi / 32768;
-      final scratch = ByteData(4);
       // Quadrant endpoints avoid host transcendental residuals around zero.
       final sine = phase % 0x4000 == 0
-          ? [0.0, 1.0, 0.0, -1.0][phase ~/ 0x4000]
+          ? const [0.0, 1.0, 0.0, -1.0][phase ~/ 0x4000]
           : math.sin(angle);
       final cosine = phase % 0x4000 == 0
-          ? [1.0, 0.0, -1.0, 0.0][phase ~/ 0x4000]
+          ? const [1.0, 0.0, -1.0, 0.0][phase ~/ 0x4000]
           : math.cos(angle);
-      _finishFloat(DcFloatResult(BigInt.zero, DcFloat.inexact, normal: true),
-          possible: 1);
-      scratch.setFloat32(0, sine);
-      fr[n] = scratch.getUint32(0);
-      scratch.setFloat32(0, cosine);
-      fr[n + 1] = scratch.getUint32(0);
+      if (fpscr & 0x80 == 0) {
+        // The inexact flag without the inexact exception enabled.
+        _setFloatFlags(DcFloat.inexact);
+      } else {
+        _finishFloat(DcFloatResult(BigInt.zero, DcFloat.inexact, normal: true),
+            possible: 1);
+      }
+      _singleData.setFloat32(0, sine);
+      fr[n] = _singleData.getUint32(0);
+      _singleData.setFloat32(0, cosine);
+      fr[n + 1] = _singleData.getUint32(0);
       return true;
     }
     if (low <= 3 && _fastSingle(low, n, m)) return true;
+    if (low <= 5 && fpscr.bit19 && _fastDouble(low, n, m)) return true;
     if ((low == 4 || low == 5) && fpscr & 0x80000 == 0) {
       final a = fr[n], b = fr[m];
       if ((_normalSingle(a) || a & 0x7fffffff == 0) &&
@@ -493,6 +573,14 @@ extension _Sh4Fpu on Sh4 {
       case 0xf0ad: // FCNVSD.
         if (!fpscr.bit19) _illegal();
         _doubleRegister(n);
+        if (_normalOrZero(fpul)) {
+          // Every normal single or zero is exact in a double.
+          _doubleData.setFloat64(0, _toSingle(fpul));
+          fr[n] = _doubleData.getUint32(0);
+          fr[n + 1] = _doubleData.getUint32(4);
+          _setFloatFlags(0);
+          return true;
+        }
         _setFloatingBits(
             n,
             _finishFloat(
@@ -501,6 +589,13 @@ extension _Sh4Fpu on Sh4 {
                 possible: 0));
       case 0xf0bd: // FCNVDS.
         if (!fpscr.bit19) _illegal();
+        if (fpscr & 0xf80 == 0 && n.isEven && _moderateDouble(fr[n], fr[n + 1])) {
+          final bits = _roundSingle(_toDouble(n), 0, false);
+          if (bits >= 0) {
+            fpul = bits;
+            return true;
+          }
+        }
         fpul = _finishFloat(DcFloat.single
                 .convert(DcFloat.doublePrecision, _floatingBits(n), fpscr))
             .toInt();

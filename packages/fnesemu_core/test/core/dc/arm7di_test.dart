@@ -201,6 +201,106 @@ void main() {
         memories[1].sublist(0x200, 0x300), memories[0].sublist(0x200, 0x300));
   });
 
+  test('compiled PSR transfers match the interpreter in results and cycles',
+      () {
+    final jit = DcArmJit.create(0x10000);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    DcArm7di make(Uint8List memory, {DcArmJit? jit}) => DcArm7di(
+        read: (address, size) =>
+            size == 1 ? memory[address] : memory.getUint32LE(address),
+        write: (address, size, value) => size == 1
+            ? memory[address] = value
+            : memory.setUint32LE(address, value),
+        registers: jit?.registers)
+      ..compiled = jit?.run;
+    const program = [
+      0xe3a0c014, // mov r12,#20
+      0xe10fa000, // loop: mrs r10,cpsr
+      0xe38a90c0, // orr r9,r10,#0xc0
+      0xe129f009, // msr cpsr_fc,r9: masks both interrupts
+      0xe2800001, // add r0,r0,#1
+      0xe129f00a, // msr cpsr_fc,r10
+      0xe328f4f0, // msr cpsr_f,#0xf0000000
+      0xe10f1000, // mrs r1,cpsr
+      0xe3ca20c0, // bic r2,r10,#0xc0
+      0xe129f002, // msr cpsr_fc,r2: enables both interrupts
+      0xe129f00a, // msr cpsr_fc,r10
+      0xe25cc001, // subs r12,r12,#1
+      0x1afffff3, // bne loop
+      0xeafffffe, // b .
+    ];
+    final memories = [Uint8List(0x10000), jit.memory];
+    final cpus = [make(memories[0]), make(memories[1], jit: jit)];
+    for (final memory in memories) {
+      for (var i = 0; i < program.length; i++) {
+        memory.setUint32LE(i * 4, program[i]);
+      }
+    }
+    final interpreter = cpus[0], compiled = cpus[1];
+    for (var n = 0; n < 100000 && interpreter.pc != 0x34; n++) {
+      interpreter.run(interpreter.cycles + 1);
+    }
+    expect(interpreter.pc, 0x34);
+    compiled.run(interpreter.cycles);
+    expect(compiled.pc, 0x34);
+    expect(jit.compiledClocks, greaterThan(0));
+    // As above, the last block may end a few cycles late; a wrong cost
+    // shows in each of the 20 passes.
+    expect(compiled.cycles - interpreter.cycles, inInclusiveRange(0, 2));
+    expect(compiled.r, interpreter.r);
+    expect(compiled.cpsr, interpreter.cpsr);
+    expect(interpreter.r[0], 20);
+  });
+
+  test('compiled code takes an asserted FIQ where an MSR unmasks it', () {
+    final jit = DcArmJit.create(0x10000);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    DcArm7di make(Uint8List memory, {DcArmJit? jit}) => DcArm7di(
+        read: (address, size) =>
+            size == 1 ? memory[address] : memory.getUint32LE(address),
+        write: (address, size, value) => size == 1
+            ? memory[address] = value
+            : memory.setUint32LE(address, value),
+        registers: jit?.registers)
+      ..compiled = jit?.run
+      ..fiq = true;
+    const program = {
+      0x00: 0xea00003e, // b 0x100
+      0x1c: 0xeafffffe, // fiq: b .
+      0x100: 0xe3a0c014, // mov r12,#20
+      0x104: 0xe10f9000, // mrs r9,cpsr: both interrupts masked
+      0x108: 0xe35c0001, // loop: cmp r12,#1
+      0x10c: 0x03c98040, // biceq r8,r9,#0x40
+      0x110: 0x11a08009, // movne r8,r9
+      0x114: 0xe129f008, // msr cpsr_fc,r8: unmasks the FIQ in the last pass
+      0x118: 0xe2800001, // add r0,r0,#1
+      0x11c: 0xe25cc001, // subs r12,r12,#1
+      0x120: 0x1afffff8, // bne loop
+      0x124: 0xeafffffe, // b .
+    };
+    final memories = [Uint8List(0x10000), jit.memory];
+    final cpus = [make(memories[0]), make(memories[1], jit: jit)];
+    for (final memory in memories) {
+      for (final MapEntry(:key, :value) in program.entries) {
+        memory.setUint32LE(key, value);
+      }
+    }
+    final interpreter = cpus[0], compiled = cpus[1];
+    for (var n = 0; n < 100000 && interpreter.pc != 0x1c; n++) {
+      interpreter.run(interpreter.cycles + 1);
+    }
+    expect(interpreter.pc, 0x1c);
+    compiled.run(interpreter.cycles);
+    expect(jit.compiledClocks, greaterThan(0));
+    expect(compiled.pc, 0x1c);
+    expect(compiled.cycles - interpreter.cycles, inInclusiveRange(0, 2));
+    expect(compiled.r, interpreter.r);
+    expect(compiled.cpsr, interpreter.cpsr);
+    expect(interpreter.r[0], 19);
+  });
+
   test('compiled block transfers match the interpreter in results and cycles',
       () {
     final jit = DcArmJit.create(0x10000);

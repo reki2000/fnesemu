@@ -124,6 +124,64 @@ void main() {
       expect(accesses, isEmpty);
     });
 
+    test('$name keyed tables keep one page under each key', () {
+      final rt = create([]);
+      if (rt == null) {
+        markTestSkipped('no compiled runtime on this host');
+        return;
+      }
+      addTearDown(rt.dispose);
+      final memory = rt.alloc(0x4000);
+      rt.mapPages(0x0c000000, memory.length, memory);
+      final data = memory.buffer.asByteData(memory.offsetInBytes);
+      data.setUint32(0x1010, 0x11111111, Endian.little);
+      data.setUint32(0x2010, 0x22222222, Endian.little);
+      final reads = rt.addTranslationTable(write: false, keyed: true);
+      const user = 0x801, system = 0xc01;
+      rt.mapTranslation(reads, 0x00010000, user, 0x0c001000);
+      rt.mapTranslation(reads, 0x00010000, system, 0x0c002000);
+      expect(rt.translate(reads, user, 0x00010010), 0x0c001010);
+      expect(rt.translate(reads, system, 0x00010010), 0x0c002010);
+
+      // ctx[16] is loaded through the translation under each key.
+      for (final (pc, key) in [(0x100, user), (0x200, system)]) {
+        final b = IrBuilder(pc);
+        final exit = IrExit(JitReason.user + 1, pc, spent: 0);
+        b.ctxStore(
+          18,
+          b.load(
+            4,
+            b.ctxLoad(16),
+            unmapped: exit,
+            translation: IrTranslation(reads, key),
+          ),
+        );
+        rt.install(
+          b.finish(IrExitTerm(IrExit(JitReason.user, pc + 4)), cost: 1),
+        );
+      }
+
+      int run(int pc) {
+        rt.ctx
+          ..[16] = 0x00010010
+          ..[18] = 0
+          ..[JitCtx.budget] = 100;
+        return rt.run(pc, 0);
+      }
+
+      expect(run(0x100), JitReason.user);
+      expect(rt.ctx[18], 0x11111111);
+      expect(run(0x200), JitReason.user);
+      expect(rt.ctx[18], 0x22222222);
+
+      // Unmapping the virtual page empties its slot under both keys.
+      rt.unmapTranslation(reads, 0x00010000);
+      expect(rt.translate(reads, user, 0x00010010), isNull);
+      expect(rt.translate(reads, system, 0x00010010), isNull);
+      expect(run(0x100), JitReason.user + 1);
+      expect(run(0x200), JitReason.user + 1);
+    });
+
     test('$name translations require an exit and a registered table', () {
       final rt = create([]);
       if (rt == null) {

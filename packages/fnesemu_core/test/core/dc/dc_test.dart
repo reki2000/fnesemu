@@ -197,7 +197,8 @@ void main() {
   test(
       'compiled single FPU arithmetic matches the interpreter in both rounding modes',
       () {
-    // Per iteration: load a, b, c; FADD, FSUB, FMUL, FMAC and FLOAT on them,
+    // Per iteration: load a, b, c; FADD, FSUB, FMUL, FDIV, FMAC and FLOAT
+    // on them,
     // storing every result and FPSCR.
     const iterations = 120;
     final code = <int>[];
@@ -218,9 +219,9 @@ void main() {
       emit(0x7504); // add #4,r5
     }
 
-    for (final op in [0xf310, 0xf311, 0xf312]) {
+    for (final op in [0xf310, 0xf311, 0xf312, 0xf313]) {
       emit(0xf30c); // fmov fr0,fr3
-      emit(op); // fadd / fsub / fmul fr1,fr3
+      emit(op); // fadd / fsub / fmul / fdiv fr1,fr3
       store();
     }
     emit(0xf32c); // fmov fr2,fr3
@@ -279,7 +280,7 @@ void main() {
         expect(core.stopReason, isNull);
         expect(core.cpu.r[6], 0, reason: 'the loop did not finish');
         return [
-          for (var i = 0; i < iterations * 10; i++)
+          for (var i = 0; i < iterations * 12; i++)
             core.bus.read32(0x8c024000 + 4 * i)
         ];
       }
@@ -288,7 +289,7 @@ void main() {
       for (var i = 0; i < compiled.length; i++) {
         expect(compiled[i], interpreted[i],
             reason: 'control=${control.toRadixString(16)} word $i '
-                '(iteration ${i ~/ 10}, slot ${i % 10})');
+                '(iteration ${i ~/ 12}, slot ${i % 12})');
       }
     }
   });
@@ -440,6 +441,314 @@ void main() {
     expect(compiled.bus.ram, interpreted.bus.ram);
     // The translated reads saw the TLB's page, not the alias.
     expect(interpreted.bus.read32(0x8c030000), 101);
+  });
+
+  for (final user in [false, true]) {
+    test('compiled store-queue stores with the MMU on match the interpreter '
+        '(${user ? 'user' : 'privileged'} mode)', () {
+      // The code fills store queue 0 and flushes it 100 times; PREF goes
+      // through a TLB entry for the store-queue page. User code runs from
+      // virtual 0x10000 with MMUCR.SQMD clear.
+      const code = [
+        0xd407, // mov.l @(pool,pc),r4: 0xe0000000
+        0xe764, // mov #100,r7
+        0xe10a, // mov #10,r1
+        0xe608, // outer: mov #8,r6
+        0x2412, // inner: mov.l r1,@r4
+        0x7103, // add #3,r1
+        0x7404, // add #4,r4
+        0x4610, // dt r6
+        0x8bfa, // bf inner
+        0x74e0, // add #-32,r4
+        0x0483, // pref @r4
+        0x4710, // dt r7
+        0x8bf5, // bf outer
+        0xaffe, // bra self
+        0x0009, // nop
+        0x0009, // nop
+        0x0000, 0xe000, // pool: 0xe0000000
+      ];
+
+      Dc run(bool jit) {
+        final core = Dc(jit: jit);
+        addTearDown(core.dispose);
+        core.setRom(Uint8List.fromList([
+          for (final w in code) ...[w & 255, w >> 8]
+        ]));
+        core.bus.write32(0xf6000000, 0xe0000000);
+        core.bus.write32(0xf7000000, 0x0c030000 | 0x174);
+        if (user) {
+          for (final (i, word) in code.indexed) {
+            core.bus.write16(0xac050000 + 2 * i, word);
+          }
+          core.bus.write32(0xf6000100, 0x00010000);
+          core.bus.write32(0xf7000100, 0x0c050000 | 0x174);
+        }
+        core.bus.mmucr = 1;
+        if (user) {
+          core.cpu
+            ..sr = 0xf0
+            ..pc = 0x00010000;
+        }
+        core.runFrame(8);
+        return core;
+      }
+
+      final compiled = run(true), interpreted = run(false);
+      if (JitRuntime.nativeSupported) {
+        expect(compiled.jitClocks, greaterThan(0));
+      }
+      expect(compiled.stopReason, interpreted.stopReason);
+      expect(compiled.cpu.r, interpreted.cpu.r);
+      expect(compiled.bus.ram, interpreted.bus.ram);
+      expect(interpreted.bus.read32(0x8c030000), 10 + 3 * 792);
+      expect(interpreted.bus.read32(0x8c03001c), 10 + 3 * 799);
+    });
+  }
+
+  test('compiled CCN register accesses through a base register and LDTLB '
+      'match the interpreter', () {
+    // The loop reads TEA and TTB through r7 = 0xff000000, then writes PTEL
+    // and the next TEA and loads the TLB, as a TLB miss handler does.
+    const code = [
+      0xd707, // mov.l @(pool,pc),r7: 0xff000000
+      0xe614, // mov #20,r6
+      0xe000, // mov #0,r0
+      0x5173, // loop: mov.l @(12,r7),r1
+      0x5272, // mov.l @(8,r7),r2
+      0x301c, // add r1,r0
+      0x302c, // add r2,r0
+      0x7101, // add #1,r1
+      0x1711, // mov.l r1,@(4,r7)
+      0x1713, // mov.l r1,@(12,r7)
+      0x0038, // ldtlb
+      0x4610, // dt r6
+      0x8bf5, // bf loop
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0xff00, // pool: 0xff000000
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      core.bus.write32(0xff00000c, 0x1000);
+      core.bus.write32(0xff000008, 0x2000);
+      core.bus.write32(0xff000000, 0x12345000);
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    expect(compiled.stopReason, interpreted.stopReason);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(interpreted.cpu.r[0], 20 * 0x3000 + 190);
+    for (final address in [0xff000004, 0xff00000c, 0xf6000000, 0xf7000000]) {
+      expect(compiled.bus.read32(address), interpreted.bus.read32(address));
+    }
+    expect(interpreted.bus.read32(0xff000004), 0x1000 + 20);
+    expect(interpreted.bus.read32(0xf7000000) & 0x1ffffc00, 0x1000);
+  });
+
+  test('compiled LDC SR takes an IRL interrupt where the mask admits it', () {
+    // Each pass lowers SR.IMASK to r6; the level-8 IRL interrupt is taken
+    // right after the LDC that sets 7.
+    const code = [
+      0xe60f, // mov #15,r6
+      0x0002, // stc sr,r0
+      0xcaf0, // xor #240,r0
+      0x6103, // mov r0,r1
+      0xe000, // mov #0,r0
+      0x6263, // loop: mov r6,r2
+      0x4208, // shll2 r2
+      0x4208, // shll2 r2
+      0x221b, // or r1,r2
+      0x420e, // ldc r2,sr
+      0x7801, // add #1,r8: not banked
+      0x4610, // dt r6
+      0x8bf7, // bf loop
+      0xaffe, // bra self
+      0x0009, // nop
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      core.bus.write16(0x8c020600, 0xaffe);
+      core.bus.write16(0x8c020602, 0x0009);
+      core.cpu
+        ..sr = 0x400000f0
+        ..vbr = 0x8c020000
+        ..irlPins = 7;
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    // The handler spins in a branch and its delay slot.
+    expect(interpreted.cpu.pc & ~3, 0x8c020600);
+    expect(interpreted.cpu.spc, Dc.programAddress + 0x14);
+    expect(interpreted.cpu.r[8], 8);
+    expect(compiled.cpu.pc & ~3, 0x8c020600);
+    expect(compiled.cpu.spc, interpreted.cpu.spc);
+    expect(compiled.cpu.ssr, interpreted.cpu.ssr);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+  });
+
+  test('compiled FPSCR loads and delay-slot FLOAT match the interpreter', () {
+    // The loop rewrites FPSCR with its own value and converts the counter
+    // in a delay slot; the last LDS changes PR and leaves the block.
+    const code = [
+      0xe614, // mov #20,r6
+      0x016a, // loop: sts fpscr,r1
+      0x416a, // lds r1,fpscr
+      0x6263, // mov r6,r2
+      0x425a, // lds r2,fpul
+      0xa000, // bra next
+      0xf02d, // float fpul,fr0
+      0xf100, // next: fadd fr0,fr1
+      0x4610, // dt r6
+      0x8bf6, // bf loop
+      0xd302, // mov.l @(pool,pc),r3: 0x00080001
+      0x436a, // lds r3,fpscr
+      0x046a, // sts fpscr,r4
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0001, 0x0008, // pool: 0x00080001
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    expect(interpreted.cpu.r[4], 0x00080001);
+    expect(interpreted.cpu.fr[1], 0x43520000); // 210.0
+    expect(compiled.cpu.fpscr, interpreted.cpu.fpscr);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(compiled.cpu.fr, interpreted.cpu.fr);
+  });
+
+  test('compiled loads that miss the UTLB enter the miss handler', () {
+    // The loop reads a new P0 page in each pass; the handler maps the page
+    // at TEA to the word at 0x0c030000 and counts the misses in r9.
+    const code = [
+      0xd405, // mov.l @(pool0,pc),r4: 0x00010000
+      0xe614, // mov #20,r6
+      0xe800, // mov #0,r8
+      0x6142, // loop: mov.l @r4,r1
+      0x381c, // add r1,r8
+      0xd304, // mov.l @(pool1,pc),r3: 0x1000
+      0x343c, // add r3,r4
+      0x4610, // dt r6
+      0x8bf9, // bf loop
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0x0001, // pool0
+      0x1000, 0x0000, // pool1
+    ];
+    const handler = [
+      0xd004, // mov.l @(pool,pc),r0: 0xff000000
+      0x5103, // mov.l @(12,r0),r1: TEA
+      0x1010, // mov.l r1,@(0,r0): PTEH
+      0xd104, // mov.l @(pool,pc),r1: 0x0c030174
+      0x1011, // mov.l r1,@(4,r0): PTEL
+      0x0038, // ldtlb
+      0x7901, // add #1,r9
+      0x002b, // rte
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0xff00, // pool
+      0x0174, 0x0c03, // pool
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      for (final (i, word) in handler.indexed) {
+        core.bus.write16(0x8c020400 + 2 * i, word);
+      }
+      core.bus.write32(0x8c030000, 5);
+      core.bus.mmucr = 1;
+      core.cpu
+        ..sr = 0x400000f0
+        ..vbr = 0x8c020000;
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    expect(interpreted.cpu.r[9], 20);
+    expect(interpreted.cpu.r[8], 100);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(compiled.cpu.bank, interpreted.cpu.bank);
+    expect(compiled.cpu.sr, interpreted.cpu.sr);
+    expect(compiled.bus.tea, interpreted.bus.tea);
+     if (JitRuntime.nativeSupported) {
+      // The handler's RTE runs in compiled code, and the load resumes there
+      // after its LDTLB; interpreting either adds 30 clocks or more.
+      expect(compiled.cpuClocks - compiled.jitClocks, lessThan(80));
+    }
+  });
+
+  test('a compiled loop that waits for memory skips runs and sees the write',
+      () {
+    const code = [
+      0xd103, // mov.l @(pool,pc),r1: 0xac0f0000, uncached
+      0x6012, // loop: mov.l @r1,r0
+      0x2008, // tst r0,r0
+      0x89fc, // bt loop
+      0xe201, // mov #1,r2
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0xac0f, // pool
+    ];
+    final core = Dc(jit: true);
+    addTearDown(core.dispose);
+    core.setRom(Uint8List.fromList([
+      for (final w in code) ...[w & 255, w >> 8]
+    ]));
+    final jit = core.cpu.jit;
+    core.runFrame(8);
+    final entries = jit?.rt.nativeEntries ?? 0;
+    core.runFrame(8);
+    expect(core.cpu.r[2], 0);
+    if (JitRuntime.nativeSupported) {
+      // Each line is one run; most runs of the waiting loop consume their
+      // budget unexecuted.
+      expect(jit!.rt.nativeEntries - entries, lessThan(4));
+    }
+    // A write from outside, as a DMA makes, ends the wait within a few runs.
+    core.bus.write32(0xac0f0000, 5);
+    core.runFrame(20);
+    expect(core.cpu.r[2], 1);
   });
 
   test('compiled user code in translated pages follows TLB changes', () {

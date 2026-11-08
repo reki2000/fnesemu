@@ -301,6 +301,8 @@ abstract final class X64Backend {
       }
       a.movRR(R.rcx, R.rax);
       a.shiftRI(Shift.shr, R.rcx, env.pageShift);
+      final hash = t.slotHash(inst.translationKey) & (t.slots - 1);
+      if (hash != 0) a.aluRI(Alu.xor, R.rcx, hash);
       a.aluRI(Alu.and, R.rcx, t.slots - 1);
       a.shiftRI(Shift.shl, R.rcx, 4);
       a.movRI64(R.rdx, env.translationAddress(id));

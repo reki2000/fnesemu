@@ -19,11 +19,13 @@ final class Sh4Jit extends JitAdapter {
   late final int _reads = rt.addTranslationTable(
       write: false,
       directStart: Sh4Translator.directStart,
-      directEnd: Sh4Translator.directEnd);
+      directEnd: Sh4Translator.directEnd,
+      keyed: true);
   late final int _writes = rt.addTranslationTable(
       write: true,
       directStart: Sh4Translator.directStart,
-      directEnd: Sh4Translator.directEnd);
+      directEnd: Sh4Translator.directEnd,
+      keyed: true);
 
   /// The physical page and the blocks of each P0 page under a key, by
   /// `page | key`.
@@ -37,7 +39,13 @@ final class Sh4Jit extends JitAdapter {
       readTable: _reads,
       writeTable: _writes,
       fpuHelper: rt.addHelper(_floatingPoint),
-      prefetchHelper: rt.addHelper(_prefetch));
+      prefetchHelper: rt.addHelper(_prefetch),
+      registerReadHelper: rt.addHelper(_readRegister),
+      registerWriteHelper: rt.addHelper(_writeRegister),
+      loadTlbHelper: rt.addHelper(_loadTlb),
+      // The driver translates the block about to run, so the context holds
+      // its entry state.
+      entryValue: (word) => rt.ctx[word]);
   late final _driver = JitDriver(rt,
       translate: _translate,
       codeWord: _codeWord,
@@ -169,7 +177,9 @@ final class Sh4Jit extends JitAdapter {
     if (!mmu.enabled) return Sh4Translator.tagOf(cpu._sr, cpu._fpscr);
     final privileged = cpu.privileged;
     return Sh4Translator.mmuTag(cpu._sr, cpu._fpscr,
-        user: !privileged, space: _space(mmu.control, mmu.pteh, privileged));
+        user: !privileged,
+        space: _space(mmu.control, mmu.pteh, privileged),
+        queue: mmu.control & 0x200 == 0);
   }
 
   int? _fetch(int pc) {
@@ -191,7 +201,13 @@ final class Sh4Jit extends JitAdapter {
     ctx[Sh4Translator.macl] = cpu.macl;
     ctx[Sh4Translator.fpul] = cpu.fpul;
     ctx[Sh4Translator.fpscr] = cpu._fpscr;
+    // [Sh4.runCompiled] has just evaluated the pending interrupts.
+    ctx[Sh4Translator.pendingLevel] = cpu._pendingPriority;
     ctx[JitCtx.faultAddr] = 0;
+    if (_idleSkips > 0 && _idle(cpu.pc, tag)) {
+      _idleSkips--;
+      return budget;
+    }
     final reason = _driver.runBudgeted(cpu.pc, tag, budget);
     // Blocks never change the register bank or FPU mode bits.
     cpu._sr = ctx[Sh4Translator.sr];
@@ -203,7 +219,19 @@ final class Sh4Jit extends JitAdapter {
     cpu._fpscr = ctx[Sh4Translator.fpscr];
     final steps = _driver.lastClocks;
     if (steps > 0) cpu.pc = rt.exitPc;
-    if (reason == Sh4Translator.interpret) {
+    if (reason == Sh4Translator.exceptionReturn) {
+      cpu.sr = cpu.ssr;
+      cpu.pc = cpu.spc;
+    }
+    if (reason == Sh4Translator.readFault ||
+        reason == Sh4Translator.writeFault) {
+      // A TLB miss enters its handler here; interpreting the access would
+      // raise it through a costly Dart exception.
+      cpu._raiseDataMiss(ctx[JitCtx.faultAddr],
+          write: reason == Sh4Translator.writeFault);
+    }
+    if (reason == Sh4Translator.interpret ||
+        reason == Sh4Translator.writeFault) {
       // A store into a code page: leave later stores to the entry guards.
       var fault = ctx[JitCtx.faultAddr];
       if (fault != 0 && fault < 0x80000000 && tag & Sh4Translator.tagMmu != 0) {
@@ -211,18 +239,85 @@ final class Sh4Jit extends JitAdapter {
       }
       if (fault != 0 && _code.isProtected(fault)) _code.release(fault);
     }
+    if (reason != JitReason.budget) {
+      _forgetIdle();
+    } else if (_idle(cpu.pc, tag)) {
+      _idleSkips = idleSkips;
+    } else {
+      // The runs of a loop may end alternately at a few of its blocks.
+      final slot = _idleNext;
+      _idleNext = (slot + 1) % _idlePcs.length;
+      _idlePcs[slot] = cpu.pc;
+      _idleTags[slot] = tag;
+      _idleStates.setRange(
+          slot * _stateWords, (slot + 1) * _stateWords, ctx, Sh4Translator.regs);
+      _idleSkips = 0;
+    }
     return steps;
+  }
+
+  /// A run that spends its whole budget and ends at the PC, the tag and
+  /// the registers of one of the last such runs waits in a loop for a
+  /// change from outside: an interrupt, which changes the registers, or a
+  /// device or a DMA writing memory. The next [idleSkips] runs in that
+  /// state consume their budget without executing it; then one run
+  /// executes and reads memory again.
+  static const idleSkips = 15;
+  static const _stateWords = Sh4Translator.pendingLevel - Sh4Translator.regs;
+  final _idlePcs = Int64List(4)..fillRange(0, 4, -1), _idleTags = Int64List(4);
+  final _idleStates = Uint32List(4 * _stateWords);
+  int _idleNext = 0, _idleSkips = 0;
+
+  void _forgetIdle() {
+    _idlePcs.fillRange(0, _idlePcs.length, -1);
+    _idleSkips = 0;
+  }
+
+  @override
+  void reset() {
+    super.reset();
+    _forgetIdle();
+  }
+
+  bool _idle(int pc, int tag) {
+    final ctx = rt.ctx, states = _idleStates;
+    for (var slot = 0; slot < _idlePcs.length; slot++) {
+      if (pc != _idlePcs[slot] || tag != _idleTags[slot]) continue;
+      final base = slot * _stateWords;
+      var same = true;
+      for (var i = 0; i < _stateWords && same; i++) {
+        same = ctx[Sh4Translator.regs + i] == states[base + i];
+      }
+      if (same) return true;
+    }
+    return false;
   }
 
   int _prefetch(int address, int _, int __) {
     if (!DcBus.isStoreQueue(address)) return 0;
     try {
       _cpu.bus.transferStoreQueue(address, privileged: _cpu.privileged);
+      // The transfer may raise an interrupt, so a later LDC SR leaves.
+      rt.ctx[Sh4Translator.pendingLevel] = 16;
     } on DcCpuException {
       return 1;
     } on DcUnsupported {
       return 1;
     }
+    return 0;
+  }
+
+  // CCN registers need no device sync; [Sh4Translator.plainRegister]
+  // selects the ones without other effects.
+  int _readRegister(int address, int _, int __) => _cpu.bus.read32(address);
+
+  int _writeRegister(int address, int value, int _) {
+    _cpu.bus.write32(address, value);
+    return 0;
+  }
+
+  int _loadTlb(int _, int __, int ___) {
+    _cpu._loadTlb();
     return 0;
   }
 

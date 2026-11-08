@@ -224,6 +224,7 @@ Tests validate the agreed arithmetic and these deliberate stops; they do not est
 ## Floating-point implementation
 
 Scalar binary32/binary64 arithmetic uses exact BigInt significands and rational rounding, rather than host floating-point results.
+Common cases take host arithmetic where it gives the same result: single operations on normal or zero operands, and double operations on operands within 2^±400 while rounding to nearest with no exception enabled. Exact error terms from two-sum and Dekker's product decide the inexact flag.
 RN uses nearest-even and RZ truncates magnitude; the engine tracks inexact, underflow, overflow, divide-by-zero, invalid operation and denormal-input error.
 SH-4's signaling-NaN fraction bit is the inverse of modern host IEEE conventions; quiet results use the documented canonical payloads.
 Arithmetic refreshes FPSCR causes and preserves sticky flags; enabled exceptions suppress destination updates, including the documented unconditional O/U/I traps for normal arithmetic paths.
@@ -550,9 +551,9 @@ The alpha-test point follows PT_ALPHA_REF's pixel-alpha wording and the texture/
 These source discrepancies, exact tie precision and Z-mask interactions still require physical validation.
 
 Translucent pre-sort draws in input order using the programmed depth function.
-Auto-sort ignores that function and uses greater-or-equal, replaying the object list to select each pixel's next farthest eligible fragment before blending it.
-A previous (depth, primitive-order) key prevents equal-depth fragments from repeating and ensures that earlier input is farther away at a tie.
-Only one candidate and one previous key per pixel are held, so temporary storage does not grow with the number of overlap layers.
+Auto-sort ignores that function and uses greater-or-equal.
+The object list is rasterized once into per-pixel fragment lists, which are blended in ascending (depth, primitive order), so earlier input is farther away at a tie.
+This order equals peeling one layer per pass, because depth writes only grow along it; the temporary storage grows with the number of fragments.
 Opaque/punch-through depth rejection and programmed Z-write disable remain effective through retained multipass regions.
 Type-1 Region Arrays use ISP_FEED_CFG's sort mode, while type-2 arrays select it per region.
 Hardware ISP-cache capacities/overflow, discard scheduling, texture-cache phases and sort latency remain unmodeled; functional region timing is still the placeholder described above.
@@ -575,6 +576,7 @@ Quad vertices follow the perimeter sequence in figure 3-1, with ABC defining the
 The same ABC plane supplies reciprocal depth, perspective UV, flat/Gouraud base and offset colors and MIP derivatives across both raster coverage triangles.
 Invalid fourth-vertex Z/UV/color fields are not fetched, including when they contain NaN bit patterns.
 Quad culling uses the defining ABC determinant once, and the shared diagonal uses the same top-left coverage convention to avoid double blending.
+The quick rows divide each edge value by its horizontal step to find the covered columns of a row under the same convention, and skip the coverage test per fragment.
 This is a functional triangulated coverage implementation; exact hardware quad edge precision, plane arithmetic and degenerate-case behavior remain unverified.
 Concave/crossed quads stop explicitly pending hardware evidence.
 
@@ -586,6 +588,8 @@ Rendered scenes check flat/textured/offset sprites, derived depth/UV/color in th
 TA parameters retain 32-bit IEEE UV values or the documented packed upper halves of IEEE UV values; the latter are not IEEE binary16.
 Generated object pointers carry the corresponding skip size, and the CORE validates it against the parameter format before reading vertices.
 Texture UVs and Gouraud base/offset RGBA are interpolated using reciprocal depth for perspective correction, as required by section 3.1.1.8, independently of the integer/half-pixel position chosen for coverage through HALF_OFFSET.
+The color weights of the second and third vertices are quantized to 1/65536 and the first takes the rest, so a channel may differ from exact interpolation by one unit.
+In the quick rows of wrapped textures that replace the color, texel positions, color weights and the weight of table fog without a color clamp are exact every 16 fragments and step linearly between them; depth stays exact per fragment.
 Zero perspective denominators and nonfinite/overflowing coordinates stop explicitly without a render-completion interrupt.
 
 `DcGpuTexture` reads texture data from the 64-bit VRAM layout and supports uncompressed ARGB1555, RGB565 and ARGB4444; format code 7 uses ARGB1555 as specified.
@@ -1161,7 +1165,7 @@ Vertex fog uses flat or perspective-correct Gouraud offset alpha and its separat
 Normal fog changes RGB while preserving the shaded alpha, and Mode 2 replaces RGB and alpha with the table fog color and coefficient before blending.
 The Mode 2 implementation follows the explicit assignments in §3.4.8.1; the abbreviated wording in §3.7.9.2 is ambiguous about the substitution direction.
 Flat untextured backgrounds use the same clamp/fog stage with the programmed background depth.
-Table interpolation and RGB mixing use host double arithmetic with nearest integer color rounding; physical internal precision, coefficient quantization and rounding remain unverified.
+Table interpolation uses host double arithmetic; RGB mixing quantizes the coefficient to 1/256 steps and blends in integer lanes. Physical internal precision, coefficient quantization and rounding remain unverified.
 Table power-on contents are unspecified and initialized to zero for deterministic execution; physical table retention through pipeline resets is unverified.
 Reversed clamp bounds stop explicitly because their hardware behavior is not documented.
 
@@ -1228,7 +1232,8 @@ Area-one pixels on Shadow-enabled objects scale the interpolated base and offset
 The model applies the literal color multiplier to ARGB, then applies Use Alpha normally; the physical alpha/offset-alpha gating and multiplier rounding still require hardware observations.
 Opaque/punch-through depths are resolved before area evaluation, after which the tile is replayed from saved color, depth and secondary-buffer state to avoid duplicate blending.
 A failed depth/area prepass restores those buffers as well, allowing repaired VRAM data to be retried on a retained tile without applying the failed prepass twice.
-Auto-sorted translucent modifiers evaluate against each selected layer's fragment depths before that layer is shaded and composited.
+Auto-sorted translucent modifiers evaluate against the fragment depths of each layer before that layer is composited.
+A fragment whose material or intensity shadow depends on the area is collected for both areas, and the layer takes the one that matches the area of its pixel.
 Opaque and translucent area masks are independent; pre-sorted translucent modifiers stop because §3.4.5.3 permits only auto-sort.
 Replay is a functional implementation strategy and does not model the hardware ISP/TSP phases or render duration.
 Modifier-enabled backgrounds remain an explicit development stop; two-volume parameter selection is described below.
@@ -2199,7 +2204,7 @@ These component sections are integrated into the complete native DC save/load pa
 
 ## GPU CORE rendering component state
 
-`DcGpuRender` saves its register map, region cursor, retained tile coordinates, remaining functional tile deadline, sort/material state, primary/secondary color buffers, secondary-valid bits, depth buffer, shadow mask, depth-peeling history, fragment candidates and fog component.
+`DcGpuRender` saves its register map, region cursor, retained tile coordinates, remaining functional tile deadline, sort/material state, primary/secondary color buffers, secondary-valid bits, depth buffer, shadow mask, an unused depth-peeling history kept for the state format, fragment candidates and fog component.
 The negative-infinity depth-peeling sentinel is retained without conversion to a finite depth.
 Destination VRAM, palette and completion callbacks stay attached; their owning components restore VRAM bytes and palette state separately.
 The modifier evaluator has only scratch data and destination-owned callbacks, so it requires no independent persistent section.
@@ -2688,6 +2693,9 @@ Descending additional OPB allocation subtracts the new list block's size before 
 Each SH-4 instruction advances the devices by one CPU clock (`cpuPeriod` master clocks), in the interpreter and in compiled code alike.
 The boot profile previously charged eight CPU clocks per instruction to work around a BIOS VSYNC wait; that slowed guest computation to about an eighth of the hardware rate, so CPU-bound titles ran at a fraction of their intended speed.
 Dual issue and pipeline stalls are not modeled.
+When compiled code spends its whole budget and ends at the PC, the tag and the registers of one of the last four such runs, it is taken to wait in a loop for an interrupt or for memory that a device or a DMA writes.
+The next 15 runs in that state then consume their budget without executing, and the run after them executes the loop again; any run that ends for another reason, such as the RTE of an interrupt handler, stops the skipping.
+A loop that changes memory but leaves the registers equal at those points would lose its effect on memory; such loops are not supported.
 
 ## System settings date
 
@@ -2701,12 +2709,21 @@ An image without settings blocks is left as it is, so that the boot ROM runs its
 With the MMU on, compiled code runs in P0 in both modes and in P1 and P2 in privileged mode.
 Two translation tables of the JIT runtime, 1024 slots each, one for reads and instruction fetches and one for writes, cache translations of 4 KiB pages to main RAM; P1 and P2 form their direct window.
 The interpreter fills a slot from each successful TLB translation of a page of 4 KiB or more; a missing slot returns the access to the interpreter.
+LDTLB also fills the slots of the page at TEA, in the mode of SSR.MD, so the access that missed resumes in compiled code after the handler's RTE.
 A slot key holds the virtual page, user mode and the address space key (256 when MMUCR.SV shares privileged accesses, otherwise PTEH.ASID), so the tables need no flush when the ASID changes.
+The slot index also depends on the key, so a page used in both modes or by two address spaces keeps a slot for each.
 Changing a valid TLB entry drops the slots of its old range; MMUCR.TI and changes of MMUCR.AT or MMUCR.SV drop every slot.
 The block tag includes user mode and the address space key, so each process has its own blocks.
 A block in P0 stays within one page, guards the physical code, and leaves at entry when its page has no slot.
 When the interpreter refills the slot of a page with another physical page, the blocks built from the old page are retired.
 User-mode blocks exclude the privileged STC SR forms.
+The TLB does not translate stores to the store queues, so privileged blocks send them to the queue page at a P1 alias of the reserved area-7 page `0x1ffff000`, which the direct window passes without a table lookup; user-mode blocks do the same when MMUCR.SQMD is clear, which the block tag records, and otherwise return them to the interpreter.
+A longword access with displacement whose base register is unchanged since block entry, and whose entry value then points at a CCN register without side effects (reads of PTEH, PTEL, TTB, TEA, MMUCR, TRA, EXPEVT, INTEVT and PTEA, writes of PTEL, TTB, TEA and PTEA), calls a helper instead of leaving the block; the block guards the base value, which it takes from the context when it is translated at its entry, and leaves when the value differs.
+Privileged blocks call a helper for LDTLB and end after it.
+They also end at RTE with NOP in its slot and leave with their own reason, so that the host restores SR from SSR, which may switch the register bank, and the PC from SPC.
+A load or store whose page has no slot leaves with its own reason; when the UTLB has no entry for the address, the host raises the TLB miss at once instead of interpreting the access, unless SR.BL, an admitted interrupt or a pending reset comes first; when it has one, the host fills the slots of the page and compiled code resumes at the access.
+In both MMU modes, privileged blocks run LDC Rm,SR unless it changes SR.MD, SR.RB or SR.FD; they leave after it when the new mask and SR.BL admit the highest pending interrupt, whose level the host writes to the context before each run and a store-queue transfer raises to 16.
+LDS and LDS.L to FPSCR end the block and continue on the tag of the new FPSCR.PR; a change of FPSCR.SZ or FPSCR.FR leaves the block before them. Single-precision FLOAT, FTRC, FIPR and FTRV, which run natively, are also accepted in delay slots.
 Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.
 
 ## Reserved and sub-word register accesses

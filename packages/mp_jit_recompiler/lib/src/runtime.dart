@@ -200,12 +200,15 @@ abstract class JitRuntime {
 
   /// Adds a table of [slots] virtual pages, a power of two, for loads or,
   /// with [write], for stores, and returns its id. Guest addresses from
-  /// [directStart] up to [directEnd] bypass the table.
+  /// [directStart] up to [directEnd] bypass the table. In a [keyed] table
+  /// the slot of a page also depends on the key, so one page under a few
+  /// keys keeps a slot for each.
   int addTranslationTable({
     required bool write,
     int slots = 1024,
     int directStart = 0,
     int directEnd = 0,
+    bool keyed = false,
   }) {
     if (slots <= 0 || slots & (slots - 1) != 0 || slots > 1 << 20) {
       throw ArgumentError.value(slots, 'slots', 'expected a power of two');
@@ -217,7 +220,7 @@ abstract class JitRuntime {
       throw ArgumentError('invalid direct window');
     }
     translationTables.add(
-      JitTranslationTable._(write, slots, directStart, directEnd),
+      JitTranslationTable._(write, slots, directStart, directEnd, keyed),
     );
     final id = translationTables.length - 1;
     createTranslationTable(id);
@@ -232,7 +235,7 @@ abstract class JitRuntime {
       throw ArgumentError.value(key, 'key', 'expected 1 to the page size');
     }
     final t = translationTables[table];
-    final slot = t.slotOf(address, pageShift);
+    final slot = t.slotOf(address, pageShift, key);
     final page = (physical & addrMask) >>> pageShift;
     final host = (t.write ? writePages : readPages)[page];
     if (host == null) {
@@ -240,18 +243,36 @@ abstract class JitRuntime {
       return;
     }
     if (t._keys[slot] == 0) t._live++;
+    if (t.keyed) {
+      final page = (address & 0xffffffff) >>> pageShift;
+      final keys = t._pageKeys[page] ??= <int>[];
+      if (!keys.contains(key)) keys.add(key);
+    }
     final slotKey = (address & ~(pageBytes - 1) & 0xffffffff) | key;
     t._keys[slot] = slotKey;
     t._pages[slot] = page;
     writeTranslationSlot(table, slot, slotKey, host);
   }
 
-  /// Empties the slot of [address] when it holds that virtual page.
+  /// Empties the slots of [address] when they hold that virtual page, under
+  /// every key that a [keyed] table has mapped it under.
   void unmapTranslation(int table, int address) {
     final t = translationTables[table];
-    final slot = t.slotOf(address, pageShift);
-    if (t._keys[slot] != 0 &&
-        (t._keys[slot] ^ address) & ~(pageBytes - 1) & 0xffffffff == 0) {
+    if (!t.keyed) {
+      _unmapSlot(table, t.slotOf(address, pageShift, 0), address);
+      return;
+    }
+    final keys = t._pageKeys.remove((address & 0xffffffff) >>> pageShift);
+    if (keys == null) return;
+    for (final key in keys) {
+      _unmapSlot(table, t.slotOf(address, pageShift, key), address);
+    }
+  }
+
+  void _unmapSlot(int table, int slot, int address) {
+    final keys = translationTables[table]._keys;
+    if (keys[slot] != 0 &&
+        (keys[slot] ^ address) & ~(pageBytes - 1) & 0xffffffff == 0) {
       _clearSlot(table, slot);
     }
   }
@@ -259,6 +280,7 @@ abstract class JitRuntime {
   /// Empties every slot of a table.
   void clearTranslations(int table) {
     final t = translationTables[table];
+    t._pageKeys.clear();
     if (t._live == 0) return;
     for (var slot = 0; slot < t.slots; slot++) {
       if (t._keys[slot] != 0) _clearSlot(table, slot);
@@ -272,7 +294,7 @@ abstract class JitRuntime {
     final t = translationTables[table];
     address &= 0xffffffff;
     if (t.isDirect(address)) return address;
-    final slot = t.slotOf(address, pageShift);
+    final slot = t.slotOf(address, pageShift, key);
     if (t._keys[slot] != ((address & ~(pageBytes - 1)) | key)) return null;
     return (t._pages[slot] << pageShift) | (address & (pageBytes - 1));
   }
@@ -399,20 +421,31 @@ mixin CompiledRuntimeHelpers on JitRuntime {
 
 /// A translation table of a runtime, see [JitRuntime.addTranslationTable].
 final class JitTranslationTable {
-  final bool write;
+  final bool write, keyed;
   final int slots, directStart, directEnd;
   final Uint32List _keys;
   final Int32List _pages;
+
+  /// The keys that a [keyed] table has mapped each virtual page under, by
+  /// page number, until the page is unmapped.
+  final _pageKeys = <int, List<int>>{};
   int _live = 0;
   JitTranslationTable._(
     this.write,
     this.slots,
     this.directStart,
     this.directEnd,
+    this.keyed,
   ) : _keys = Uint32List(slots),
       _pages = Int32List(slots)..fillRange(0, slots, -1);
 
   bool isDirect(int address) => address >= directStart && address < directEnd;
-  int slotOf(int address, int pageShift) =>
-      ((address & 0xffffffff) >>> pageShift) & (slots - 1);
+
+  /// The value that the page number of an address under [key] is XORed with
+  /// before it is masked to a slot; compiled lookups use it as a constant.
+  int slotHash(int key) =>
+      keyed ? ((key * 0x9e3779b1) & 0xffffffff) >>> 12 : 0;
+
+  int slotOf(int address, int pageShift, int key) =>
+      (((address & 0xffffffff) >>> pageShift) ^ slotHash(key)) & (slots - 1);
 }

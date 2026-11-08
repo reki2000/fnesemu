@@ -29,6 +29,7 @@ final class ArmTranslatorPolicy {
     required this.maxInstructionCycles,
     this.strictBlockTransfers = false,
     this.blockLoadToPcCycles = 0,
+    this.statusTransfers = false,
   });
 
   /// Register-controlled operand2 shifts in data processing.
@@ -53,6 +54,12 @@ final class ArmTranslatorPolicy {
 
   /// Extra cycles of a block load that includes PC.
   final int blockLoadToPcCycles;
+
+  /// Unconditional MRS from the CPSR and MSR to the CPSR in the ARM7DI
+  /// forms. An MSR that would change the mode leaves the block before it,
+  /// and one that unmasks an asserted interrupt line, which the host
+  /// writes to [ArmTranslator.pending], leaves the block after it.
+  final bool statusTransfers;
 
   /// Accepts the transfer forms the ARM7DI interpreter prohibits:
   /// writeback to PC, byte loads to PC, load/writeback overlap,
@@ -81,6 +88,7 @@ final class ArmTranslatorPolicy {
     blockTransfers: true,
     strictBlockTransfers: true,
     blockLoadToPcCycles: 2,
+    statusTransfers: true,
     lenientTransfers: false,
     loadToPcCycles: 5,
     // A block load of sixteen registers that includes PC takes 20.
@@ -114,7 +122,12 @@ final class ArmTranslatorPolicy {
 /// owning adapter.
 final class ArmTranslator {
   static const regs = JitCtx.user;
-  static const cpsr = regs + 16, ctxWords = cpsr + 1;
+  static const cpsr = regs + 16;
+
+  /// The I and F bits of the interrupt lines that are asserted, which the
+  /// host writes before a run with [ArmTranslatorPolicy.statusTransfers];
+  /// the lines do not change while compiled code runs.
+  static const pending = cpsr + 1, ctxWords = pending + 1;
   static const interpret = JitReason.user;
 
   ArmTranslator({
@@ -237,6 +250,7 @@ final class ArmTranslator {
         }
         return policy.halfTransfers ? (op & 0x100000 != 0 ? 3 : 2) : null;
       }
+      if (_statusTransfer(op, condition)) return 1;
       if (!policy.registerShift && (op & 0x02000010) == 0x10) return null;
       final code = (op >> 21) & 15, rd = (op >> 12) & 15;
       final set = op & 0x100000 != 0, test = code >= 8 && code <= 11;
@@ -467,7 +481,60 @@ final class ArmTranslator {
 
   /// Emits a non-branch instruction; returns the jump target when it
   /// writes the PC.
+  /// Whether [op] is a PSR transfer that the block emits.
+  bool _statusTransfer(int op, int condition) {
+    if (!policy.statusTransfers || condition != 14) return false;
+    // MRS Rd, CPSR, with Rd other than PC.
+    if (op & 0x0fff0fff == 0x010f0000) return (op >> 12) & 15 != 15;
+    // MSR CPSR from a register other than PC, whole or flags only.
+    if (op & 0x0ffefff0 == 0x0128f000) return op & 15 != 15;
+    // MSR CPSR_flg from an immediate.
+    return op & 0x0ffff000 == 0x0328f000;
+  }
+
+  /// MRS and MSR on the CPSR. The ARM7DI writes the flags, or with bit 16
+  /// outside user mode also the control bits.
+  void _emitStatus(int op, int at) {
+    final flags = _get(cpsr);
+    if (op & 0x00200000 == 0) {
+      _put(regs + ((op >> 12) & 15), flags);
+      return;
+    }
+    final IrValue value;
+    if (op & 0x02000000 != 0) {
+      final imm = op & 255, rot = ((op >> 8) & 15) * 2;
+      value = c(rot == 0 ? imm : (imm >>> rot | imm << (32 - rot)));
+    } else {
+      value = _get(regs + (op & 15));
+    }
+    if (op & 0x10000 == 0) {
+      _put(cpsr,
+          b.or(b.and(flags, c(0x0fffffff)), b.and(value, c(0xf0000000))));
+      return;
+    }
+    final user = b.eq(b.and(flags, c(0x1f)), c(0x10));
+    final mask = b.select(user, c(0xf0000000), c(0xf00000df));
+    final next = b.or(b.and(flags, b.xor(mask, c(0xffffffff))),
+        b.and(value, mask));
+    // A mode change switches register banks, which the interpreter does.
+    b.exitIf(b.ne(b.and(b.xor(next, flags), c(0x1f)), c(0)), _snapshot(at));
+    _put(cpsr, next);
+    // Clearing I or F of an asserted line lets the interpreter take the
+    // interrupt.
+    final enables =
+        b.and(b.and(flags, b.xor(next, c(0xffffffff))), _get(pending));
+    b.exitIf(
+        b.ne(enables, c(0)),
+        IrExit(interpret, (at + 4) & 0xffffffff,
+            spent: _spent + 1,
+            stores: [for (final e in _values.entries) (e.key, e.value)]));
+  }
+
   IrValue? _emit(int op, int at, int condition) {
+    if (_statusTransfer(op, condition)) {
+      _emitStatus(op, at);
+      return null;
+    }
     if (op & 0x0c000000 == 0x04000000) return _transfer(op, at);
     if (op & 0x0e000000 == 0x08000000) return _emitBlock(op, at);
     if (op & 0x02000000 == 0 && (op & 0x90) == 0x90) {

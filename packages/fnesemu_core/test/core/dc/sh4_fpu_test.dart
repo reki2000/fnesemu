@@ -190,6 +190,76 @@ void main() {
     }
   });
 
+  test('host double-precision paths match the exact model in both rounding modes',
+      () {
+    final random = Random(3);
+    (int, int) wide() {
+      final kind = random.nextInt(16);
+      final sign = random.nextBool() ? 0x80000000 : 0;
+      if (kind == 0) return (sign, 0);
+      final exponent = kind < 8
+          ? 1016 + random.nextInt(16)
+          : kind < 12
+              ? 1 + random.nextInt(2046)
+              : 1023 + (random.nextBool() ? 399 : -399) + random.nextInt(3) - 1;
+      // Near-all-zero or all-one fractions exercise carries and ties.
+      final high = kind < 4
+          ? (random.nextBool() ? 0 : 0xfffff)
+          : random.nextInt(0x100000);
+      final low = kind < 4
+          ? (random.nextBool() ? 0 : 0xffffffff) ^ random.nextInt(4)
+          : random.nextInt(1 << 32);
+      return (sign | (exponent << 20) | high, low);
+    }
+
+    const format = DcFloat.doublePrecision;
+    BigInt big((int, int) value) =>
+        BigInt.from(value.$1) << 32 | BigInt.from(value.$2);
+    for (var i = 0; i < 50000; i++) {
+      final control = 0x80000 | random.nextInt(2);
+      // 6 is FCNVDS and 7 is FCNVSD.
+      final low = random.nextInt(8);
+      final a = wide();
+      final single = random.nextInt(1 << 32);
+      // Exact products and quotients: a short fraction times a power of two.
+      final b = i % 8 == 0
+          ? (a.$1 & 0x80000000 | ((1000 + random.nextInt(40)) << 20), 0)
+          : wide();
+      final x = big(a), y = big(b);
+      final expected = switch (low) {
+        < 4 => format.binary(['add', 'sub', 'mul', 'div'][low], x, y, control),
+        4 || 5 => format.compare(x, y, control, greater: low == 5),
+        6 => DcFloat.single.convert(format, x, control),
+        _ => format.convert(DcFloat.single, BigInt.from(single), control),
+      };
+      if (expected.flags & (DcFloat.error | DcFloat.invalid) != 0) continue;
+      cpu
+        ..fpscr = control
+        ..fpul = single;
+      cpu.fr
+        ..[2] = a.$1
+        ..[3] = a.$2
+        ..[4] = b.$1
+        ..[5] = b.$2;
+      execute(low == 6
+          ? 0xf2bd
+          : low == 7
+              ? 0xf2ad
+              : 0xf240 | low);
+      final reason = 'op $low: $a $b $single, RM ${control & 1}';
+      if (low == 6) {
+        expect(cpu.fpul, expected.bits.toInt(), reason: reason);
+      } else if (low >= 4 && low < 6) {
+        expect(cpu.t, expected.bits != BigInt.zero, reason: reason);
+      } else {
+        expect(big((cpu.fr[2], cpu.fr[3])), expected.bits, reason: reason);
+      }
+      expect(
+          cpu.fpscr, control | (expected.flags << 12) | (expected.flags << 2),
+          reason: reason);
+    }
+  });
+
   test('FSQRT and FSRRA of single operands match the exact reference', () {
     final random = Random(7);
     final inputs = <int>[

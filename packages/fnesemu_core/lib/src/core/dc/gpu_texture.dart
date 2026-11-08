@@ -437,6 +437,23 @@ class DcGpuTexture {
   bool get plainBilinear =>
       bilinear && !mipMapped && format != 4 && !superSample && cache != null;
 
+  /// Whether [samplePoint] applies: a cached point-sampled texture without
+  /// MIP maps, bump mapping or supersampling.
+  bool get plainPoint =>
+      !bilinear && !mipMapped && format != 4 && !superSample && cache != null;
+
+  /// [sample] of a [plainPoint] texture.
+  @pragma('vm:prefer-inline')
+  int samplePoint(double u, double v) {
+    if (!u.isFinite || !v.isFinite) {
+      throw const DcUnsupported('CORE nonfinite texture coordinate');
+    }
+    // Positions are nonnegative, so truncation is the floor.
+    final left = _position(u, width, clampU, flipU).toInt(),
+        top = _position(v, height, clampV, flipV).toInt();
+    return _texel(left, top, 0, 0);
+  }
+
   /// Whether [sampleMip] applies: a cached bilinear MIP-mapped texture
   /// without trilinear passes, bump mapping or supersampling.
   bool get mipBilinear =>
@@ -491,6 +508,26 @@ class DcGpuTexture {
         return _filter(texels[row0], texels[row0 + 1], texels[row1],
             texels[row1 + 1], su - left, sv - top);
       }
+    } else if (!clampU &&
+        !clampV &&
+        cache.complete == cache.generation &&
+        su.abs() < 0x40000000 &&
+        sv.abs() < 0x40000000) {
+      // A tap wraps or mirrors. The fractions equal those of the wrapped
+      // positions: both subtractions are exact.
+      // floorToDouble is a call; the truncation is corrected below zero.
+      var left = su.toInt(), top = sv.toInt();
+      if (su < left) left--;
+      if (sv < top) top--;
+      final fu = 0.0 + left, fv = 0.0 + top;
+      final x0 = _coordinate(left, w, false, flipU),
+          x1 = _coordinate(left + 1, w, false, flipU),
+          y0 = _coordinate(top, h, false, flipV),
+          y1 = _coordinate(top + 1, h, false, flipV);
+      final base = cache.levelOffsets[0], texels = cache.texels;
+      final row0 = base + y0 * w, row1 = base + y1 * w;
+      return _filter(texels[row0 + x0], texels[row0 + x1], texels[row1 + x0],
+          texels[row1 + x1], su - fu, sv - fv);
     }
     return _sampleBilinearSlow(u, v);
   }
@@ -517,6 +554,51 @@ class DcGpuTexture {
         sv0 < vEnd &&
         sv1 >= 0 &&
         sv1 < vEnd;
+  }
+
+  /// Whether [sampleLanesWrapped] serves this texture: a complete cache
+  /// whose power-of-two sides wrap or mirror on both axes.
+  bool get wrapsFixed {
+    final cache = this.cache;
+    return cache != null &&
+        cache.complete == cache.generation &&
+        !clampU &&
+        !clampV &&
+        width & (width - 1) == 0 &&
+        height & (height - 1) == 0;
+  }
+
+  /// [sampleLanesInRange] at any position of a [wrapsFixed] texture, its
+  /// taps wrapped or mirrored.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int sampleLanesWrapped(int su, int sv) {
+    final cache = this.cache!;
+    return lanesWrapped(cache.texels, cache.levelOffsets[0], width, height,
+        flipU, flipV, su, sv);
+  }
+
+  /// [sampleLanesWrapped] with the texels, the offset of level 0, the sides
+  /// and the flips given, so that a loop keeps them in registers.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  static int lanesWrapped(Uint32List texels, int base, int w, int h,
+      bool flipU, bool flipV, int su, int sv) {
+    final left = su >> 16, top = sv >> 16;
+    final x0 = _wrap(left, w, flipU), x1 = _wrap(left + 1, w, flipU);
+    final y0 = _wrap(top, h, flipV), y1 = _wrap(top + 1, h, flipV);
+    final row0 = base + y0 * w, row1 = base + y1 * w;
+    final fx = ((su & 0xffff) + 128) >> 8, fy = ((sv & 0xffff) + 128) >> 8;
+    return _blend4Lanes(texels[row0 + x0], texels[row0 + x1],
+        texels[row1 + x0], texels[row1 + x1], fx, fy);
+  }
+
+  /// [_coordinate] of a power-of-two size that does not clamp.
+  @pragma('vm:prefer-inline')
+  static int _wrap(int value, int size, bool flip) {
+    if (!flip) return value & (size - 1);
+    value &= size * 2 - 1;
+    return value >= size ? size * 2 - value - 1 : value;
   }
 
   /// [sampleBilinearFixed] with the channels in [_lanes] order, or -1.
@@ -634,11 +716,12 @@ class DcGpuTexture {
     if (!value.isFinite) {
       throw const DcUnsupported('CORE texture coordinate overflow');
     }
+    // Adding to 0.0 converts inline; toDouble calls a constructor.
     if (clamp) {
-      final last = (size - 1).toDouble();
+      final last = 0.0 + (size - 1);
       return value < 0 ? 0.0 : (value > last ? last : value);
     }
-    return value % (flip ? size * 2 : size);
+    return value % (0.0 + (flip ? size * 2 : size));
   }
 
   /// System Architecture sections 3.4.7.3.1 and 3.6.1.3, with host-double trig/rounding.

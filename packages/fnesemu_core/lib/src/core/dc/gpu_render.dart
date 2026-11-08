@@ -90,6 +90,10 @@ class DcGpuRender {
   int _tileCount = 0, _hiddenFragments = 0, _shownFragments = 0;
   final _savedDepth = Float64List(1024);
   final _candidates = List<_Fragment?>.filled(1024, null);
+
+  /// Whether a [_candidates] entry may be set; when false all are null.
+  bool _candidatesSet = false;
+  // No longer used; kept so that the state format stays the same.
   final _lastDepth = Float64List(1024);
   final _lastOrder = Int32List(1024);
   // Translucent fragments collected in one pass, linked per pixel.
@@ -99,6 +103,12 @@ class DcGpuRender {
   var _fragmentColor = Uint32List(1024), _fragmentTsp = Uint32List(1024);
   var _fragmentDepth = Float64List(1024);
   var _fragmentWrite = Uint8List(1024), _fragmentSorted = Int32List(1024);
+  // The modifier area a fragment belongs to: -1 for both, otherwise the area
+  // that selects its material or its intensity shadow.
+  var _fragmentArea = Int8List(1024);
+  // While modifier fragments are collected, the area that the intensity
+  // shadow of the current object assumes, or -1.
+  int _shadowArea = -1;
   bool get busy => _remaining != 0;
   int? get clocksToEvent => busy && !_stripWaiting ? _remaining : null;
   static const offsets = [
@@ -126,8 +136,20 @@ class DcGpuRender {
     0x11c
   ];
 
+  /// Whether each longword offset below 0x200 is one of [offsets].
+  static final _handled = () {
+    final table = Uint8List(0x80);
+    for (final offset in offsets) {
+      table[offset >> 2] = 1;
+    }
+    return table;
+  }();
+
   static bool handles(int offset) =>
-      offsets.contains(offset) || DcGpuFog.handles(offset);
+      (offset >= 0 && offset < 0x200 && offset & 3 == 0
+          ? _handled[offset >> 2] != 0
+          : offsets.contains(offset)) ||
+      DcGpuFog.handles(offset);
 
   void saveState(StateWriter writer) {
     writer.section('dc.gpu.render');
@@ -355,6 +377,7 @@ class DcGpuRender {
     _lastDepth.setAll(0, lastDepth);
     _lastOrder.setAll(0, lastOrder);
     _candidates.setAll(0, candidates);
+    _candidatesSet = candidates.any((fragment) => fragment != null);
     _scalerTiles
       ..clear()
       ..addAll(scalerTiles);
@@ -704,69 +727,41 @@ class DcGpuRender {
 
   void _sortedObjects(int address, int x, int y,
       {required bool punch, int? modifierList}) {
-    if (!punch && modifierList == null) {
+    if (!punch) {
       // Collected fragments never use the candidate buffer.
-      _sortMode = 1;
       try {
-        _sortTranslucent(address, x, y);
+        if (modifierList == null) {
+          _sortTranslucent(address, x, y);
+        } else {
+          _sortModified(address, modifierList, x, y);
+        }
       } finally {
         _sortMode = 0;
       }
       return;
     }
-    _sortMode = punch ? 2 : 1;
+    _sortMode = 2;
     try {
-      if (!punch) {
-        _lastDepth.fillRange(0, 1024, double.negativeInfinity);
-        _lastOrder.fillRange(0, 1024, -1);
-      }
-      var more = true;
-      while (more) {
-        _candidates.fillRange(0, 1024, null);
-        _primitiveOrder = 0;
-        if (modifierList != null) _shadowMask.setRange(0, 1024, _zeroBytes);
-        _objects(address, x, y);
-        if (modifierList != null && _candidates.any((value) => value != null)) {
-          final surfaces = Float64List(1024), active = Uint8List(1024);
-          for (var i = 0; i < 1024; i++) {
-            final fragment = _candidates[i];
-            if (fragment != null) {
-              surfaces[i] = fragment.depth;
-              active[i] = 1;
-            }
-          }
-          _shadowMask = modifier.evaluate(modifierList, read(0x20), x, y,
-              surfaces, read(0x80) & 1 != 0 ? 0.5 : 0.0,
-              active: active);
-          _candidates.fillRange(0, 1024, null);
-          _primitiveOrder = 0;
-          _objects(address, x, y);
-        }
-        more = false;
-        for (var i = 0; i < 1024; i++) {
-          final fragment = _candidates[i];
-          if (fragment == null) continue;
-          if (punch) {
-            // System Architecture §3.4.3: accepted punch-through pixels are opaque.
-            _storeColor(
-                i,
-                _sourceColor(i, fragment.color, fragment.tsp) | 0xff000000,
-                fragment.tsp);
-          } else {
-            _composite(i, fragment.color, fragment.tsp);
-            _lastDepth[i] = fragment.depth;
-            _lastOrder[i] = fragment.order;
-            more = true;
-          }
-          if (fragment.writeDepth) _depth[i] = fragment.depth;
-        }
-        if (punch) {
-          break; // The nearest accepted fragment is already the final opaque result.
-        }
+      if (_candidatesSet) _candidates.fillRange(0, 1024, null);
+      _candidatesSet = false;
+      _primitiveOrder = 0;
+      _objects(address, x, y);
+      if (!_candidatesSet) return;
+      // The nearest accepted fragment is already the final opaque result.
+      for (var i = 0; i < 1024; i++) {
+        final fragment = _candidates[i];
+        if (fragment == null) continue;
+        // System Architecture §3.4.3: accepted punch-through pixels are opaque.
+        _storeColor(
+            i,
+            _sourceColor(i, fragment.color, fragment.tsp) | 0xff000000,
+            fragment.tsp);
+        if (fragment.writeDepth) _depth[i] = fragment.depth;
       }
     } finally {
       _sortMode = 0;
-      _candidates.fillRange(0, 1024, null);
+      if (_candidatesSet) _candidates.fillRange(0, 1024, null);
+      _candidatesSet = false;
     }
   }
 
@@ -806,18 +801,86 @@ class DcGpuRender {
     }
   }
 
-  void _addFragment(
-      int index, double z, int color, int tsp, bool writeDepth, int order) {
-    final f = _fragmentCount++;
-    if (f == _fragmentNext.length) {
-      final size = f * 2;
-      _fragmentNext = Int32List(size)..setAll(0, _fragmentNext);
-      _fragmentOrder = Int32List(size)..setAll(0, _fragmentOrder);
-      _fragmentColor = Uint32List(size)..setAll(0, _fragmentColor);
-      _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
-      _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
-      _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
+  /// Auto-sort with modifiers: rasterize once, keeping both modifier areas of
+  /// the fragments that depend on them, then composite one layer of each
+  /// pixel at a time in ascending (depth, input order). The volumes are
+  /// tested against the depths of each layer, as peeling one layer per pass
+  /// does.
+  void _sortModified(int address, int modifierList, int x, int y) {
+    _sortMode = 4;
+    _fragmentHead.setRange(0, 1024, _noFragments);
+    _fragmentCount = 0;
+    _primitiveOrder = 0;
+    _objects(address, x, y);
+    _shadowMask.setRange(0, 1024, _zeroBytes);
+    if (_fragmentCount == 0) return;
+    if (_fragmentSorted.length < _fragmentCount) {
+      _fragmentSorted = Int32List(_fragmentNext.length);
     }
+    final sorted = _fragmentSorted, depth = _fragmentDepth;
+    final order = _fragmentOrder, area = _fragmentArea;
+    // The sorted fragments of pixel i run from start[i] to end[i].
+    final start = Int32List(1024), end = Int32List(1024);
+    var next = 0;
+    for (var i = 0; i < 1024; i++) {
+      final first = start[i] = next;
+      for (var f = _fragmentHead[i]; f >= 0; f = _fragmentNext[f]) {
+        final z = depth[f], o = order[f];
+        var j = next++;
+        while (j > first) {
+          final g = sorted[j - 1], zg = depth[g];
+          if (zg < z || (zg == z && order[g] < o)) break;
+          sorted[j] = g;
+          j--;
+        }
+        sorted[j] = f;
+      }
+      end[i] = next;
+    }
+    final surfaces = Float64List(1024), active = Uint8List(1024);
+    final sampleOffset = read(0x80) & 1 != 0 ? 0.5 : 0.0;
+    for (;;) {
+      var any = false;
+      for (var i = 0; i < 1024; i++) {
+        if (start[i] < end[i]) {
+          surfaces[i] = depth[sorted[start[i]]];
+          active[i] = 1;
+          any = true;
+        } else {
+          surfaces[i] = 0;
+          active[i] = 0;
+        }
+      }
+      if (!any) break;
+      final mask = modifier.evaluate(
+          modifierList, read(0x20), x, y, surfaces, sampleOffset,
+          active: active);
+      for (var i = 0; i < 1024; i++) {
+        var k = start[i];
+        if (k == end[i]) continue;
+        // One layer holds the fragments of one primitive at one depth.
+        final first = sorted[k], z = depth[first], o = order[first];
+        var chosen = -1;
+        for (; k < end[i]; k++) {
+          final f = sorted[k];
+          if (depth[f] != z || order[f] != o) break;
+          if (chosen < 0 && (area[f] < 0 || area[f] == mask[i])) chosen = f;
+        }
+        start[i] = k;
+        if (chosen < 0) continue;
+        _composite(i, _fragmentColor[chosen], _fragmentTsp[chosen]);
+        if (_fragmentWrite[chosen] != 0) _depth[i] = z;
+      }
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _addFragment(
+      int index, double z, int color, int tsp, bool writeDepth, int order,
+      [int area = -1]) {
+    final f = _fragmentCount++;
+    if (f == _fragmentNext.length) _growFragments();
     _fragmentNext[f] = _fragmentHead[index];
     _fragmentHead[index] = f;
     _fragmentOrder[f] = order;
@@ -825,6 +888,18 @@ class DcGpuRender {
     _fragmentTsp[f] = tsp;
     _fragmentDepth[f] = z;
     _fragmentWrite[f] = writeDepth ? 1 : 0;
+    _fragmentArea[f] = area;
+  }
+
+  void _growFragments() {
+    final size = _fragmentNext.length * 2;
+    _fragmentNext = Int32List(size)..setAll(0, _fragmentNext);
+    _fragmentOrder = Int32List(size)..setAll(0, _fragmentOrder);
+    _fragmentColor = Uint32List(size)..setAll(0, _fragmentColor);
+    _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
+    _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
+    _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
+    _fragmentArea = Int8List(size)..setAll(0, _fragmentArea);
   }
 
   final _textureCaches = <int, DcTextureCache>{};
@@ -832,8 +907,26 @@ class DcGpuRender {
 
   /// Builds a texture view with decoded texels shared across tiles and frames.
   /// The cache is revalidated against VRAM page stamps and the palette version.
+  /// The views [_cachedTexture] returned by TCW and TSP, while neither
+  /// VRAM, the palette nor the texture control register has changed.
+  final _textureViews = <int, DcGpuTexture>{};
+  int _viewsClock = -1, _viewsPalette = -1, _viewsControl = -1;
+
   DcGpuTexture _cachedTexture(int tcw, int tsp) {
     final control = read(0xe4);
+    if (_viewsClock != _pages.clock ||
+        _viewsPalette != palette.version ||
+        _viewsControl != control) {
+      _textureViews.clear();
+      _viewsClock = _pages.clock;
+      _viewsPalette = palette.version;
+      _viewsControl = control;
+    }
+    final key = (tcw & 0xffffffff) | ((tsp & 0xffffffff) << 32);
+    return _textureViews[key] ??= _newTextureView(tcw, tsp, control);
+  }
+
+  DcGpuTexture _newTextureView(int tcw, int tsp, int control) {
     final texture = DcGpuTexture(memory,
         tcw: tcw, tsp: tsp, control: control, palette: palette);
     // Bump texels depend on per-pixel parameters and are not cached.
@@ -857,6 +950,8 @@ class DcGpuRender {
           _textureCacheTexels + size > 1 << 23) {
         _textureCaches.clear();
         _textureCacheTexels = 0;
+        // The views hold caches that are no longer kept.
+        _textureViews.clear();
       }
       cache = _textureCaches[key] = DcTextureCache(size, offsets);
       _textureCacheTexels += size;
@@ -902,14 +997,15 @@ class DcGpuRender {
   }
 
   void _objects(int address, int x, int y) {
-    final visited = <int>{};
+    // Addresses only repeat through a link, so tracking links finds every cycle.
+    Set<int>? links;
     for (;; address += 4) {
-      if (!visited.add(address)) {
-        throw const DcUnsupported('CORE cyclic object list');
-      }
       final pointer = _word(address);
       if (pointer >> 29 == 7) {
         if (pointer & 0x10000000 != 0) return;
+        if (!(links ??= <int>{}).add(address)) {
+          throw const DcUnsupported('CORE cyclic object list');
+        }
         address = (pointer & 0xfffffc) - 4;
         continue;
       }
@@ -940,70 +1036,93 @@ class DcGpuRender {
     }
     final stride = 3 + attributes * (twoVolumes ? 2 : 1);
     final header = twoVolumes ? 5 : 3;
-    void drawMaterial(int slot) {
-      final tsp = _word(parameter + 4 + slot * 8);
-      final sourceSecondary = tsp & 0x02000000 != 0;
-      final texture = textured && !sourceSecondary
-          ? _cachedTexture(_word(parameter + 8 + slot * 8), tsp)
-          : null;
-      if (texture?.format == 4 && (!hasOffset || isp & 0x00800000 != 0)) {
-        throw const DcUnsupported(
-            'CORE bump mapping requires offset parameters and flat shading');
-      }
-      if (_sortMode == 2 && texture?.trilinear == true) {
-        throw const DcUnsupported('CORE trilinear punch-through is prohibited');
-      }
-      List<_Vertex> vertices(int first, int count) => [
-            for (var i = 0; i < count; i++)
-              _vertex(parameter + header * 4 + (first + i) * stride * 4, isp,
-                  attributeOffset: slot * attributes * 4,
-                  ignoreShading: sourceSecondary)
-          ];
-      if (kind == 4) {
-        _triangle(vertices(0, 3), isp, tsp, texture, x, y);
-      } else if (kind == 5) {
-        final first = vertices(0, 3),
-            fourth = parameter + header * 4 + 3 * stride * 4;
-        // Only X/Y of D are defined; both materials derive their attributes from ABC.
-        final d = _Vertex(_number(fourth), _number(fourth + 4), 0, 0);
-        _quad([...first, d], isp, tsp, texture, x, y);
-      } else {
-        final mask = (pointer >> 25) & 63;
-        for (var triangle = 0; triangle < 6; triangle++) {
-          if (mask & (1 << (5 - triangle)) == 0) continue;
-          final strip = vertices(triangle, 3);
-          if (triangle.isOdd) {
-            final first = strip[0];
-            strip[0] = strip[1];
-            strip[1] = first;
-          }
-          _triangle(strip, isp, tsp, texture, x, y);
-        }
-      }
-    }
-
     if (twoVolumes) {
       final previousArea = _materialArea, order = _primitiveOrder;
       try {
         _materialArea = 0;
-        drawMaterial(0);
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 0);
         final nextOrder = _primitiveOrder;
         _primitiveOrder = order;
         _materialArea = 1;
-        drawMaterial(1);
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 1);
         // The two materials belong to one primitive, including auto-sort tie ordering.
         _primitiveOrder = nextOrder;
       } finally {
         _materialArea = previousArea;
       }
+    } else if (_sortMode == 4 && _shadowObject) {
+      // The intensity shadow of a collected fragment depends on the layer's
+      // modifier area, so the object is collected for both areas.
+      final order = _primitiveOrder;
+      try {
+        _shadowArea = 0;
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 0);
+        final nextOrder = _primitiveOrder;
+        _primitiveOrder = order;
+        _shadowArea = 1;
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 0);
+        _primitiveOrder = nextOrder;
+      } finally {
+        _shadowArea = -1;
+      }
     } else {
-      drawMaterial(0);
+      _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+          stride, header, 0);
     }
     return kind == 4
         ? parameter + (header + 3 * stride) * 4
         : kind == 5
             ? parameter + (header + 4 * stride) * 4
             : parameter;
+  }
+
+  void _drawMaterial(int parameter, int pointer, int x, int y, int kind,
+      int isp, int attributes, int stride, int header, int slot) {
+    final textured = isp & 0x02000000 != 0;
+    final hasOffset = textured && isp & 0x01000000 != 0;
+    final tsp = _word(parameter + 4 + slot * 8);
+    final sourceSecondary = tsp & 0x02000000 != 0;
+    final texture = textured && !sourceSecondary
+        ? _cachedTexture(_word(parameter + 8 + slot * 8), tsp)
+        : null;
+    if (texture?.format == 4 && (!hasOffset || isp & 0x00800000 != 0)) {
+      throw const DcUnsupported(
+          'CORE bump mapping requires offset parameters and flat shading');
+    }
+    if (_sortMode == 2 && texture?.trilinear == true) {
+      throw const DcUnsupported('CORE trilinear punch-through is prohibited');
+    }
+    List<_Vertex> vertices(int first, int count) => [
+          for (var i = 0; i < count; i++)
+            _vertex(parameter + header * 4 + (first + i) * stride * 4, isp,
+                attributeOffset: slot * attributes * 4,
+                ignoreShading: sourceSecondary)
+        ];
+    if (kind == 4) {
+      _triangle(vertices(0, 3), isp, tsp, texture, x, y);
+    } else if (kind == 5) {
+      final first = vertices(0, 3),
+          fourth = parameter + header * 4 + 3 * stride * 4;
+      // Only X/Y of D are defined; both materials derive their attributes from ABC.
+      final d = _Vertex(_number(fourth), _number(fourth + 4), 0, 0);
+      _quad([...first, d], isp, tsp, texture, x, y);
+    } else {
+      final mask = (pointer >> 25) & 63;
+      for (var triangle = 0; triangle < 6; triangle++) {
+        if (mask & (1 << (5 - triangle)) == 0) continue;
+        final strip = vertices(triangle, 3);
+        if (triangle.isOdd) {
+          final first = strip[0];
+          strip[0] = strip[1];
+          strip[1] = first;
+        }
+        _triangle(strip, isp, tsp, texture, x, y);
+      }
+    }
   }
 
   _Vertex _vertex(int address, int isp,
@@ -1335,23 +1454,22 @@ class DcGpuRender {
     // a later one, in the same rows.
     final shadePass = _visibility == 2;
     final quickRows = quick &&
-        sameColors &&
-        sameOffsets &&
         _materialArea < 0 &&
         (_visibility == 0 || shadePass);
-    // Sorted translucent fragments of a cached bilinear texture, shaded
-    // where they are rasterized.
+    // Sorted translucent fragments of a cached bilinear or point-sampled
+    // texture, shaded where they are rasterized.
     final sortedRows = texture != null &&
         plane == null &&
         !background &&
         samePosition &&
         sameTexture &&
-        _sortMode == 3 &&
+        _sortMode >= 3 &&
         tsp & 0x02000000 == 0 &&
         !(_shadowObject && shadowIntensity) &&
         _materialArea < 0 &&
         _visibility == 0 &&
-        (texture.plainBilinear || texture.mipBilinear);
+        (texture.plainBilinear || texture.mipBilinear || texture.plainPoint);
+    final pointRows = sortedRows && texture.plainPoint;
     // Opaque fragments of a cached bilinear MIP-mapped texture, in both
     // passes that shade. They take the arithmetic of the general loop below.
     final mipRows = texture != null &&
@@ -1368,7 +1486,9 @@ class DcGpuRender {
     final compare = isp >> 29, writeDepth = isp & 0x04000000 == 0;
     final quickColor = sc.color | opaqueAlpha, quickOffset = sc.offsetColor;
     final shadeMode = (tsp >> 6) & 3, quickGray = quickColor & 255;
-    final gray =
+    // Gouraud colors of the quick rows are interpolated per fragment.
+    final varying = !(sameColors && sameOffsets);
+    final gray = !varying &&
         (shadeMode == 1 || shadeMode == 3 && quickColor >>> 24 == 255) &&
             quickColor & 0xffffff == quickGray * 0x10101;
     final ignoredAlpha = tsp & 0x80000 != 0 ? 0xff000000 : 0;
@@ -1403,6 +1523,45 @@ class DcGpuRender {
         _visibility == 0 &&
         tsp & 0x02000000 == 0;
     final flatReplace = replace && tsp & 0x01000000 == 0;
+    // The first visibility pass only records depths and the replacing
+    // fragments that hide earlier ones; every fragment counts as hidden.
+    final visibilityRows = plane == null &&
+        !background &&
+        _sortMode == 0 &&
+        _materialArea < 0 &&
+        _visibility == 1;
+    // The x step of each edge per row, divided once per triangle; the
+    // rounding stays well inside the margin of the row narrowing.
+    final step0 = b.y == c.y ? 0.0 : (c.x - b.x) / (c.y - b.y),
+        step1 = c.y == a.y ? 0.0 : (a.x - c.x) / (a.y - c.y),
+        step2 = a.y == b.y ? 0.0 : (b.x - a.x) / (b.y - a.y);
+    // Without one depth no row steps in fixed point, so every row of a
+    // replacing texture takes [_perspectiveRow].
+    if (sortedRows) {
+      _sortedRows(texture, top, bottom, left, right, originX, originY, offset,
+          a, b, c, step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y, tl0,
+          tl1, tl2, za, zb, zc, uza, uzb, uzc, vza, vzb, vzc, inverseArea, dz,
+          duz, dvz, gouraud, sameColors, sameOffsets, sa, sb, sc, opaqueAlpha,
+          mipNumerators, pointRows, tsp, fogOffset, writeDepth, order);
+      return;
+    }
+    if (flatRows) {
+      _flatRows(top, bottom, left, right, originX, originY, offset, a, b, c,
+          step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y, tl0, tl1, tl2,
+          za, zb, zc, inverseArea, compare, writeDepth, flatReplace,
+          flatColor, tsp);
+      return;
+    }
+    if (quickRows && !affine && replace && !shadePass) {
+      _perspectiveRows(texture, top, bottom, left, right, originX, originY,
+          offset, a, b, c, step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y,
+          tl0, tl1, tl2, za, zb, zc, uza, uzb, uzc, vza, vzb, vzc,
+          inverseArea, dz, duz, dvz, compare, writeDepth, varying,
+          sameColors ? null : sa, sameOffsets ? null : sa, sb, sc,
+          quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
+          ignoredAlpha, tsp, quickFog, fogOffset);
+      return;
+    }
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1413,7 +1572,8 @@ class DcGpuRender {
         final q = edge == 0 ? c : (edge == 1 ? a : b);
         final slope = q.y - p.y;
         if (slope == 0) continue;
-        final limit = p.x + (q.x - p.x) * (rowY - p.y) / slope - base;
+        final step = edge == 0 ? step0 : (edge == 1 ? step1 : step2);
+        final limit = p.x + step * (rowY - p.y) - base;
         if (slope > 0) {
           final bound = limit + 2;
           if (bound < rowRight) {
@@ -1475,6 +1635,18 @@ class DcGpuRender {
               ignoredAlpha);
           continue;
         }
+        if (!fixed && replace && !shadePass) {
+          final wraps = texture.wrapsFixed;
+          _perspectiveRow(texture, y * 32 + rowLeft, count, e0, e1, e2, e0y,
+              e1y, e2y, tl0, tl1, tl2, z, dz, uz, duz, vz, dvz, compare,
+              writeDepth, varying ? inverseArea : 0.0, za, zb, zc,
+              sameColors ? null : sa, sameOffsets ? null : sa, sb, sc,
+              quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
+              ignoredAlpha, tsp, quickFog, fogOffset, wraps,
+              65536.0 * texture.width, 65536.0 * texture.height, offsetLanes,
+              varying, false, false);
+          continue;
+        }
         for (var x = rowLeft;
             x < rowRight;
             x++,
@@ -1519,6 +1691,21 @@ class DcGpuRender {
           }
           // A zero depth has no perspective; such fragments are dropped.
           if (z == 0) continue;
+          var color = quickColor, off = quickOffset;
+          if (varying) {
+            final inverse = 1 / z;
+            final pa = e0 * inverseArea * za * inverse,
+                pb = e1 * inverseArea * zb * inverse,
+                pc = e2 * inverseArea * zc * inverse;
+            if (!sameColors) {
+              color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc) |
+                  opaqueAlpha;
+            }
+            if (!sameOffsets) {
+              off = _gouraud(
+                  sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+            }
+          }
           final lanes = fixed ? texture.sampleLanesFixed(su, sv) : -1;
           int shaded;
           if (lanes >= 0 && gray) {
@@ -1531,11 +1718,10 @@ class DcGpuRender {
             shaded = gray
                 ? DcGpuTexture.shadeGray(
                     texel, quickGray, quickOffset, ignoredAlpha)
-                : DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
+                : DcGpuTexture.shade(color, texel, off, tsp);
           }
           if (quickFog) {
-            shaded =
-                fog.apply(shaded, z, quickOffset, tsp, hasOffset: fogOffset);
+            shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
           }
           if (replace) {
             colorBuffer[index] = shaded;
@@ -1608,6 +1794,8 @@ class DcGpuRender {
                     mipNumerators[1] * square,
                     mipNumerators[2] * square,
                     mipNumerators[3] * square));
+          } else if (pointRows) {
+            texel = texture.samplePoint(u, v);
           } else {
             texel = texture.sampleBilinear(u, v);
           }
@@ -1726,6 +1914,35 @@ class DcGpuRender {
         }
         continue;
       }
+      if (visibilityRows) {
+        for (var x = rowLeft; x < rowRight; x++) {
+          final px = originX + x + offset;
+          final e0 = row0 - e0y * (px - b.x),
+              e1 = row1 - e1y * (px - c.x),
+              e2 = row2 - e2y * (px - a.x);
+          if (e0 < 0 ||
+              e1 < 0 ||
+              e2 < 0 ||
+              (e0 == 0 && !tl0) ||
+              (e1 == 0 && !tl1) ||
+              (e2 == 0 && !tl2)) {
+            continue;
+          }
+          final z = za * (e0 * inverseArea) +
+              zb * (e1 * inverseArea) +
+              zc * (e2 * inverseArea);
+          if (!z.isFinite) {
+            throw const DcUnsupported('CORE nonfinite interpolated depth');
+          }
+          final index = y * 32 + x, previous = depthBuffer[index];
+          if (compare & (z < previous ? 1 : (z == previous ? 2 : 4)) == 0) {
+            continue;
+          }
+          if (replace) _firstShaded[index] = order;
+          if (writeDepth) depthBuffer[index] = z;
+        }
+        continue;
+      }
       for (var x = rowLeft; x < rowRight; x++) {
         final px = originX + x + offset;
         final e0 = row0 - e0y * (px - b.x),
@@ -1748,7 +1965,11 @@ class DcGpuRender {
           throw const DcUnsupported('CORE nonfinite interpolated depth');
         }
         final index = y * 32 + x, previous = _depth[index];
-        if (_materialArea >= 0 && _shadowMask[index] != _materialArea) continue;
+        if (_materialArea >= 0 &&
+            _sortMode != 4 &&
+            _shadowMask[index] != _materialArea) {
+          continue;
+        }
         final pass = background ||
             (_sortMode != 0
                 ? z >= previous
@@ -1763,16 +1984,7 @@ class DcGpuRender {
                     _ => true,
                   });
         if (!pass) continue;
-        if (_sortMode == 1) {
-          final last = _lastDepth[index], lastOrder = _lastOrder[index];
-          if (z < last || (z == last && order <= lastOrder)) continue;
-          final current = _candidates[index];
-          if (current != null &&
-              (z > current.depth ||
-                  (z == current.depth && order >= current.order))) {
-            continue;
-          }
-        } else if (_sortMode == 2) {
+        if (_sortMode == 2) {
           final current = _candidates[index];
           if (current != null && z < current.depth) continue;
         } else if (_visibility != 0) {
@@ -1858,7 +2070,11 @@ class DcGpuRender {
               color = sc.color;
               off = sc.offsetColor;
             }
-            if (_shadowObject && shadowIntensity && _shadowMask[index] != 0) {
+            if (_shadowObject &&
+                shadowIntensity &&
+                (_shadowArea < 0
+                    ? _shadowMask[index] != 0
+                    : _shadowArea != 0)) {
               color = _shadowColor(color);
               off = _shadowColor(off);
             }
@@ -1937,11 +2153,13 @@ class DcGpuRender {
             _sourceColor(index, color, tsp) >> 24 < alphaReference) {
           continue;
         }
-        if (_sortMode == 3) {
-          _addFragment(index, z, color, tsp, isp & 0x04000000 == 0, order);
+        if (_sortMode >= 3) {
+          _addFragment(index, z, color, tsp, isp & 0x04000000 == 0, order,
+              _materialArea >= 0 ? _materialArea : _shadowArea);
         } else if (_sortMode != 0) {
           _candidates[index] =
               _Fragment(z, color, tsp, isp & 0x04000000 == 0, order);
+          _candidatesSet = true;
         } else {
           _composite(index, color, tsp);
           if (isp & 0x04000000 == 0) _depth[index] = z;
@@ -1950,21 +2168,50 @@ class DcGpuRender {
     }
   }
 
-  /// Perspective-weighted color channels, rounded and saturated per byte.
+  /// Perspective-weighted color channels. The weights of [cb] and [cc] are
+  /// taken in 1/65536 steps and that of [ca] makes up their sum, so a
+  /// channel may differ from the exact interpolation by one unit.
+  @pragma('vm:prefer-inline')
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
     // Equal vertex colors interpolate to themselves.
     if (ca == cb && cb == cc) return ca;
-    return roundByte((ca & 255) * pa + (cb & 255) * pb + (cc & 255) * pc) |
-        (roundByte(((ca >> 8) & 255) * pa +
-                ((cb >> 8) & 255) * pb +
-                ((cc >> 8) & 255) * pc) <<
-            8) |
-        (roundByte(((ca >> 16) & 255) * pa +
-                ((cb >> 16) & 255) * pb +
-                ((cc >> 16) & 255) * pc) <<
-            16) |
-        (roundByte((ca >> 24) * pa + (cb >> 24) * pb + (cc >> 24) * pc) << 24);
+    return _gouraudWeights(ca, cb, cc, pb > 0 ? (pb * 65536 + 0.5).toInt() : 0,
+        pc > 0 ? (pc * 65536 + 0.5).toInt() : 0);
   }
+
+  /// [_gouraud] with the weights of [cb] and [cc] in 1/65536 steps.
+  @pragma('vm:prefer-inline')
+  static int _gouraudWeights(int ca, int cb, int cc, int wb, int wc) {
+    if (wb < 0) wb = 0;
+    if (wc < 0) wc = 0;
+    if (wb > 65536) wb = 65536;
+    if (wc > 65536 - wb) wc = 65536 - wb;
+    final wa = 65536 - wb - wc;
+    // Channels 0 and 2, and 1 and 3, in 32-bit lanes.
+    const lanes = 0x000000ff000000ff, half = 0x0000800000008000;
+    final even = ((_evenLanes(ca) * wa +
+                _evenLanes(cb) * wb +
+                _evenLanes(cc) * wc +
+                half) >>>
+            16) &
+        lanes;
+    final odd = ((_oddLanes(ca) * wa +
+                _oddLanes(cb) * wb +
+                _oddLanes(cc) * wc +
+                half) >>>
+            16) &
+        lanes;
+    return (even & 0xff) |
+        ((odd & 0xff) << 8) |
+        ((even >>> 16) & 0xff0000) |
+        ((odd >>> 8) & 0xff000000);
+  }
+
+  @pragma('vm:prefer-inline')
+  static int _evenLanes(int c) => (c & 0xff) | ((c & 0xff0000) << 16);
+
+  @pragma('vm:prefer-inline')
+  static int _oddLanes(int c) => ((c >> 8) & 0xff) | ((c & 0xff000000) << 8);
 
   /// Scales the RGB channels by FPU_SHAD_SCALE. The documents describe the
   /// scale of the color but not its alpha; the alpha is kept, so a shadow
@@ -2055,6 +2302,789 @@ class DcGpuRender {
     }
   }
 
+  /// The rows of [_triangle] between [top] and [bottom] that all take
+  /// [_perspectiveRow], with the loop-invariant values computed once.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _perspectiveRows(
+      DcGpuTexture texture,
+      int top,
+      int bottom,
+      int left,
+      int right,
+      int originX,
+      int originY,
+      double offset,
+      _Vertex a,
+      _Vertex b,
+      _Vertex c,
+      double step0,
+      double step1,
+      double step2,
+      double e0x,
+      double e1x,
+      double e2x,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double za,
+      double zb,
+      double zc,
+      double uza,
+      double uzb,
+      double uzc,
+      double vza,
+      double vzb,
+      double vzc,
+      double inverseArea,
+      double dz,
+      double duz,
+      double dvz,
+      int compare,
+      bool writeDepth,
+      bool varying,
+      _Vertex? colors,
+      _Vertex? offsets,
+      _Vertex sb,
+      _Vertex sc,
+      int quickColor,
+      int quickOffset,
+      int opaqueAlpha,
+      int gray,
+      int ignoredAlpha,
+      int tsp,
+      bool quickFog,
+      bool fogOffset) {
+    final wraps = texture.wrapsFixed;
+    final uScale = 65536.0 * texture.width, vScale = 65536.0 * texture.height;
+    final offsetLanes = DcGpuTexture.toLanes(quickOffset & 0xffffff);
+    final shadeArea = varying ? inverseArea : 0.0;
+    final kind = !wraps
+        ? 0
+        : varying && colors != null && offsets == null && gray < 0
+            ? 1
+            : !varying && gray >= 0 && !quickFog
+                ? 2
+                : 0;
+    final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
+    final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
+    final base = originX + offset;
+    for (var y = top; y < bottom; y++) {
+      // The narrowing of the loop in [_triangle], edge by edge.
+      final rowY = originY + y + offset;
+      var rowLeft = left, rowRight = right;
+      if (slope0 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, bx + step0 * (rowY - by) - base + 2);
+      } else if (slope0 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, bx + step0 * (rowY - by) - base - 1);
+      }
+      if (slope1 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, cx + step1 * (rowY - cy) - base + 2);
+      } else if (slope1 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, cx + step1 * (rowY - cy) - base - 1);
+      }
+      if (slope2 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, ax + step2 * (rowY - ay) - base + 2);
+      } else if (slope2 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
+      }
+      var x0 = originX + rowLeft + offset;
+      var e0 = e0x * (rowY - by) - e0y * (x0 - bx),
+          e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
+          e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      // The columns that every edge accepts, so that the row needs no
+      // coverage test.
+      final count = rowRight - rowLeft;
+      var low = _spanLow(e0, e0y, tl0, 0, count);
+      low = _spanLow(e1, e1y, tl1, low, count);
+      low = _spanLow(e2, e2y, tl2, low, count);
+      var high = _spanHigh(e0, e0y, tl0, low, count);
+      high = _spanHigh(e1, e1y, tl1, low, high);
+      high = _spanHigh(e2, e2y, tl2, low, high);
+      if (low >= high) continue;
+      if (low > 0) {
+        rowLeft += low;
+        x0 = originX + rowLeft + offset;
+        e0 = e0x * (rowY - by) - e0y * (x0 - bx);
+        e1 = e1x * (rowY - cy) - e1y * (x0 - cx);
+        e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      }
+      rowRight = rowLeft + high - low;
+      // The common cases take copies of the row with their tests folded.
+      if (kind == 1) {
+        _perspectiveRow(
+            texture,
+            y * 32 + rowLeft,
+            rowRight - rowLeft,
+            e0,
+            e1,
+            e2,
+            e0y,
+            e1y,
+            e2y,
+            tl0,
+            tl1,
+            tl2,
+            (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            dz,
+            (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            duz,
+            (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+            dvz,
+            compare,
+            writeDepth,
+            inverseArea,
+            za,
+            zb,
+            zc,
+            colors,
+            null,
+            sb,
+            sc,
+            quickColor,
+            quickOffset,
+            opaqueAlpha,
+            -1,
+            ignoredAlpha,
+            tsp,
+            quickFog,
+            fogOffset,
+            true,
+            uScale,
+            vScale,
+            offsetLanes,
+            true,
+            true,
+            true);
+      } else if (kind == 2) {
+        _perspectiveRow(
+            texture,
+            y * 32 + rowLeft,
+            rowRight - rowLeft,
+            e0,
+            e1,
+            e2,
+            e0y,
+            e1y,
+            e2y,
+            tl0,
+            tl1,
+            tl2,
+            (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            dz,
+            (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            duz,
+            (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+            dvz,
+            compare,
+            writeDepth,
+            0.0,
+            za,
+            zb,
+            zc,
+            null,
+            null,
+            sb,
+            sc,
+            quickColor,
+            quickOffset,
+            opaqueAlpha,
+            gray,
+            ignoredAlpha,
+            tsp,
+            false,
+            fogOffset,
+            true,
+            uScale,
+            vScale,
+            offsetLanes,
+            false,
+            true,
+            true);
+      } else {
+        _perspectiveRow(
+            texture,
+            y * 32 + rowLeft,
+            rowRight - rowLeft,
+            e0,
+            e1,
+            e2,
+            e0y,
+            e1y,
+            e2y,
+            tl0,
+            tl1,
+            tl2,
+            (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            dz,
+            (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            duz,
+            (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+            dvz,
+            compare,
+            writeDepth,
+            shadeArea,
+            za,
+            zb,
+            zc,
+            colors,
+            offsets,
+            sb,
+            sc,
+            quickColor,
+            quickOffset,
+            opaqueAlpha,
+            gray,
+            ignoredAlpha,
+            tsp,
+            quickFog,
+            fogOffset,
+            wraps,
+            uScale,
+            vScale,
+            offsetLanes,
+            varying,
+            false,
+            true);
+      }
+    }
+  }
+
+  /// The rows of [_triangle] between [top] and [bottom] when they all take
+  /// its sorted loop: translucent fragments of a cached texture, shaded
+  /// where they are rasterized and collected for sorting.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _sortedRows(
+      DcGpuTexture texture,
+      int top,
+      int bottom,
+      int left,
+      int right,
+      int originX,
+      int originY,
+      double offset,
+      _Vertex a,
+      _Vertex b,
+      _Vertex c,
+      double step0,
+      double step1,
+      double step2,
+      double e0x,
+      double e1x,
+      double e2x,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double za,
+      double zb,
+      double zc,
+      double uza,
+      double uzb,
+      double uzc,
+      double vza,
+      double vzb,
+      double vzc,
+      double inverseArea,
+      double dz,
+      double duz,
+      double dvz,
+      bool gouraud,
+      bool sameColors,
+      bool sameOffsets,
+      _Vertex sa,
+      _Vertex sb,
+      _Vertex sc,
+      int opaqueAlpha,
+      List<double>? mipNumerators,
+      bool pointRows,
+      int tsp,
+      bool fogOffset,
+      bool writeDepth,
+      int order) {
+    final depthBuffer = _depth;
+    final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
+    final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
+    final base = originX + offset;
+    final varying = gouraud && !(sameColors && sameOffsets);
+    for (var y = top; y < bottom; y++) {
+      // The narrowing of the loop in [_triangle], edge by edge.
+      final rowY = originY + y + offset;
+      var rowLeft = left, rowRight = right;
+      if (slope0 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, bx + step0 * (rowY - by) - base + 2);
+      } else if (slope0 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, bx + step0 * (rowY - by) - base - 1);
+      }
+      if (slope1 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, cx + step1 * (rowY - cy) - base + 2);
+      } else if (slope1 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, cx + step1 * (rowY - cy) - base - 1);
+      }
+      if (slope2 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, ax + step2 * (rowY - ay) - base + 2);
+      } else if (slope2 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
+      }
+      var x0 = originX + rowLeft + offset;
+      var e0 = e0x * (rowY - by) - e0y * (x0 - bx),
+          e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
+          e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      // The columns that every edge accepts, so that the row needs no
+      // coverage test.
+      final count = rowRight - rowLeft;
+      var low = _spanLow(e0, e0y, tl0, 0, count);
+      low = _spanLow(e1, e1y, tl1, low, count);
+      low = _spanLow(e2, e2y, tl2, low, count);
+      var high = _spanHigh(e0, e0y, tl0, low, count);
+      high = _spanHigh(e1, e1y, tl1, low, high);
+      high = _spanHigh(e2, e2y, tl2, low, high);
+      if (low >= high) continue;
+      if (low > 0) {
+        rowLeft += low;
+        x0 = originX + rowLeft + offset;
+        e0 = e0x * (rowY - by) - e0y * (x0 - bx);
+        e1 = e1x * (rowY - cy) - e1y * (x0 - cx);
+        e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      }
+      rowRight = rowLeft + high - low;
+      var z = (za * e0 + zb * e1 + zc * e2) * inverseArea,
+          uz = (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+          vz = (vza * e0 + vzb * e1 + vzc * e2) * inverseArea;
+      for (var x = rowLeft;
+          x < rowRight;
+          x++,
+          e0 -= e0y,
+          e1 -= e1y,
+          e2 -= e2y,
+          z += dz,
+          uz += duz,
+          vz += dvz) {
+        if (!z.isFinite) {
+          throw const DcUnsupported('CORE nonfinite interpolated depth');
+        }
+        final index = y * 32 + x;
+        if (!(z >= depthBuffer[index])) continue;
+        if (z == 0) {
+          throw DcUnsupported(gouraud
+              ? 'CORE shading perspective denominator is zero'
+              : 'CORE perspective UV denominator is zero');
+        }
+        final inverse = 1 / z;
+        var color = sc.color, off = sc.offsetColor;
+        if (varying) {
+          final pa = e0 * inverseArea * za * inverse,
+              pb = e1 * inverseArea * zb * inverse,
+              pc = e2 * inverseArea * zc * inverse;
+          if (!sameColors) {
+            color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+          }
+          if (!sameOffsets) {
+            off = _gouraud(
+                sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+          }
+        }
+        color |= opaqueAlpha;
+        final u = uz * inverse, v = vz * inverse;
+        final int texel;
+        if (mipNumerators != null) {
+          final square = inverse * inverse;
+          texel = texture.sampleMip(
+              u,
+              v,
+              texture.footprint(
+                  mipNumerators[0] * square,
+                  mipNumerators[1] * square,
+                  mipNumerators[2] * square,
+                  mipNumerators[3] * square));
+        } else if (pointRows) {
+          texel = texture.samplePoint(u, v);
+        } else {
+          texel = texture.sampleBilinear(u, v);
+        }
+        color = fog.apply(
+            DcGpuTexture.shade(color, texel, off, tsp), z, off, tsp,
+            hasOffset: fogOffset);
+        _addFragment(index, z, color, tsp, writeDepth, order);
+      }
+    }
+  }
+
+  /// The rows of [_triangle] between [top] and [bottom] when they all take
+  /// its flat loop: one color, no texture, sorting or visibility pass.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _flatRows(
+      int top,
+      int bottom,
+      int left,
+      int right,
+      int originX,
+      int originY,
+      double offset,
+      _Vertex a,
+      _Vertex b,
+      _Vertex c,
+      double step0,
+      double step1,
+      double step2,
+      double e0x,
+      double e1x,
+      double e2x,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double za,
+      double zb,
+      double zc,
+      double inverseArea,
+      int compare,
+      bool writeDepth,
+      bool flatReplace,
+      int flatColor,
+      int tsp) {
+    final depthBuffer = _depth, colorBuffer = _colors;
+    final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
+    final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
+    final base = originX + offset;
+    for (var y = top; y < bottom; y++) {
+      // The narrowing of the loop in [_triangle], edge by edge.
+      final rowY = originY + y + offset;
+      var rowLeft = left, rowRight = right;
+      if (slope0 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, bx + step0 * (rowY - by) - base + 2);
+      } else if (slope0 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, bx + step0 * (rowY - by) - base - 1);
+      }
+      if (slope1 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, cx + step1 * (rowY - cy) - base + 2);
+      } else if (slope1 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, cx + step1 * (rowY - cy) - base - 1);
+      }
+      if (slope2 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, ax + step2 * (rowY - ay) - base + 2);
+      } else if (slope2 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
+      }
+      final row0 = e0x * (rowY - by),
+          row1 = e1x * (rowY - cy),
+          row2 = e2x * (rowY - ay);
+      final x0 = originX + rowLeft + offset;
+      // The columns that every edge accepts, so that the row needs no
+      // coverage test.
+      final count = rowRight - rowLeft;
+      var low = _spanLow(row0 - e0y * (x0 - bx), e0y, tl0, 0, count);
+      low = _spanLow(row1 - e1y * (x0 - cx), e1y, tl1, low, count);
+      low = _spanLow(row2 - e2y * (x0 - ax), e2y, tl2, low, count);
+      var high = _spanHigh(row0 - e0y * (x0 - bx), e0y, tl0, low, count);
+      high = _spanHigh(row1 - e1y * (x0 - cx), e1y, tl1, low, high);
+      high = _spanHigh(row2 - e2y * (x0 - ax), e2y, tl2, low, high);
+      if (low >= high) continue;
+      for (var x = rowLeft + low; x < rowLeft + high; x++) {
+        final px = originX + x + offset;
+        final e0 = row0 - e0y * (px - bx),
+            e1 = row1 - e1y * (px - cx),
+            e2 = row2 - e2y * (px - ax);
+        final z = za * (e0 * inverseArea) +
+            zb * (e1 * inverseArea) +
+            zc * (e2 * inverseArea);
+        if (!z.isFinite) {
+          throw const DcUnsupported('CORE nonfinite interpolated depth');
+        }
+        final index = y * 32 + x, previous = depthBuffer[index];
+        if (compare & (z < previous ? 1 : (z == previous ? 2 : 4)) == 0) {
+          continue;
+        }
+        if (flatReplace) {
+          colorBuffer[index] = flatColor;
+        } else {
+          _composite(index, flatColor, tsp);
+        }
+        if (writeDepth) depthBuffer[index] = z;
+      }
+    }
+  }
+
+  /// The right end of a row narrowed to [bound], as [_triangle] does.
+  @pragma('vm:prefer-inline')
+  static int _narrowRight(int rowLeft, int rowRight, double bound) =>
+      bound < rowRight ? (bound < rowLeft ? rowLeft : bound.toInt()) : rowRight;
+
+  static final _noTexels = Uint32List(0);
+
+  /// The first of the columns from [low] up to [high] where an edge of
+  /// value [e] at column 0, falling by [d] per column, accepts the pixel,
+  /// or [high] when it accepts none; [topLeft] accepts a zero value.
+  @pragma('vm:prefer-inline')
+  static int _spanLow(double e, double d, bool topLeft, int low, int high) {
+    if (d >= 0) {
+      return d == 0 && !(e > 0 || (e == 0 && topLeft)) ? high : low;
+    }
+    final limit = e / d;
+    if (!(limit >= low)) return low;
+    if (limit >= high) return high;
+    final whole = limit.toInt();
+    return whole == limit && topLeft ? whole : whole + 1;
+  }
+
+  /// The end of the columns from [low] up to [high] that an edge as in
+  /// [_spanLow] accepts.
+  @pragma('vm:prefer-inline')
+  static int _spanHigh(double e, double d, bool topLeft, int low, int high) {
+    if (!(d > 0)) return high;
+    final limit = e / d;
+    if (limit < low) return low;
+    if (limit >= high) return high;
+    final whole = limit.toInt();
+    return whole == limit && !topLeft ? whole : whole + 1;
+  }
+
+  /// The fragments of a span of [_perspectiveRow].
+  static const _span = 16;
+
+  /// The left end of a row narrowed to [bound], as [_triangle] does.
+  @pragma('vm:prefer-inline')
+  static int _narrowLeft(int rowLeft, int rowRight, double bound) =>
+      bound > rowLeft ? (bound > rowRight ? rowRight : bound.toInt()) : rowLeft;
+
+  /// The quick row loop of perspective texels replacing the color buffer,
+  /// apart from the loop of [_triangle] so that its values stay in
+  /// registers. A nonzero [inverseArea] interpolates the vertex colors with
+  /// [colors] and the offset colors with [offsets] as the first vertex,
+  /// where they are given. A [gray] value of 0 or more shades as
+  /// [DcGpuTexture.shadeGray]. Where [wraps], texel positions scaled by
+  /// [uScale] and [vScale] are sampled in 16.16 fixed point.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _perspectiveRow(
+      DcGpuTexture texture,
+      int index,
+      int count,
+      double e0,
+      double e1,
+      double e2,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double z,
+      double dz,
+      double uz,
+      double duz,
+      double vz,
+      double dvz,
+      int compare,
+      bool writeDepth,
+      double inverseArea,
+      double za,
+      double zb,
+      double zc,
+      _Vertex? colors,
+      _Vertex? offsets,
+      _Vertex b,
+      _Vertex c,
+      int quickColor,
+      int quickOffset,
+      int opaqueAlpha,
+      int gray,
+      int ignoredAlpha,
+      int tsp,
+      bool quickFog,
+      bool fogOffset,
+      bool wraps,
+      double uScale,
+      double vScale,
+      int offsetLanes,
+      bool varying,
+      bool spans,
+      bool covered) {
+    final depthBuffer = _depth, colorBuffer = _colors;
+    final cache = texture.cache;
+    final texels = cache == null ? _noTexels : cache.texels,
+        texelBase = cache == null ? 0 : cache.levelOffsets[0];
+    final width = texture.width, height = texture.height;
+    final flipU = texture.flipU, flipV = texture.flipV;
+    final gouraud = varying && colors != null;
+    // With [spans], texel positions and color weights are exact at the
+    // ends of spans of [_span] fragments and step linearly between them.
+    var span = 0, linear = false;
+    var su = 0, sv = 0, dsu = 0, dsv = 0, wb = 0, wc = 0, dwb = 0, dwc = 0;
+    // Table fog without a color clamp steps its weight the same way.
+    final tableFog =
+        spans && quickFog && tsp & 0x200000 == 0 && (tsp >> 22) & 3 == 0;
+    var fw = 0, dfw = 0;
+    for (final end = index + count;
+        index < end;
+        index++,
+        e0 -= e0y,
+        e1 -= e1y,
+        e2 -= e2y,
+        z += dz,
+        uz += duz,
+        vz += dvz,
+        span--,
+        su += dsu,
+        sv += dsv,
+        wb += dwb,
+        wc += dwc,
+        fw += dfw) {
+      if (spans && span == 0) {
+        span = end - index < _span ? end - index : _span;
+        final z1 = z + dz * span;
+        linear = z > 0 && z1 > 0 && z.isFinite && z1.isFinite;
+        if (linear) {
+          final i0 = 1 / z, i1 = 1 / z1, step = 1 / span;
+          final u0 = uz * i0 * uScale, u1 = (uz + duz * span) * i1 * uScale;
+          final v0 = vz * i0 * vScale, v1 = (vz + dvz * span) * i1 * vScale;
+          linear = u0.abs() < 1 << 40 &&
+              u1.abs() < 1 << 40 &&
+              v0.abs() < 1 << 40 &&
+              v1.abs() < 1 << 40;
+          if (linear) {
+            su = u0.toInt();
+            sv = v0.toInt();
+            dsu = ((u1 - u0) * step).toInt();
+            dsv = ((v1 - v0) * step).toInt();
+            if (tableFog) {
+              final f0 = fog.tableWeight(z), f1 = fog.tableWeight(z1);
+              fw = f0.toInt() + 0x8000;
+              dfw = ((f1 - f0) * step).toInt();
+            }
+            if (gouraud) {
+              final b0 = e1 * inverseArea * zb * i0 * 65536,
+                  b1 = (e1 - e1y * span) * inverseArea * zb * i1 * 65536;
+              final c0 = e2 * inverseArea * zc * i0 * 65536,
+                  c1 = (e2 - e2y * span) * inverseArea * zc * i1 * 65536;
+              linear = b0.abs() < 1 << 40 &&
+                  b1.abs() < 1 << 40 &&
+                  c0.abs() < 1 << 40 &&
+                  c1.abs() < 1 << 40;
+              if (linear) {
+                wb = b0.toInt();
+                wc = c0.toInt();
+                dwb = ((b1 - b0) * step).toInt();
+                dwc = ((c1 - c0) * step).toInt();
+              }
+            }
+          }
+        }
+        if (!linear) dsu = dsv = dwb = dwc = dfw = 0;
+      }
+      if (!covered &&
+              (e0 < 0 ||
+                  e1 < 0 ||
+          e2 < 0 ||
+          (e0 == 0 && !tl0) ||
+          (e1 == 0 && !tl1) ||
+                  (e2 == 0 && !tl2))) {
+        continue;
+      }
+      if (!z.isFinite) {
+        throw const DcUnsupported('CORE nonfinite interpolated depth');
+      }
+      final previous = depthBuffer[index];
+      // Compare modes are masks of less (1), equal (2) and greater (4). A
+      // zero depth has no perspective; such fragments are dropped.
+      if (compare &
+                  (z < previous
+                      ? 1
+                      : z == previous
+                          ? 2
+                          : 4) ==
+              0 ||
+          z == 0) {
+        continue;
+      }
+      var color = quickColor, off = quickOffset;
+      if (spans && linear) {
+        if (gouraud) {
+          color = _gouraudWeights(colors.color, b.color, c.color, wb, wc) |
+              opaqueAlpha;
+        }
+        var shaded = DcGpuTexture.lanesWrapped(
+            texels, texelBase, width, height, flipU, flipV, su, sv);
+        shaded = gray >= 0
+            ? DcGpuTexture.shadeGrayLanes(
+                shaded, gray, offsetLanes, ignoredAlpha)
+            : DcGpuTexture.shade(
+                color, DcGpuTexture.packLanes(shaded), off, tsp);
+        if (tableFog) {
+          shaded = fog.blendTable(shaded, fw >> 16);
+        } else if (quickFog) {
+          shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
+        }
+        colorBuffer[index] = shaded;
+        if (writeDepth) depthBuffer[index] = z;
+        continue;
+      }
+      final inverse = 1 / z;
+      if (varying) {
+        final pa = e0 * inverseArea * za * inverse,
+            pb = e1 * inverseArea * zb * inverse,
+            pc = e2 * inverseArea * zc * inverse;
+        if (colors != null) {
+          color = _gouraud(colors.color, b.color, c.color, pa, pb, pc) |
+              opaqueAlpha;
+        }
+        if (offsets != null) {
+          off = _gouraud(
+              offsets.offsetColor, b.offsetColor, c.offsetColor, pa, pb, pc);
+        }
+      }
+      var lanes = -1;
+      if (wraps) {
+        final fu = uz * inverse * uScale, fv = vz * inverse * vScale;
+        if (fu.abs() < 1 << 40 && fv.abs() < 1 << 40) {
+          lanes = DcGpuTexture.lanesWrapped(texels, texelBase, width, height,
+              flipU, flipV, fu.toInt(), fv.toInt());
+        }
+      }
+      int shaded;
+      if (lanes >= 0 && gray >= 0) {
+        shaded = DcGpuTexture.shadeGrayLanes(
+            lanes, gray, offsetLanes, ignoredAlpha);
+      } else {
+        final texel = lanes >= 0
+            ? DcGpuTexture.packLanes(lanes)
+            : texture.sampleBilinear(uz * inverse, vz * inverse);
+        shaded = gray >= 0
+            ? DcGpuTexture.shadeGray(texel, gray, quickOffset, ignoredAlpha)
+            : DcGpuTexture.shade(color, texel, off, tsp);
+      }
+      if (quickFog) {
+        shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
+      }
+      colorBuffer[index] = shaded;
+      if (writeDepth) depthBuffer[index] = z;
+    }
+  }
+
   void _composite(int index, int color, int tsp) {
     color = _sourceColor(index, color, tsp);
     final destinationSecondary = tsp & 0x01000000 != 0;
@@ -2107,6 +3137,16 @@ class DcGpuRender {
     return sum > 255 ? 255 : sum;
   }
 
+  /// [_blendChannel] at bit [shift] with factors the same for every channel.
+  @pragma('vm:prefer-inline')
+  static int _scaleChannel(
+      int source, int destination, int sf, int df, int shift) {
+    final sum = div255(((source >> shift) & 255) * sf +
+        ((destination >> shift) & 255) * df +
+        127);
+    return (sum > 255 ? 255 : sum) << shift;
+  }
+
   static int _blend(int source, int destination, int tsp) {
     final sourceInstruction = (tsp >> 29) & 7;
     final destinationInstruction = (tsp >> 26) & 7;
@@ -2129,6 +3169,11 @@ class DcGpuRender {
         return DcGpuTexture.packLanes(
             ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes);
       }
+      // A larger factor sum can saturate: each channel on its own.
+      return _scaleChannel(source, destination, sf, df, 0) |
+          _scaleChannel(source, destination, sf, df, 8) |
+          _scaleChannel(source, destination, sf, df, 16) |
+          _scaleChannel(source, destination, sf, df, 24);
     }
     return _blendChannel(source & 255, destination & 255, sourceInstruction,
             destinationInstruction, sa, da) |

@@ -214,6 +214,11 @@ abstract final class Arm64Backend {
       }
       a.constant(4, env.pageShift);
       a.alu(0x1ac02400, 4, 0, 4);
+      final hash = t.slotHash(i.translationKey) & (t.slots - 1);
+      if (hash != 0) {
+        a.constant(5, hash);
+        a.alu(0x4a000000, 4, 4, 5);
+      }
       a.constant(5, t.slots - 1);
       a.alu(0x0a000000, 4, 4, 5);
       a.constant(5, 4);

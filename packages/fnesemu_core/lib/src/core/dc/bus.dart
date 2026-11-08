@@ -919,24 +919,24 @@ class DcBus {
     // P4 and direct area-7 aliases only; P3 remains unsupported.
     if (address >= 0xc0000000 && address < 0xe0000000) return null;
     final physical = address & 0x1fffffff;
-    return [
-      0x1f000000,
-      0x1f000004,
-      0x1f000008,
-      0x1f00000c,
-      0x1f000010,
-      0x1f00001c,
-      0x1f000030,
-      0x1f000044,
-      0x1f000020,
-      0x1f000024,
-      0x1f000028,
-      0x1f000034,
-      0x1f000038,
-      0x1f00003c
-    ].contains(physical)
-        ? physical & 255
-        : null;
+    return switch (physical) {
+      0x1f000000 ||
+      0x1f000004 ||
+      0x1f000008 ||
+      0x1f00000c ||
+      0x1f000010 ||
+      0x1f00001c ||
+      0x1f000030 ||
+      0x1f000044 ||
+      0x1f000020 ||
+      0x1f000024 ||
+      0x1f000028 ||
+      0x1f000034 ||
+      0x1f000038 ||
+      0x1f00003c =>
+        physical & 255,
+      _ => null,
+    };
   }
 
   /// Undefined CPU control registers in the area-7 alias (`0x1f000000`-`0x1f0000ff`):
@@ -967,7 +967,7 @@ class DcBus {
     if (DcGpu.polygonFifo(address) ||
         DcGpu.textureFifo(address) ||
         DcGpu.yuvFifo(address)) {
-      if (!write || ![4, 8, 32].contains(size)) {
+      if (!write || (size != 4 && size != 8 && size != 32)) {
         throw const DcUnsupported(
             'TA FIFO is write-only with longword cache lanes');
       }
