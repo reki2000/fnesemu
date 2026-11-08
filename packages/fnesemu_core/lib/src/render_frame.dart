@@ -220,9 +220,24 @@ class RenderBatch {
     required this.state,
   });
 
-  /// Passes are drawn in order: opaque, then punch-through, then
+  /// The batches of a frame come in this order of passes: opaque,
+  /// punch-through, volume, inside opaque, inside punch-through and
   /// translucent.
-  static const opaque = 0, punchThrough = 1, translucent = 2;
+  ///
+  /// A volume batch holds closed volumes. A pixel is inside a volume when
+  /// an odd number of its triangles cover the pixel at or in front of the
+  /// stored depth; see [volumeLayer]. Volume triangles draw no color and no
+  /// depth.
+  ///
+  /// Inside batches replace the opaque and punch-through triangles in the
+  /// pixels inside the volumes: they are drawn only there, and only where
+  /// their depth equals the stored depth.
+  static const opaque = 0,
+      punchThrough = 1,
+      translucent = 2,
+      volume = 3,
+      insideOpaque = 4,
+      insidePunchThrough = 5;
 
   final int pass;
 
@@ -234,6 +249,17 @@ class RenderBatch {
 
   /// The packed state; see the getters.
   final int state;
+
+  /// How the volumes of a group change the inside area: 1 adds the pixels
+  /// inside any of them, 2 keeps only the pixels outside all of them.
+  int get volumeInstruction => state & 3;
+
+  /// The layer, 0 to 6, that holds the parity of the volumes of a volume
+  /// batch. The volumes of a layer do not cover the same pixels. A group
+  /// of volumes takes consecutive batches with layers from 0 up, and its
+  /// last batch has [volumeGroupEnds].
+  int get volumeLayer => (state >> 2) & 7;
+  bool get volumeGroupEnds => state & 32 != 0;
 
   /// [depthCompare] values: never, less, equal, less or equal, greater, not
   /// equal, greater or equal, always. A fragment passes when its depth

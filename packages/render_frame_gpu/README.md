@@ -33,10 +33,12 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
 
 - A textured or Gouraud background is drawn as a plane over the whole frame. Where its colors leave the range, the frame is cut so that the clamped colors interpolate like the plane.
 - The triangles of an object list are clipped to the tiles that refer to the list, so that a list used by only some tiles stays inside them.
+- Volumes are drawn into the stencil. Each volume of a group inverts the stencil bit of its layer where its triangles are at or in front of the stored depth, and at the end of the group the layers are folded into bit 7, which marks the pixels inside. The inside batches are then drawn where bit 7 is set and their depth equals the stored depth. Volumes whose bounds do not overlap share a layer, so most groups take few draws.
 
 ## Known limits
 
-- Modifier volumes, the secondary accumulation buffer, bump maps and mipmaps are not drawn.
+- Volumes that apply to translucent triangles or to the background, the secondary accumulation buffer, bump maps and mipmaps are not drawn.
+- Without a stencil in the depth format, volume and inside batches are skipped.
 - Automatic sorting of translucent triangles is approximated by the mean depth of each triangle. The sorted triangles blend over every opaque depth they are not behind and write no depth, so that layers at the same depth all blend.
 - Renders through the strip buffer or the scaler stay with the core's renderer.
 

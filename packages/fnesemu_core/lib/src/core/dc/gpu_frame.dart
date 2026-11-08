@@ -16,16 +16,20 @@ class _FrameTriangle {
 /// Builds the [RenderFrame] of a render from the region array and the
 /// object lists, for a host GPU. Every object is taken once, however many
 /// tiles list it, and is clipped to the rectangle of those tiles, which
-/// keeps the user tile clip of the tile accelerator. This is a functional
-/// approximation: modifier volumes, the secondary accumulation buffer, bump
-/// maps, MIP levels and the color clamp are left out, and auto-sorted
-/// translucent triangles are ordered by their mean depth.
+/// keeps the user tile clip of the tile accelerator. Opaque modifier
+/// volumes become volume batches, and shadowed opaque and punch-through
+/// objects add the triangles that replace them inside the volumes. This is
+/// a functional approximation: translucent modifier volumes, the shadow of
+/// the background, the secondary accumulation buffer, bump maps, MIP levels
+/// and the color clamp are left out, and auto-sorted translucent triangles
+/// are ordered by their mean depth.
 extension _FrameBuilder on DcGpuRender {
   RenderFrame _buildFrame() {
     final type2 = read(0x7c) & 0x200000 != 0;
     // The object lists of each pass with the tiles that list them, as in
     // [_FrameBuilder._tiles].
-    final lists = [<int, int>{}, <int, int>{}, <int, int>{}];
+    // The fourth map holds the opaque modifier lists.
+    final lists = [<int, int>{}, <int, int>{}, <int, int>{}, <int, int>{}];
     var presort = false, first = true, tilesX = 0, tilesY = 0;
     for (var region = read(0x2c);; region += type2 ? 24 : 20) {
       final control = _word(region);
@@ -42,7 +46,8 @@ extension _FrameBuilder on DcGpuRender {
       for (final (pass, pointer) in [
         (0, opaque),
         (1, punch),
-        (2, translucent)
+        (2, translucent),
+        (3, _nonEmptyModifier(_word(region + 8))),
       ]) {
         if (pointer & 0x80000000 == 0) {
           final list = pointer & 0xfffffc;
@@ -53,11 +58,8 @@ extension _FrameBuilder on DcGpuRender {
     }
     final textures = <int, int>{};
     final textureList = <RenderTexture>[];
-    final triangles = [
-      <_FrameTriangle>[],
-      <_FrameTriangle>[],
-      <_FrameTriangle>[]
-    ];
+    // Indexed by the passes of [RenderBatch].
+    final triangles = [for (var i = 0; i < 6; i++) <_FrameTriangle>[]];
     final width = math.min(tilesX * 32, ((read(0x68) >> 16) & 0x7ff) + 1);
     final height = math.min(tilesY * 32, ((read(0x6c) >> 16) & 0x3ff) + 1);
     _frameBackgroundPlane(width, height, textures, textureList, triangles[0]);
@@ -71,10 +73,16 @@ extension _FrameBuilder on DcGpuRender {
       final addresses = objects.keys.toList()..sort();
       for (final parameter in addresses) {
         final (pointer, mask, tiles) = objects[parameter]!;
-        _frameObject(parameter, pointer, mask, tiles, pass, textures,
-            textureList, triangles[pass]);
+        _frameObject(parameter, pointer, mask, tiles, textures, textureList,
+            triangles[pass], pass < 2 ? triangles[pass + 4] : null);
       }
     }
+    // The volume polygons with their kinds and the tiles that list them.
+    final polygons = <int, (int, int)>{};
+    for (final MapEntry(key: list, value: tiles) in lists[3].entries) {
+      _frameVolumePolygons(list, tiles, polygons);
+    }
+    _packVolumes(_frameVolumes(polygons), triangles[RenderBatch.volume]);
     if (!presort) {
       // Farther triangles first, then in input order.
       triangles[2].sort((p, q) {
@@ -87,7 +95,7 @@ extension _FrameBuilder on DcGpuRender {
     final batches = <RenderBatch>[];
     var index = 0, o = 0;
     var maximumDepth = _value(read(0x88));
-    for (var pass = 0; pass < 3; pass++) {
+    for (final pass in const [0, 1, 3, 4, 5, 2]) {
       // Sorted translucent fragments all blend over the opaque depths in
       // front of them: the compare is greater or equal and nothing writes
       // depth.
@@ -200,80 +208,227 @@ extension _FrameBuilder on DcGpuRender {
     }
   }
 
+  /// Adds the triangles of one object to [out]. An opaque or punch-through
+  /// object with the shadow bit also adds the triangles that replace them
+  /// inside a modifier volume to [inside]: its second parameters, or with a
+  /// single volume its colors scaled by the shadow intensity.
   void _frameObject(
       int parameter,
       int pointer,
       int mask,
       int tiles,
-      int pass,
       Map<int, int> textures,
       List<RenderTexture> textureList,
-      List<_FrameTriangle> out) {
+      List<_FrameTriangle> out,
+      List<_FrameTriangle>? inside) {
     final kind = pointer & 0x80000000 == 0 ? 0 : pointer >> 29;
     final isp = _word(parameter);
     final textured = isp & 0x02000000 != 0;
     final hasOffset = textured && isp & 0x01000000 != 0;
     final attributes = 1 +
         (textured ? (isp & 0x00400000 != 0 ? 1 : 2) + (hasOffset ? 1 : 0) : 0);
-    final twoVolumes = pointer & 0x01000000 != 0 && read(0x74) & 0x100 == 0;
+    final shadow = pointer & 0x01000000 != 0;
+    final twoVolumes = shadow && read(0x74) & 0x100 == 0;
     final stride = 3 + attributes * (twoVolumes ? 2 : 1);
     final header = twoVolumes ? 5 : 3;
-    final tsp = _word(parameter + 4);
-    final sourceSecondary = tsp & 0x02000000 != 0;
-    final texture = textured && !sourceSecondary
-        ? _frameTextureIndex(_word(parameter + 8), tsp, textures, textureList)
-        : -1;
     final gouraud = isp & 0x00800000 != 0;
-    final opaqueAlpha = tsp & 0x100000 == 0 ? 0xff000000 : 0;
-    final state = RenderBatch.pack(
-      depthCompare: isp >> 29,
-      depthWrite: isp & 0x04000000 == 0,
-      sourceFactor: (tsp >> 29) & 7,
-      destinationFactor: (tsp >> 26) & 7,
-      shading: (tsp >> 6) & 3,
-      fog: (tsp >> 22) & 3,
-      textureAlpha: tsp & 0x80000 == 0,
-      offset: hasOffset,
-    );
-    _Vertex vertex(int i) =>
-        _vertex(parameter + header * 4 + i * stride * 4, isp,
-            ignoreShading: sourceSecondary);
-    void push(_Vertex a, _Vertex b, _Vertex c) =>
-        _frameClipped(a, b, c, tiles, (a, b, c) {
-          out.add(_FrameTriangle(out.length, a, b, c, texture, state));
-        });
-    void add(_Vertex a, _Vertex b, _Vertex c) {
-      final area = _edge(a, b, c.x, c.y);
-      if (_culled(area, isp)) return;
-      // Flat shading takes the colors of the last vertex.
-      _Vertex shade(_Vertex v) =>
-          _Vertex(v.x, v.y, v.z, (gouraud ? v.color : c.color) | opaqueAlpha,
-              u: v.u,
-              v: v.v,
-              offsetColor: gouraud ? v.offsetColor : c.offsetColor);
-      push(shade(a), shade(b), shade(c));
-    }
 
-    if (kind == 4) {
-      add(vertex(0), vertex(1), vertex(2));
-    } else if (kind == 5) {
-      final a = vertex(0), b = vertex(1), c = vertex(2);
-      final fourth = parameter + header * 4 + 3 * stride * 4;
-      final d = _planeVertex(a, b, c, _number(fourth), _number(fourth + 4));
-      if (_culled(_edge(a, b, c.x, c.y), isp)) return;
-      _Vertex shade(_Vertex v) => _Vertex(v.x, v.y, v.z, v.color | opaqueAlpha,
-          u: v.u, v: v.v, offsetColor: v.offsetColor);
-      push(shade(a), shade(b), shade(c));
-      push(shade(a), shade(c), shade(d));
-    } else {
-      for (var triangle = 0; triangle < 6; triangle++) {
-        if (mask & (1 << (5 - triangle)) == 0) continue;
-        var a = vertex(triangle), b = vertex(triangle + 1);
-        final c = vertex(triangle + 2);
-        if (triangle.isOdd) (a, b) = (b, a);
-        add(a, b, c);
+    void emit(int slot, List<_FrameTriangle> out,
+        {bool scaled = false, bool replacing = false}) {
+      final tsp = _word(parameter + 4 + slot * 8);
+      final sourceSecondary = tsp & 0x02000000 != 0;
+      final texture = textured && !sourceSecondary
+          ? _frameTextureIndex(
+              _word(parameter + 8 + slot * 8), tsp, textures, textureList)
+          : -1;
+      final opaqueAlpha = tsp & 0x100000 == 0 ? 0xff000000 : 0;
+      final state = RenderBatch.pack(
+        // A replacing triangle is drawn over the depth that the first one
+        // wrote.
+        depthCompare: replacing ? 2 : isp >> 29,
+        depthWrite: !replacing && isp & 0x04000000 == 0,
+        sourceFactor: (tsp >> 29) & 7,
+        destinationFactor: (tsp >> 26) & 7,
+        shading: (tsp >> 6) & 3,
+        fog: (tsp >> 22) & 3,
+        textureAlpha: tsp & 0x80000 == 0,
+        offset: hasOffset,
+      );
+      _Vertex vertex(int i) => _vertex(
+          parameter + header * 4 + i * stride * 4, isp,
+          ignoreShading: sourceSecondary,
+          attributeOffset: slot * attributes * 4);
+      int color(int c) => (scaled ? _shadowColor(c) : c) | opaqueAlpha;
+      int offsetColor(int c) => scaled ? _shadowColor(c) : c;
+      void push(_Vertex a, _Vertex b, _Vertex c) =>
+          _frameClipped(a, b, c, tiles, (a, b, c) {
+            out.add(_FrameTriangle(out.length, a, b, c, texture, state));
+          });
+      void add(_Vertex a, _Vertex b, _Vertex c) {
+        final area = _edge(a, b, c.x, c.y);
+        if (_culled(area, isp)) return;
+        // Flat shading takes the colors of the last vertex.
+        _Vertex shade(_Vertex v) => _Vertex(
+            v.x, v.y, v.z, color(gouraud ? v.color : c.color),
+            u: v.u,
+            v: v.v,
+            offsetColor: offsetColor(gouraud ? v.offsetColor : c.offsetColor));
+        push(shade(a), shade(b), shade(c));
+      }
+
+      if (kind == 4) {
+        add(vertex(0), vertex(1), vertex(2));
+      } else if (kind == 5) {
+        final a = vertex(0), b = vertex(1), c = vertex(2);
+        final fourth = parameter + header * 4 + 3 * stride * 4;
+        final d = _planeVertex(a, b, c, _number(fourth), _number(fourth + 4));
+        if (_culled(_edge(a, b, c.x, c.y), isp)) return;
+        _Vertex shade(_Vertex v) => _Vertex(v.x, v.y, v.z, color(v.color),
+            u: v.u, v: v.v, offsetColor: offsetColor(v.offsetColor));
+        push(shade(a), shade(b), shade(c));
+        push(shade(a), shade(c), shade(d));
+      } else {
+        for (var triangle = 0; triangle < 6; triangle++) {
+          if (mask & (1 << (5 - triangle)) == 0) continue;
+          var a = vertex(triangle), b = vertex(triangle + 1);
+          final c = vertex(triangle + 2);
+          if (triangle.isOdd) (a, b) = (b, a);
+          add(a, b, c);
+        }
       }
     }
+
+    emit(0, out);
+    if (shadow && inside != null) {
+      if (twoVolumes) {
+        emit(1, inside, replacing: true);
+      } else {
+        emit(0, inside, scaled: true, replacing: true);
+      }
+    }
+  }
+
+  /// Adds the polygons of the modifier volume list at [address] to
+  /// [polygons], each by its parameter address with its kind and the union
+  /// of its tiles. Every tile lists the polygons that touch it, so the
+  /// polygons of all lists make up each volume once.
+  void _frameVolumePolygons(
+      int address, int tiles, Map<int, (int, int)> polygons) {
+    final links = <int>{};
+    for (;; address += 4) {
+      final pointer = _word(address);
+      if (pointer >> 29 == 7) {
+        if (pointer & 0x10000000 != 0 || !links.add(address)) return;
+        address = (pointer & 0xfffffc) - 4;
+        continue;
+      }
+      final kind = pointer >> 29;
+      if (kind != 4 && kind != 5) continue;
+      var parameter = read(0x20) + (pointer & 0x1fffff) * 4;
+      final count = ((pointer >> 25) & 15) + 1;
+      for (var i = 0; i < count; i++) {
+        polygons[parameter] = (kind, _tiles(polygons[parameter]?.$2, tiles));
+        parameter += (3 + (kind == 5 ? 4 : 3) * 3) * 4;
+      }
+    }
+  }
+
+  /// The modifier volumes of [polygons] in the order of their parameters,
+  /// each as the instruction of its last polygon and its triangles. A
+  /// volume without a last polygon is left out.
+  List<(int, List<_FrameTriangle>)> _frameVolumes(
+      Map<int, (int, int)> polygons) {
+    final volumes = <(int, List<_FrameTriangle>)>[];
+    var volume = <_FrameTriangle>[];
+    for (final parameter in polygons.keys.toList()..sort()) {
+      final (kind, tiles) = polygons[parameter]!;
+      final isp = _word(parameter);
+      _Vertex point(int offset) => _Vertex(_number(parameter + offset),
+          _number(parameter + offset + 4), _number(parameter + offset + 8), 0);
+      final a = point(12), b = point(24), c = point(36);
+      void push(_Vertex a, _Vertex b, _Vertex c) =>
+          _frameClipped(a, b, c, tiles, (a, b, c) {
+            volume.add(_FrameTriangle(0, a, b, c, -1, 0));
+          });
+      if (!_culled(_edge(a, b, c.x, c.y), isp)) {
+        push(a, b, c);
+        if (kind == 5) {
+          push(
+              a,
+              c,
+              _planeVertex(
+                  a, b, c, _number(parameter + 48), _number(parameter + 52)));
+        }
+      }
+      final instruction = (isp >> 29) & 3;
+      if (instruction == 1 || instruction == 2) {
+        if (volume.isNotEmpty) volumes.add((instruction, volume));
+        volume = [];
+      }
+    }
+    return volumes;
+  }
+
+  /// Adds the triangles of [volumes] to [out] with the states of
+  /// [RenderBatch.volumeLayer]. Volumes in a row with the same instruction
+  /// form a group, which takes up to seven layers. A volume shares a layer
+  /// with volumes whose bounds it does not overlap, since their parities
+  /// then never meet in a pixel.
+  static void _packVolumes(
+      List<(int, List<_FrameTriangle>)> volumes, List<_FrameTriangle> out) {
+    const layers = 7;
+    var instruction = 0;
+    // The triangles and the bounds of the volumes of each layer.
+    var groupTriangles = <List<_FrameTriangle>>[];
+    var groupBounds = <List<(double, double, double, double)>>[];
+    void flush() {
+      for (final (layer, list) in groupTriangles.indexed) {
+        final last = layer == groupTriangles.length - 1;
+        final state = instruction | layer << 2 | (last ? 32 : 0);
+        for (final t in list) {
+          out.add(_FrameTriangle(out.length, t.a, t.b, t.c, -1, state));
+        }
+      }
+      groupTriangles = [];
+      groupBounds = [];
+    }
+
+    for (final (volumeInstruction, triangles) in volumes) {
+      var left = double.infinity, top = double.infinity;
+      var right = double.negativeInfinity, bottom = double.negativeInfinity;
+      for (final t in triangles) {
+        for (final v in [t.a, t.b, t.c]) {
+          left = math.min(left, v.x);
+          right = math.max(right, v.x);
+          top = math.min(top, v.y);
+          bottom = math.max(bottom, v.y);
+        }
+      }
+      // A pixel of margin keeps the edges of both volumes apart.
+      final bounds = (left - 1, top - 1, right + 1, bottom + 1);
+      bool apart((double, double, double, double) o) =>
+          bounds.$3 < o.$1 ||
+          o.$3 < bounds.$1 ||
+          bounds.$4 < o.$2 ||
+          o.$4 < bounds.$2;
+      if (volumeInstruction != instruction) {
+        flush();
+        instruction = volumeInstruction;
+      }
+      var layer = groupBounds.indexWhere((list) => list.every(apart));
+      if (layer < 0 && groupBounds.length == layers) {
+        flush();
+        layer = -1;
+      }
+      if (layer < 0) {
+        groupTriangles.add([]);
+        groupBounds.add([]);
+        layer = groupBounds.length - 1;
+      }
+      groupTriangles[layer].addAll(triangles);
+      groupBounds[layer].add(bounds);
+    }
+    flush();
   }
 
   /// The index of the texture of [tcw] and [tsp] in [textureList], added

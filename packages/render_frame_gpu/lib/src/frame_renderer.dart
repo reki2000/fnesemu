@@ -121,6 +121,20 @@ class FrameRenderer {
     final fogSlot = _fragment.getUniformSlot('fog_table');
     final fogSampler = gpu.SamplerOptions();
     const vertexBytes = RenderFrame.vertexFloats * 4 * 3;
+    // A triangle over the whole frame, for the stencil steps of volumes.
+    final cover = Float32List(3 * RenderFrame.vertexFloats);
+    for (final (i, (x, y)) in [
+      (0.0, 0.0),
+      (2.0 * frame.width, 0.0),
+      (0.0, 2.0 * frame.height)
+    ].indexed) {
+      cover[i * RenderFrame.vertexFloats] = x;
+      cover[i * RenderFrame.vertexFloats + 1] = y;
+      cover[i * RenderFrame.vertexFloats + 2] = 1;
+    }
+    final coverView = _host.emplace(ByteData.sublistView(cover));
+    final noFog = _host.emplace(ByteData.sublistView(Float32List(16)
+      ..[4] = 2));
     for (final batch in frame.batches) {
       pass.bindPipeline(_pipeline);
       pass.setCullMode(gpu.CullMode.none);
@@ -128,6 +142,24 @@ class FrameRenderer {
           offsetInBytes: batch.first * vertexBytes,
           lengthInBytes: batch.count * vertexBytes));
       pass.bindUniform(frameSlot, frameInfo);
+      if (batch.pass == RenderBatch.volume) {
+        if (!_stencil) continue;
+        pass.bindUniform(fragmentSlot, noFog);
+        pass.bindTexture(textureSlot, _white);
+        pass.bindTexture(fogSlot, _fog!, sampler: fogSampler);
+        _volume(pass, batch, coverView);
+        continue;
+      }
+      final inside = batch.pass == RenderBatch.insideOpaque ||
+          batch.pass == RenderBatch.insidePunchThrough;
+      if (inside && !_stencil) continue;
+      // Bit 7 of the stencil marks the pixels inside the volumes.
+      pass.setStencilReference(0x80);
+      pass.setStencilConfig(gpu.StencilConfig(
+          compareFunction:
+              inside ? gpu.CompareFunction.equal : gpu.CompareFunction.always,
+          readMask: 0x80,
+          writeMask: 0));
       final textured = batch.texture >= 0;
       pass.bindUniform(
           fragmentSlot,
@@ -138,7 +170,10 @@ class FrameRenderer {
             batch.offset ? 1 : 0,
             batch.fog.toDouble(),
             frame.fogScale,
-            batch.pass == RenderBatch.punchThrough ? 1 : 0,
+            batch.pass == RenderBatch.punchThrough ||
+                    batch.pass == RenderBatch.insidePunchThrough
+                ? 1
+                : 0,
             frame.alphaReference.toDouble(),
             ...fogColor,
             ...vertexFogColor,
@@ -176,6 +211,52 @@ class FrameRenderer {
     }
     commands.submit(completionCallback: onComplete);
     return color;
+  }
+
+  /// Whether the depth target has a stencil, which volumes need.
+  static final _stencil = switch (gpu.gpuContext.defaultDepthStencilFormat) {
+    gpu.PixelFormat.d24UnormS8Uint || gpu.PixelFormat.d32FloatS8UInt => true,
+    _ => false,
+  };
+
+  /// Draws a volume [batch] into the stencil bit of its layer, which then
+  /// holds whether a pixel is inside one of its volumes. At the end of a
+  /// group, the layers are folded into the inside area in bit 7 with the
+  /// triangle [cover] over the frame, and cleared.
+  void _volume(gpu.RenderPass pass, RenderBatch batch, gpu.BufferView cover) {
+    // Volume steps keep the color: the source counts zero, the target one.
+    pass.setColorBlendEnable(true);
+    pass.setColorBlendEquation(gpu.ColorBlendEquation(
+        sourceColorBlendFactor: gpu.BlendFactor.zero,
+        destinationColorBlendFactor: gpu.BlendFactor.one,
+        sourceAlphaBlendFactor: gpu.BlendFactor.zero,
+        destinationAlphaBlendFactor: gpu.BlendFactor.one));
+    pass.setDepthWriteEnable(false);
+    pass.setDepthCompareOperation(gpu.CompareFunction.greaterEqual);
+    pass.setStencilConfig(gpu.StencilConfig(
+        depthStencilPassOperation: gpu.StencilOperation.invert,
+        writeMask: 1 << batch.volumeLayer));
+    pass.draw(batch.count * 3);
+    if (!batch.volumeGroupEnds) return;
+    pass.bindVertexBuffer(cover);
+    pass.setDepthCompareOperation(gpu.CompareFunction.always);
+    // Where a layer is set, inside last sets bit 7 and outside last clears
+    // it. The masked reference is zero, so the compare tests for any layer.
+    final union = batch.volumeInstruction == 1;
+    pass.setStencilReference(0x80);
+    pass.setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: union
+            ? gpu.StencilOperation.setToReferenceValue
+            : gpu.StencilOperation.zero,
+        readMask: 0x7f,
+        writeMask: 0x80));
+    pass.draw(3);
+    // The layers start again from zero for the next group.
+    pass.setStencilConfig(gpu.StencilConfig(
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        writeMask: 0x7f));
+    pass.draw(3);
   }
 
   static List<double> _color4(int rgb) => [
