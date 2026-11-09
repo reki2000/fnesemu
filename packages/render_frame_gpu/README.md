@@ -53,6 +53,10 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
 
 ## Behavior of the Linux GLES backend
 
-- A read of a texture often showed it as it was at the read before. `mp_gpu` reads the pixels twice after the next frame of the engine. Now and then, mostly after a frame that uploaded many textures, a read still came back as the frame before; it is drawn into video memory as it is.
+- A read of a texture often showed it as it was at the read before. The check of `mp_gpu` at start chooses a wait that reads right, a frame of the engine and a second read on this backend; see the README of `mp_gpu`. Now and then, mostly after a frame that uploaded many textures, a read still comes back as the frame before; it is drawn into video memory as it is.
 - A pass that draws nothing was not run. The sink checks a new target with a white textured triangle, which also tells whether the GPU works.
-- The completion callback of a command buffer was not a reliable sign that the GPU had finished.
+- The completion callback of a command buffer alone was not a sign that a read would show the result.
+
+## Other cores
+
+`CORES.md` describes how another core can draw its renders on the host GPU, and what N64 and PS2 will need.

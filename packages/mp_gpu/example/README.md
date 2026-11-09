@@ -13,9 +13,10 @@ MP_GPU_PROBE_OUT=$PWD/probe.out build/linux/x64/release/bundle/mp_gpu_probe
 ```
 
 - Web: build with `flutter build web --wasm`, serve `build/web` over HTTP and run `node tool/run_web.mjs URL --enable-unsafe-webgpu`.
-- Android: build with `flutter build apk --release` and run `tool/run_android.sh` with an emulator or a device connected.
-- iOS: build with `flutter build ios --simulator --debug` and run `tool/run_ios.sh` on macOS.
+- Android: build with `flutter build apk --release` and run `tool/run_android.sh` with a device connected over adb. Keep the screen on: the engine makes no frames while it is off.
 
 ## CI
 
-`.github/workflows/mp-gpu-probe.yaml` builds and runs the probe on Linux, Windows, macOS, iOS Simulator, Android Emulator and Chrome when a branch `probe/...` is pushed or the workflow is started by hand. Each job writes the probe lines to its summary, and the `MP_GPU_PROBE_BEST` line ranks the waits. The runners have no real GPU, so the results show the behavior of the APIs on software renderers, not of real drivers.
+`.github/workflows/mp-gpu-probe.yaml` builds and runs the probe on Linux, Windows, macOS and Chrome when a branch `probe/...` is pushed or the workflow is started by hand. Each job writes the probe lines to its summary, and the `MP_GPU_PROBE_BEST` line ranks the waits. The runners have no real GPU, so the results show the behavior of the APIs on software renderers, not of real drivers. Emulators and simulators tell even less, so they are not run.
+
+The `MP_GPU_PROBE_DEVICE` line shows the wait that `GpuDevice.create` chose by its check; the `settle` cases use it.

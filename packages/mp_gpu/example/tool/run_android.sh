@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the probe APK on the running emulator or device, starts it and
+# Installs the probe APK on the device connected over adb, starts it and
 # prints the probe lines of the log until the probe is done.
 set -e
 cd "$(dirname "$0")/.."
