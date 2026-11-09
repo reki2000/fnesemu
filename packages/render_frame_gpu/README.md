@@ -48,7 +48,7 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
 
 - Volumes that apply to translucent triangles or to the background, the secondary accumulation buffer, bump maps and mipmaps are not drawn.
 - Without a stencil in the depth format, volume and inside batches are skipped.
-- Automatic sorting of translucent triangles is approximated by the mean depth of each triangle. The sorted triangles blend over every opaque depth they are not behind and write no depth, so that layers at the same depth all blend.
+- Automatic sorting of translucent triangles is done per triangle, not per pixel. The core orders them by mean depth and compares each large triangle with the triangles it overlaps inside the overlap, so that a small triangle just behind a large tilted one is drawn first. Triangles that cut through each other cannot be ordered right. The sorted triangles blend over every opaque depth they are not behind and write no depth, so that layers at the same depth all blend.
 - Renders through the strip buffer or the scaler stay with the core's renderer.
 
 ## Behavior of the Linux GLES backend
