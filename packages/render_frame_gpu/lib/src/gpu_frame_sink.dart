@@ -1,26 +1,23 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
-import 'package:flutter/scheduler.dart';
-import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:fnesemu_core/app_api.dart';
+import 'package:mp_gpu/mp_gpu.dart';
 
 import 'frame_renderer.dart';
 
-/// Draws the frames that a core submits with Flutter GPU and returns the
-/// drawn pixels through [RenderFrame.onDrawn].
+/// Draws the frames that a core submits on the GPU of the platform and
+/// returns the drawn pixels through [RenderFrame.onDrawn].
 class GpuFrameSink implements RenderFrameSink {
   GpuFrameSink._(this._renderer);
 
-  /// The name of the renderer for the settings.
-  static const name = 'Flutter GPU';
-
-  /// A sink, or null when Flutter GPU is not available, as on the Web or
-  /// when the engine runs without it.
+  /// A sink, or null when the platform has no GPU that [GpuDevice] can use,
+  /// or when it does not draw.
   static Future<GpuFrameSink?> create() async {
     try {
-      final sink = GpuFrameSink._(await FrameRenderer.create());
+      final device = await GpuDevice.create();
+      if (device == null) return null;
+      final sink = GpuFrameSink._(await FrameRenderer.create(device));
       final target = await sink._target(8, 8);
       if (target == null) return null;
       sink._free.add(target);
@@ -31,13 +28,17 @@ class GpuFrameSink implements RenderFrameSink {
   }
 
   final FrameRenderer _renderer;
+  GpuDevice get _device => _renderer.device;
+
+  /// The name of the GPU API, for the settings.
+  String get name => _device.name;
 
   // Targets that were read back once and are free.
-  final _free = <gpu.Texture>[];
+  final _free = <GpuTarget>[];
 
   // The frames submitted while others are drawn. They are drawn together,
-  // each into a target of its own, and read back after one frame of the
-  // engine. A GPU that falls far behind drops the oldest ones.
+  // each into a target of its own, and read back once the device settles.
+  // A GPU that falls far behind drops the oldest ones.
   static const _maximumWaiting = 8;
   final _waiting = <RenderFrame>[];
   bool _drawing = false;
@@ -55,17 +56,16 @@ class GpuFrameSink implements RenderFrameSink {
       while (_waiting.isNotEmpty) {
         final frames = [..._waiting];
         _waiting.clear();
-        final drawn = <(RenderFrame, gpu.Texture)>[];
+        final drawn = <(RenderFrame, GpuTarget)>[];
         for (final frame in frames) {
           final target = await _target(frame.width, frame.height);
           if (target == null) continue;
-          _renderer.draw(frame, target: target);
+          _renderer.draw(frame, target);
           drawn.add((frame, target));
         }
-        await SchedulerBinding.instance.endOfFrame;
-        _renderer.nextFrame();
+        await _device.settle();
         for (final (frame, target) in drawn) {
-          final rgba = await _read(target);
+          final rgba = await _device.read(target);
           _free.add(target);
           if (rgba != null) frame.onDrawn?.call(rgba);
         }
@@ -78,47 +78,24 @@ class GpuFrameSink implements RenderFrameSink {
   }
 
   /// Draws [frame] into [target] and reads it back.
-  Future<Uint8List?> _draw(RenderFrame frame, gpu.Texture target) async {
-    _renderer.draw(frame, target: target);
-    await SchedulerBinding.instance.endOfFrame;
-    _renderer.nextFrame();
-    return _read(target);
-  }
-
-  /// Reads [target] back after a frame of the engine passed since it was
-  /// drawn.
-  ///
-  /// On the GLES backend, a read often showed the texture as it was at the
-  /// read before. The pixels are read twice after the next frame of the
-  /// engine; that was right for all but about one frame in a few hundred,
-  /// which then shows the frame before.
-  static Future<Uint8List?> _read(gpu.Texture target) async {
-    Future<ByteData?> read() async {
-      final image = target.asImage();
-      try {
-        return await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      } finally {
-        image.dispose();
-      }
-    }
-
-    await read();
-    final data = await read();
-    return data == null ? null : Uint8List.sublistView(data);
+  Future<Uint8List?> _draw(RenderFrame frame, GpuTarget target) async {
+    _renderer.draw(frame, target);
+    await _device.settle();
+    return _device.read(target);
   }
 
   /// A free target of the size, or a new one; null when a new one cannot
   /// be read back.
   ///
   /// A new target is filled with a white textured triangle until the white
-  /// comes back, which also tells whether Flutter GPU works at all. A pass
-  /// that draws nothing was not run on the GLES backend.
-  Future<gpu.Texture?> _target(int width, int height) async {
+  /// comes back, which also tells whether the GPU works at all. A pass that
+  /// draws nothing was not run on the GLES backend of Flutter GPU.
+  Future<GpuTarget?> _target(int width, int height) async {
     final index = _free.indexWhere(
       (t) => t.width == width && t.height == height,
     );
     if (index >= 0) return _free.removeAt(index);
-    final target = FrameRenderer.createTarget(width, height);
+    final target = _device.target(width, height);
     final vertices = Float32List(3 * RenderFrame.vertexFloats);
     final corners = [(0.0, 0.0), (2.0 * width, 0.0), (0.0, 2.0 * height)];
     for (final (i, (x, y)) in corners.indexed) {

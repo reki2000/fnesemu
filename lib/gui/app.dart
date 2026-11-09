@@ -187,8 +187,8 @@ class MainPageState extends State<MainPage> {
     _restoreDiscFolder();
 
     unawaited(GpuFrameSink.create().then((sink) {
-      _log.infoc(() => "${GpuFrameSink.name} is "
-          "${sink == null ? 'not available' : 'available'}");
+      _log.infoc(() => "GPU frame drawing is "
+          "${sink == null ? 'not available' : 'available with ${sink.name}'}");
       _gpu = sink;
       _applyGpu();
       if (mounted) setState(() {});
@@ -443,7 +443,7 @@ class MainPageState extends State<MainPage> {
         builder: (context) => SimpleDialog(title: const Text('GPU'), children: [
               for (final (gpu, name) in [
                 (false, 'Software'),
-                if (_gpu != null) (true, GpuFrameSink.name),
+                if (_gpu case final gpu?) (true, gpu.name),
               ])
                 SimpleDialogOption(
                     onPressed: () => Navigator.of(context).pop(gpu),
@@ -943,7 +943,7 @@ class MainPageState extends State<MainPage> {
                           child: ListTile(
                               title: const Text('GPU'),
                               subtitle: Text(_gpuSelected
-                                  ? GpuFrameSink.name
+                                  ? _gpu!.name
                                   : 'Software'),
                               trailing: const Icon(Icons.memory))),
                     ],
