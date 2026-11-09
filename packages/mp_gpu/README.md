@@ -19,3 +19,7 @@ Offscreen drawing on the GPU of the platform. `GpuDevice.create()` picks the API
 
 - Flutter GPU: `settle` waits for a frame of the engine and then reuses the oldest of four blocks of uniforms; `read` reads the target twice, because the GLES backend often showed a texture as it was at the read before. A read after a pass that uploaded many textures still came back as before now and then.
 - WebGPU: `settle` waits for the submitted work, and `read` copies the target into a buffer and maps it. The headless Chrome of the tests runs WebGPU on SwiftShader with `--enable-unsafe-webgpu`.
+
+## Probe
+
+`example/` is a probe app that measures, for each way to wait, how often a read returns an older frame and how long it takes. `.github/workflows/mp-gpu-probe.yaml` runs it on each platform; see `example/README.md`.
