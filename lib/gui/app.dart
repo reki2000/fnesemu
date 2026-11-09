@@ -59,6 +59,18 @@ class AppSnackBar {
     messenger.showSnackBar(
         SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
   }
+
+  /// shows [message] until [done] completes
+  static void showUntil(String message, Future<void> done) {
+    final messenger = messengerKey.currentState;
+    if (messenger == null) {
+      return;
+    }
+    messenger.hideCurrentSnackBar();
+    final bar = messenger.showSnackBar(SnackBar(
+        content: Text(message), duration: const Duration(minutes: 1)));
+    unawaited(done.whenComplete(bar.close));
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -150,6 +162,7 @@ class MainPageState extends State<MainPage> {
   // draws the 3D renders of the cores when the GPU setting selects it; null
   // until it is created, and when the platform has no Flutter GPU
   GpuFrameSink? _gpu;
+  bool _gpuChecking = true;
   static const _gpuKey = "gpu";
   bool get _gpuSelected => _gpu != null && _storage.setting(_gpuKey) == "gpu";
 
@@ -186,13 +199,19 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
-    unawaited(GpuFrameSink.create().then((sink) {
+    // The sink checks the GPU, which takes up to two seconds.
+    final gpu = GpuFrameSink.create().then((sink) {
       _log.infoc(() => "GPU frame drawing is "
-          "${sink == null ? 'not available' : 'available with ${sink.name}'}");
+          "${sink == null ? 'not available' : 'available with ${sink.name} (${sink.readBack})'}");
       _gpu = sink;
+      _gpuChecking = false;
       _applyGpu();
       if (mounted) setState(() {});
-    }));
+    });
+    unawaited(gpu);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_gpuChecking) AppSnackBar.showUntil('Checking the GPU...', gpu);
+    });
 
     _cdromWaitTimer = Timer.periodic(
         const Duration(milliseconds: 300), (_) => _tickCdromWait());
@@ -942,9 +961,11 @@ class MainPageState extends State<MainPage> {
                           value: _SetupAction.gpu,
                           child: ListTile(
                               title: const Text('GPU'),
-                              subtitle: Text(_gpuSelected
-                                  ? _gpu!.name
-                                  : 'Software'),
+                              subtitle: Text(_gpuChecking
+                                  ? 'Checking...'
+                                  : _gpuSelected
+                                      ? _gpu!.name
+                                      : 'Software'),
                               trailing: const Icon(Icons.memory))),
                     ],
                   ),

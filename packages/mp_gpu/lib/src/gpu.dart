@@ -18,6 +18,9 @@ abstract class GpuDevice {
   /// The name of the API, for settings and logs.
   String get name;
 
+  /// How the device waits before reads, for logs.
+  String get readBack;
+
   /// Whether the depth buffers of targets have a stencil.
   bool get stencil;
 
@@ -43,7 +46,9 @@ abstract class GpuDevice {
   });
 
   /// Waits until the passes ended so far can be read. Call it once after
-  /// ending a group of passes, not once per pass.
+  /// ending a group of passes, not once per pass. On Flutter GPU, how long
+  /// it waits was chosen by a check when the device was created, which
+  /// takes at most two seconds.
   Future<void> settle();
 
   /// The RGBA bytes of [target], row by row from the top, as the passes

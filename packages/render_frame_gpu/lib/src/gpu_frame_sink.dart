@@ -33,6 +33,9 @@ class GpuFrameSink implements RenderFrameSink {
   /// The name of the GPU API, for the settings.
   String get name => _device.name;
 
+  /// How the device waits before reads, for logs.
+  String get readBack => _device.readBack;
+
   // Targets that were read back once and are free.
   final _free = <GpuTarget>[];
 

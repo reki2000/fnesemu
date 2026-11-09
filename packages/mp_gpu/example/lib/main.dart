@@ -9,9 +9,12 @@
 // frame of a core does, and with one or four targets drawn before the
 // reads, so one run shows the best wait of a platform.
 //
-// The results go to the log as lines that start with `MP_GPU_PROBE `, one
-// JSON object for each case, then a `MP_GPU_PROBE_BEST ` line that ranks
-// the waits by wrong reads and latency, and `MP_GPU_PROBE_DONE`. The
+// The results go to the log: first a `MP_GPU_PROBE_DEVICE ` line with the
+// wait that the device chose when it was created, then lines that start
+// with `MP_GPU_PROBE `, one JSON object for each case, a
+// `MP_GPU_PROBE_BEST ` line that ranks the waits by wrong reads and
+// latency, and `MP_GPU_PROBE_DONE`. The `settle` cases use the chosen
+// wait. The
 // latency of a case runs from the draws to the last read. A native build
 // also writes them to the file named by the environment variable
 // `MP_GPU_PROBE_OUT` and exits.
@@ -56,11 +59,16 @@ class _ProbeAppState extends State<ProbeApp> {
     ]);
     try {
       _log('MP_GPU_PROBE_STEP device');
+      final created = Stopwatch()..start();
       final device = await GpuDevice.create();
+      created.stop();
       if (device == null) {
         _log('MP_GPU_PROBE ${jsonEncode({'error': 'no device'})}');
       } else {
-        _log('MP_GPU_PROBE_STEP program ${device.name}');
+        // How the device chose to wait, and how long its check took.
+        _log(
+          'MP_GPU_PROBE_DEVICE ${jsonEncode({'device': device.name, 'readBack': device.readBack, 'createMs': created.elapsedMilliseconds})}',
+        );
         final probe = await _Probe.create(device);
         final results = <Map<String, Object?>>[];
         for (final uploads in _uploads) {

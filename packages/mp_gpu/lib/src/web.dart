@@ -143,6 +143,9 @@ class _WebDevice implements GpuDevice {
   String get name => 'WebGPU';
 
   @override
+  String get readBack => 'submitted work, mapped buffer';
+
+  @override
   bool get stencil => true;
 
   @override
