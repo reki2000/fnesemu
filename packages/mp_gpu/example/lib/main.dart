@@ -50,17 +50,23 @@ class _ProbeAppState extends State<ProbeApp> {
 
   Future<void> _run() async {
     // Lets the first frame of the window show before the probe starts.
-    await SchedulerBinding.instance.endOfFrame;
+    await Future.any([
+      SchedulerBinding.instance.endOfFrame,
+      Future<void>.delayed(const Duration(seconds: 3)),
+    ]);
     try {
+      _log('MP_GPU_PROBE_STEP device');
       final device = await GpuDevice.create();
       if (device == null) {
         _log('MP_GPU_PROBE ${jsonEncode({'error': 'no device'})}');
       } else {
+        _log('MP_GPU_PROBE_STEP program ${device.name}');
         final probe = await _Probe.create(device);
         final results = <Map<String, Object?>>[];
         for (final uploads in _uploads) {
           for (final targets in _targets) {
             for (final wait in _Wait.values) {
+              _log('MP_GPU_PROBE_STEP ${wait.name} $uploads $targets');
               final result = await probe.run(wait, uploads, targets);
               results.add(result);
               _log('MP_GPU_PROBE ${jsonEncode(result)}');
@@ -237,6 +243,17 @@ class _Probe {
   Future<Map<String, Object?>> run(_Wait wait, int uploads, int count) async {
     final targets = _allTargets.sublist(0, count);
     final counts = <String, int>{};
+    // A wait that does not end within 3 s counts as `timeout` and lets the
+    // case go on, so a backend that stalls still gives a result.
+    Future<T?> limit<T>(Future<T?> future) => future
+        .then<T?>((v) => v)
+        .timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            counts.update('timeout', (v) => v + 1, ifAbsent: () => 1);
+            return null;
+          },
+        );
     void add(String kind) =>
         counts.update(kind, (v) => v + 1, ifAbsent: () => 1);
     final latencies = <double>[];
@@ -269,21 +286,21 @@ class _Probe {
         case _Wait.delay16:
           await delay(16);
         case _Wait.frame:
-          await SchedulerBinding.instance.endOfFrame;
+          await limit(SchedulerBinding.instance.endOfFrame);
         case _Wait.frame2:
-          await SchedulerBinding.instance.endOfFrame;
-          await SchedulerBinding.instance.endOfFrame;
+          await limit(SchedulerBinding.instance.endOfFrame);
+          await limit(SchedulerBinding.instance.endOfFrame);
         case _Wait.completeFrame:
           await complete();
-          await SchedulerBinding.instance.endOfFrame;
+          await limit(SchedulerBinding.instance.endOfFrame);
         case _Wait.settle:
-          await device.settle();
+          await limit(device.settle());
       }
       for (final (k, t) in targets.indexed) {
-        var kind = _kind(await device.read(t), frames[k]);
+        var kind = _kind(await limit(device.read(t)), frames[k]);
         var reads = 1;
         while (wait == _Wait.poll && kind != 'behind0' && reads < _polls) {
-          kind = _kind(await device.read(t), frames[k]);
+          kind = _kind(await limit(device.read(t)), frames[k]);
           reads++;
         }
         if (wait == _Wait.poll) polls.add(reads);
@@ -292,7 +309,7 @@ class _Probe {
       latencies.add(watch.elapsedMicroseconds / 1000);
     }
     // Lets the backend reuse its uniforms before the next case.
-    await device.settle();
+    await limit(device.settle());
     latencies.sort();
     polls.sort();
     return {

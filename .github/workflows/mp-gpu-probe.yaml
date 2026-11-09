@@ -77,8 +77,10 @@ jobs:
       - name: Run
         working-directory: ${{ env.EXAMPLE }}
         run: |
-          MP_GPU_PROBE_OUT=$PWD/probe.out \
-            perl -e 'alarm 600; exec @ARGV' build/macos/Build/Products/Release/mp_gpu_probe.app/Contents/MacOS/mp_gpu_probe || true
+          # The sandbox of the app keeps it from writing files, so the
+          # results come from its output.
+          perl -e 'alarm 600; exec @ARGV' build/macos/Build/Products/Release/mp_gpu_probe.app/Contents/MacOS/mp_gpu_probe > probe.log 2>&1 || true
+          grep -E 'MP_GPU_PROBE|Impeller' probe.log | sed 's/^.*\(MP_GPU_PROBE\)/\1/' > probe.out || true
           cat probe.out | tee -a "$GITHUB_STEP_SUMMARY"
           grep -q MP_GPU_PROBE_DONE probe.out
 
