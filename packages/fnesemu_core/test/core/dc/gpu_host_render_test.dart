@@ -28,15 +28,17 @@ void main() {
     }
   }
 
-  // An untextured red background and one region entry, written to a
-  // 32-pixel wide framebuffer at 0x400000.
+  // An untextured red background and the region entries of [tiles] by
+  // [tiles] tiles, written to a framebuffer at 0x400000 that is 32 pixels
+  // wide for one tile.
   void render(
       {int pack = 6,
       int control = 0x80000000,
       int scale = 0x400,
       int isp = 0,
       List<int> colors = const [0xffff0000, 0xffff0000, 0xffff0000],
-      List<int> lists = const [0x80000000, 0x80000000]}) {
+      List<int> lists = const [0x80000000, 0x80000000],
+      int tiles = 1}) {
     final words = <int>[isp, 0, 0];
     for (var i = 0; i < 3; i++) {
       words.addAll([
@@ -49,14 +51,24 @@ void main() {
     put(0x8000, words);
     bus.write32(reg + 0x8c, (1 << 24) | 0x10000);
     bus.write32(reg + 0x88, bits(0));
-    put(0x9000, [control, ...lists, 0x80000000, 0x80000000]);
+    final entries = [...lists, for (var i = lists.length; i < 4; i++) 0x80000000];
+    put(0x9000, [
+      for (var y = 0; y < tiles; y++)
+        for (var x = 0; x < tiles; x++) ...[
+          (control & ~0x80000000) |
+              x << 2 |
+              y << 8 |
+              (x == tiles - 1 && y == tiles - 1 ? control & 0x80000000 : 0),
+          ...entries
+        ]
+    ]);
     for (final (offset, value) in [
       (0x2c, 0x9000),
       (0x48, pack),
       (0x4c, pack == 6 ? 16 : 8),
       (0x60, 0x400000),
-      (0x68, 31 << 16),
-      (0x6c, 31 << 16),
+      (0x68, (tiles * 32 - 1) << 16),
+      (0x6c, (tiles * 32 - 1) << 16),
       (0xf4, scale),
     ]) {
       bus.write32(reg + offset, value);
@@ -229,6 +241,41 @@ void main() {
     ];
     expect([for (final b in volumes) (b.volumeLayer, b.count)], [(0, 2), (1, 1)]);
     expect([for (final b in volumes) b.volumeGroupEnds], [false, true]);
+  });
+
+  test('a small triangle behind a large tilted one is drawn first', () {
+    // A large translucent triangle whose depth grows to the right, and a
+    // small one just behind it on the right side. The mean depth of the
+    // small one is nearer than the mean depth of the large one.
+    double plane(double x) => 1 + x / 96;
+    final words = <int>[];
+    for (final (red, vertices) in [
+      (0xff, [(0.0, 0.0, 1.0), (96.0, 0.0, 2.0), (0.0, 96.0, 1.0)]),
+      (
+        0x10,
+        [
+          for (final (x, y) in [(70.0, 5.0), (80.0, 5.0), (70.0, 15.0)])
+            (x, y, plane(x) - 0.01)
+        ]
+      ),
+    ]) {
+      words.addAll([0xc0000000, 0x94000000, 0]);
+      for (final (x, y, z) in vertices) {
+        words.addAll([bits(x), bits(y), bits(z), 0x80000000 | red << 16]);
+      }
+    }
+    put(0xa000, words);
+    put(0xb000, [0x80000000 | 1 << 25 | 0xa000 >> 2, 0xf0000000]);
+    render(lists: [0x80000000, 0x80000000, 0xb000], tiles: 3);
+    final frame = host.frames.single;
+    const n = RenderFrame.vertexFloats;
+    final reds = [
+      for (final b in frame.batches)
+        if (b.pass == RenderBatch.translucent)
+          for (var t = b.first; t < b.first + b.count; t++)
+            (frame.vertices[t * 3 * n + 5] * 255).round()
+    ];
+    expect(reds, [0x10, 0xff]);
   });
 
   test('a render through the scaler stays with the core renderer', () {

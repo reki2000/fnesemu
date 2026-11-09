@@ -1,59 +1,50 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:fnesemu_core/app_api.dart';
-import 'package:vector_math/vector_math.dart' as vm;
+import 'package:mp_gpu/mp_gpu.dart';
 
-/// Draws [RenderFrame]s with Flutter GPU into an offscreen color texture.
+/// Draws [RenderFrame]s on a [GpuDevice] into offscreen targets.
 ///
 /// This is a first, plain implementation: every frame uploads its vertices
 /// and its textures and draws each batch with its own state.
 class FrameRenderer {
-  FrameRenderer._(this._vertex, this._fragment, this._pipeline);
+  FrameRenderer._(this.device, this._program)
+      : _white = device.texture(1, 1, Uint8List.fromList([255, 255, 255, 255]));
 
-  static const _bundle = 'packages/render_frame_gpu/shaders/frame.shaderbundle';
+  static const _source = GpuProgramSource(
+    bundle: 'packages/render_frame_gpu/shaders/frame.shaderbundle',
+    vertexEntry: 'FrameVertex',
+    fragmentEntry: 'FrameFragment',
+    wgsl: 'packages/render_frame_gpu/shaders/frame.wgsl',
+    attributes: [3, 2, 4, 4],
+    bindings: [
+      GpuBinding.uniform('FrameInfo', 0, vertex: true),
+      GpuBinding.uniform('FragmentInfo', 1),
+      GpuBinding.texture('texture_sampler', 2),
+      GpuBinding.texture('fog_table', 4),
+    ],
+  );
 
-  static Future<FrameRenderer> create() async {
-    final library = await gpu.ShaderLibrary.fromAsset(_bundle);
-    if (library == null) throw StateError('cannot load $_bundle');
-    final vertex = library['FrameVertex']!,
-        fragment = library['FrameFragment']!;
-    return FrameRenderer._(vertex, fragment,
-        gpu.gpuContext.createRenderPipeline(vertex, fragment));
-  }
+  static Future<FrameRenderer> create(GpuDevice device) async =>
+      FrameRenderer._(device, await device.program(_source));
 
-  final gpu.Shader _vertex, _fragment;
-  final gpu.RenderPipeline _pipeline;
-  final _host = gpu.gpuContext.createHostBuffer();
-  gpu.Texture? _color, _depth;
-  final gpu.Texture _white =
-      _texture(1, 1, Uint8List.fromList([255, 255, 255, 255]));
+  final GpuDevice device;
+  final GpuProgram _program;
+  final GpuTexture _white;
 
   RenderFrame? _prepared;
-  List<gpu.Texture> _textures = const [];
-  final _uploaded = Expando<gpu.Texture>();
-  gpu.Texture? _fog;
+  List<GpuTexture> _textures = const [];
+  final _uploaded = Expando<GpuTexture>();
+  GpuTexture? _fog;
 
-  /// Creates the textures that [frame] draws with and into, and uploads the
-  /// textures and the fog table of [frame]. A texture whose texels are the
-  /// same list as in an earlier frame is not uploaded again.
+  /// Uploads the textures and the fog table of [frame]. A texture whose
+  /// texels are the same list as in an earlier frame is not uploaded again.
   void prepare(RenderFrame frame) {
-    final context = gpu.gpuContext;
-    final color = _color;
-    if (color == null ||
-        color.width != frame.width ||
-        color.height != frame.height) {
-      _color = createTarget(frame.width, frame.height);
-      _depth = context.createTexture(
-          gpu.StorageMode.deviceTransient, frame.width, frame.height,
-          format: context.defaultDepthStencilFormat,
-          enableShaderReadUsage: false);
-    }
     if (identical(frame, _prepared)) return;
     _textures = [
       for (final t in frame.textures)
-        _uploaded[t.rgba] ??= _texture(t.width, t.height, t.rgba)
+        _uploaded[t.rgba] ??= device.texture(t.width, t.height, t.rgba)
     ];
     final fog = Uint8List(128 * 4);
     for (var i = 0; i < 128; i++) {
@@ -61,109 +52,53 @@ class FrameRenderer {
       fog[i * 4 + 1] = frame.fogTable[i * 2 + 1];
       fog[i * 4 + 3] = 255;
     }
-    _fog = _texture(128, 1, fog);
+    _fog = device.texture(128, 1, fog);
     _prepared = frame;
   }
 
-  static gpu.Texture _texture(int width, int height, Uint8List rgba) {
-    final texture = gpu.gpuContext.createTexture(
-        gpu.StorageMode.hostVisible, width, height,
-        enableRenderTargetUsage: false);
-    texture.overwrite(ByteData.sublistView(rgba));
-    return texture;
-  }
-
-  /// A color texture that [draw] can draw a frame of this size into.
-  static gpu.Texture createTarget(int width, int height) {
-    final context = gpu.gpuContext;
-    return context.createTexture(gpu.StorageMode.devicePrivate, width, height,
-        format: context.defaultColorFormat);
-  }
-
-  /// Draws [frame] into [target], or into a texture of the renderer, and
-  /// returns the texture. [onComplete] is called when the GPU has finished.
-  gpu.Texture draw(RenderFrame frame,
-      {gpu.Texture? target, void Function(bool)? onComplete}) {
+  /// Draws [frame] into [target], a target of the size of the frame.
+  /// [onComplete] is called when the GPU has finished.
+  void draw(RenderFrame frame, GpuTarget target,
+      {void Function(bool)? onComplete}) {
     prepare(frame);
-    final context = gpu.gpuContext;
-    final color = target ?? _color!, depth = _depth;
-    _host.reset();
-    final vertices = context
-        .createDeviceBufferWithCopy(ByteData.sublistView(frame.vertices));
-    final commands = context.createCommandBuffer();
     final clear = frame.clearColor;
-    final pass = commands.createRenderPass(gpu.RenderTarget(
-      colorAttachments: [
-        gpu.ColorAttachment(
-            texture: color,
-            clearValue: vm.Vector4(
-                ((clear >> 16) & 255) / 255,
-                ((clear >> 8) & 255) / 255,
-                (clear & 255) / 255,
-                ((clear >> 24) & 255) / 255)),
-      ],
-      depthStencilAttachment: gpu.DepthStencilAttachment(
-          texture: depth!,
-          depthClearValue:
-              (frame.clearDepth * frame.depthScale).clamp(0.0, 0.999)),
-    ));
-    final frameInfo = _host.emplace(ByteData.sublistView(Float32List.fromList([
-      frame.width.toDouble(),
-      frame.height.toDouble(),
-      frame.depthScale,
-      1e-7 / frame.depthScale
-    ])));
+    final pass = device.pass(target, _program, [frame.vertices, _cover],
+        clearColor: [
+          ((clear >> 16) & 255) / 255,
+          ((clear >> 8) & 255) / 255,
+          (clear & 255) / 255,
+          ((clear >> 24) & 255) / 255
+        ],
+        clearDepth: (frame.clearDepth * frame.depthScale).clamp(0.0, 0.999));
+    pass.uniform(
+        'FrameInfo',
+        ByteData.sublistView(Float32List.fromList([
+          frame.width.toDouble(),
+          frame.height.toDouble(),
+          frame.depthScale,
+          1e-7 / frame.depthScale
+        ])));
     final fogColor = _color4(frame.fogColor),
         vertexFogColor = _color4(frame.vertexFogColor);
-    final frameSlot = _vertex.getUniformSlot('FrameInfo');
-    final fragmentSlot = _fragment.getUniformSlot('FragmentInfo');
-    final textureSlot = _fragment.getUniformSlot('texture_sampler');
-    final fogSlot = _fragment.getUniformSlot('fog_table');
-    final fogSampler = gpu.SamplerOptions();
-    const vertexBytes = RenderFrame.vertexFloats * 4 * 3;
-    // A triangle over the whole frame, for the stencil steps of volumes.
-    final cover = Float32List(3 * RenderFrame.vertexFloats);
-    for (final (i, (x, y)) in [
-      (0.0, 0.0),
-      (2.0 * frame.width, 0.0),
-      (0.0, 2.0 * frame.height)
-    ].indexed) {
-      cover[i * RenderFrame.vertexFloats] = x;
-      cover[i * RenderFrame.vertexFloats + 1] = y;
-      cover[i * RenderFrame.vertexFloats + 2] = 1;
-    }
-    final coverView = _host.emplace(ByteData.sublistView(cover));
-    final noFog = _host.emplace(ByteData.sublistView(Float32List(16)
-      ..[4] = 2));
+    pass.texture('fog_table', _fog!);
+    // Bit 7 of the stencil marks the pixels inside the volumes.
+    pass.stencilReference(0x80);
+    final stencil = device.stencil;
     for (final batch in frame.batches) {
-      pass.bindPipeline(_pipeline);
-      pass.setCullMode(gpu.CullMode.none);
-      pass.bindVertexBuffer(gpu.BufferView(vertices,
-          offsetInBytes: batch.first * vertexBytes,
-          lengthInBytes: batch.count * vertexBytes));
-      pass.bindUniform(frameSlot, frameInfo);
       if (batch.pass == RenderBatch.volume) {
-        if (!_stencil) continue;
-        pass.bindUniform(fragmentSlot, noFog);
-        pass.bindTexture(textureSlot, _white);
-        pass.bindTexture(fogSlot, _fog!, sampler: fogSampler);
-        _volume(pass, batch, coverView);
+        if (!stencil) continue;
+        pass.uniform('FragmentInfo', _noFog);
+        pass.texture('texture_sampler', _white);
+        _volume(pass, batch);
         continue;
       }
       final inside = batch.pass == RenderBatch.insideOpaque ||
           batch.pass == RenderBatch.insidePunchThrough;
-      if (inside && !_stencil) continue;
-      // Bit 7 of the stencil marks the pixels inside the volumes.
-      pass.setStencilReference(0x80);
-      pass.setStencilConfig(gpu.StencilConfig(
-          compareFunction:
-              inside ? gpu.CompareFunction.equal : gpu.CompareFunction.always,
-          readMask: 0x80,
-          writeMask: 0));
+      if (inside && !stencil) continue;
       final textured = batch.texture >= 0;
-      pass.bindUniform(
-          fragmentSlot,
-          _host.emplace(ByteData.sublistView(Float32List.fromList([
+      pass.uniform(
+          'FragmentInfo',
+          ByteData.sublistView(Float32List.fromList([
             textured ? 1 : 0,
             batch.shading.toDouble(),
             batch.textureAlpha ? 1 : 0,
@@ -177,86 +112,86 @@ class FrameRenderer {
             frame.alphaReference.toDouble(),
             ...fogColor,
             ...vertexFogColor,
-          ]))));
+          ])));
       if (textured) {
         final t = frame.textures[batch.texture];
-        pass.bindTexture(textureSlot, _textures[batch.texture],
-            sampler: gpu.SamplerOptions(
-                minFilter: t.bilinear
-                    ? gpu.MinMagFilter.linear
-                    : gpu.MinMagFilter.nearest,
-                magFilter: t.bilinear
-                    ? gpu.MinMagFilter.linear
-                    : gpu.MinMagFilter.nearest,
-                widthAddressMode: _address(t.addressU),
-                heightAddressMode: _address(t.addressV)));
+        pass.texture(
+            'texture_sampler',
+            _textures[batch.texture],
+            GpuSampler(
+                linear: t.bilinear,
+                addressU: _address(t.addressU),
+                addressV: _address(t.addressV)));
       } else {
-        pass.bindTexture(textureSlot, _white);
+        pass.texture('texture_sampler', _white);
       }
-      pass.bindTexture(fogSlot, _fog!, sampler: fogSampler);
-      pass.setDepthWriteEnable(batch.depthWrite);
-      pass.setDepthCompareOperation(_compare[batch.depthCompare]);
       final blend = batch.pass == RenderBatch.translucent;
-      pass.setColorBlendEnable(blend);
-      if (blend) {
-        final source = _sourceFactors[batch.sourceFactor];
-        final destination = _destinationFactors[batch.destinationFactor];
-        pass.setColorBlendEquation(gpu.ColorBlendEquation(
-            sourceColorBlendFactor: source,
-            destinationColorBlendFactor: destination,
-            sourceAlphaBlendFactor: source,
-            destinationAlphaBlendFactor: destination));
-      }
-      pass.draw(batch.count * 3);
+      pass.state(GpuState(
+          blend: blend,
+          sourceFactor: _sourceFactors[batch.sourceFactor],
+          destinationFactor: _destinationFactors[batch.destinationFactor],
+          depthCompare: GpuCompare.values[batch.depthCompare],
+          depthWrite: batch.depthWrite,
+          stencilCompare: inside ? GpuCompare.equal : GpuCompare.always,
+          stencilReadMask: 0x80,
+          stencilWriteMask: 0));
+      pass.draw(batch.first * 3, batch.count * 3);
     }
-    commands.submit(completionCallback: onComplete);
-    return color;
+    pass.end(onComplete: onComplete);
   }
 
-  /// Whether the depth target has a stencil, which volumes need.
-  static final _stencil = switch (gpu.gpuContext.defaultDepthStencilFormat) {
-    gpu.PixelFormat.d24UnormS8Uint || gpu.PixelFormat.d32FloatS8UInt => true,
-    _ => false,
-  };
+  // The fragment uniforms of volume steps, which draw no color.
+  static final _noFog = ByteData.sublistView(Float32List(16)..[4] = 2);
+
+  // A triangle over any frame, the second vertex array of a pass, for the
+  // stencil steps of volumes. The vertex shader clips it to the frame.
+  static final _cover = () {
+    const floats = RenderFrame.vertexFloats;
+    final cover = Float32List(3 * floats);
+    for (final (i, (x, y)) in [(-1e4, -1e4), (3e4, -1e4), (-1e4, 3e4)].indexed) {
+      cover[i * floats] = x;
+      cover[i * floats + 1] = y;
+      cover[i * floats + 2] = 1;
+    }
+    return cover;
+  }();
 
   /// Draws a volume [batch] into the stencil bit of its layer, which then
   /// holds whether a pixel is inside one of its volumes. At the end of a
   /// group, the layers are folded into the inside area in bit 7 with the
-  /// triangle [cover] over the frame, and cleared.
-  void _volume(gpu.RenderPass pass, RenderBatch batch, gpu.BufferView cover) {
+  /// triangle over the frame, and cleared.
+  static void _volume(GpuPass pass, RenderBatch batch) {
     // Volume steps keep the color: the source counts zero, the target one.
-    pass.setColorBlendEnable(true);
-    pass.setColorBlendEquation(gpu.ColorBlendEquation(
-        sourceColorBlendFactor: gpu.BlendFactor.zero,
-        destinationColorBlendFactor: gpu.BlendFactor.one,
-        sourceAlphaBlendFactor: gpu.BlendFactor.zero,
-        destinationAlphaBlendFactor: gpu.BlendFactor.one));
-    pass.setDepthWriteEnable(false);
-    pass.setDepthCompareOperation(gpu.CompareFunction.greaterEqual);
-    pass.setStencilConfig(gpu.StencilConfig(
-        depthStencilPassOperation: gpu.StencilOperation.invert,
-        writeMask: 1 << batch.volumeLayer));
-    pass.draw(batch.count * 3);
+    pass.state(GpuState(
+        blend: true,
+        sourceFactor: GpuBlendFactor.zero,
+        destinationFactor: GpuBlendFactor.one,
+        depthCompare: GpuCompare.greaterEqual,
+        stencilOperation: GpuStencilOperation.invert,
+        stencilWriteMask: 1 << batch.volumeLayer));
+    pass.draw(batch.first * 3, batch.count * 3);
     if (!batch.volumeGroupEnds) return;
-    pass.bindVertexBuffer(cover);
-    pass.setDepthCompareOperation(gpu.CompareFunction.always);
     // Where a layer is set, inside last sets bit 7 and outside last clears
     // it. The masked reference is zero, so the compare tests for any layer.
     final union = batch.volumeInstruction == 1;
-    pass.setStencilReference(0x80);
-    pass.setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.notEqual,
-        depthStencilPassOperation: union
-            ? gpu.StencilOperation.setToReferenceValue
-            : gpu.StencilOperation.zero,
-        readMask: 0x7f,
-        writeMask: 0x80));
-    pass.draw(3);
+    pass.state(GpuState(
+        blend: true,
+        sourceFactor: GpuBlendFactor.zero,
+        destinationFactor: GpuBlendFactor.one,
+        stencilCompare: GpuCompare.notEqual,
+        stencilOperation:
+            union ? GpuStencilOperation.replace : GpuStencilOperation.zero,
+        stencilReadMask: 0x7f,
+        stencilWriteMask: 0x80));
+    pass.draw(0, 3, 1);
     // The layers start again from zero for the next group.
-    pass.setStencilConfig(gpu.StencilConfig(
-        depthStencilPassOperation: gpu.StencilOperation.zero,
-        writeMask: 0x7f));
-    pass.draw(3);
+    pass.state(GpuState(
+        blend: true,
+        sourceFactor: GpuBlendFactor.zero,
+        destinationFactor: GpuBlendFactor.one,
+        stencilOperation: GpuStencilOperation.zero,
+        stencilWriteMask: 0x7f));
+    pass.draw(0, 3, 1);
   }
 
   static List<double> _color4(int rgb) => [
@@ -266,42 +201,31 @@ class FrameRenderer {
         1
       ];
 
-  static gpu.SamplerAddressMode _address(int mode) => switch (mode) {
-        1 => gpu.SamplerAddressMode.mirror,
-        2 => gpu.SamplerAddressMode.clampToEdge,
-        _ => gpu.SamplerAddressMode.repeat,
+  static GpuAddress _address(int mode) => switch (mode) {
+        1 => GpuAddress.mirror,
+        2 => GpuAddress.clamp,
+        _ => GpuAddress.repeat,
       };
 
-  static const _compare = [
-    gpu.CompareFunction.never,
-    gpu.CompareFunction.less,
-    gpu.CompareFunction.equal,
-    gpu.CompareFunction.lessEqual,
-    gpu.CompareFunction.greater,
-    gpu.CompareFunction.notEqual,
-    gpu.CompareFunction.greaterEqual,
-    gpu.CompareFunction.always,
-  ];
-
   static const _sourceFactors = [
-    gpu.BlendFactor.zero,
-    gpu.BlendFactor.one,
-    gpu.BlendFactor.destinationColor,
-    gpu.BlendFactor.oneMinusDestinationColor,
-    gpu.BlendFactor.sourceAlpha,
-    gpu.BlendFactor.oneMinusSourceAlpha,
-    gpu.BlendFactor.destinationAlpha,
-    gpu.BlendFactor.oneMinusDestinationAlpha,
+    GpuBlendFactor.zero,
+    GpuBlendFactor.one,
+    GpuBlendFactor.destinationColor,
+    GpuBlendFactor.oneMinusDestinationColor,
+    GpuBlendFactor.sourceAlpha,
+    GpuBlendFactor.oneMinusSourceAlpha,
+    GpuBlendFactor.destinationAlpha,
+    GpuBlendFactor.oneMinusDestinationAlpha,
   ];
 
   static const _destinationFactors = [
-    gpu.BlendFactor.zero,
-    gpu.BlendFactor.one,
-    gpu.BlendFactor.sourceColor,
-    gpu.BlendFactor.oneMinusSourceColor,
-    gpu.BlendFactor.sourceAlpha,
-    gpu.BlendFactor.oneMinusSourceAlpha,
-    gpu.BlendFactor.destinationAlpha,
-    gpu.BlendFactor.oneMinusDestinationAlpha,
+    GpuBlendFactor.zero,
+    GpuBlendFactor.one,
+    GpuBlendFactor.sourceColor,
+    GpuBlendFactor.oneMinusSourceColor,
+    GpuBlendFactor.sourceAlpha,
+    GpuBlendFactor.oneMinusSourceAlpha,
+    GpuBlendFactor.destinationAlpha,
+    GpuBlendFactor.oneMinusDestinationAlpha,
   ];
 }

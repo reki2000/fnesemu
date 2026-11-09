@@ -1,10 +1,10 @@
 # render_frame_gpu
 
-An experimental renderer that draws a core's `RenderFrame`s with Flutter GPU.
+An experimental renderer that draws a core's `RenderFrame`s on the GPU of the platform through `mp_gpu`: Flutter GPU on native platforms and WebGPU on the Web.
 
 ## Use in the app
 
-`GpuFrameSink.create()` returns a `RenderFrameSink`, or null when Flutter GPU is not available. The app sets it as `CoreController.renderFrameSink` when the GPU setting selects it. A core that supports it then submits each 3D render as a `RenderFrame` and goes on without waiting. The sink draws the frame, reads the pixels back and passes them to `RenderFrame.onDrawn`, and the core writes them to its video memory. The pixels arrive about two frames later than with the core's renderer. The frames submitted while others are drawn wait and are then drawn together, each into a target of its own, and read back after one frame of the engine. When more than eight frames wait, the oldest ones are dropped.
+`GpuFrameSink.create()` returns a `RenderFrameSink`, or null when `mp_gpu` has no GPU on the platform; `GpuFrameSink.name` names the API. The app sets it as `CoreController.renderFrameSink` when the GPU setting selects it. A core that supports it then submits each 3D render as a `RenderFrame` and goes on without waiting. The sink draws the frame, reads the pixels back and passes them to `RenderFrame.onDrawn`, and the core writes them to its video memory. The pixels arrive about two frames later than with the core's renderer. The frames submitted while others are drawn wait and are then drawn together, each into a target of its own, and read back once the device settles. When more than eight frames wait, the oldest ones are dropped.
 
 A core passes the same texel list for a texture that has not changed, and the renderer uploads a texel list only once.
 
@@ -17,11 +17,11 @@ Flutter GPU needs Impeller and its own enable setting, which works in release bu
 | macOS, iOS | `FLTEnableFlutterGPU` in `Info.plist` |
 | Android | the `io.flutter.embedding.android.EnableFlutterGPU` meta-data in `AndroidManifest.xml` |
 
-Impeller is the default renderer on all of them; the Linux runner also enables it explicitly. On the Web, the library exports a stub whose `create()` returns null.
+Impeller is the default renderer on all of them; the Linux runner also enables it explicitly. On the Web, `mp_gpu` uses WebGPU where the browser has an adapter.
 
 ## Shaders
 
-Run `tool/build_shaders.sh` to compile `shaders/frame.vert` and `shaders/frame.frag` into `shaders/frame.shaderbundle` with the `impellerc` of the Flutter SDK. In the bundle format `impellerc` writes the shaders of every backend, Metal, Vulkan and OpenGL ES, so one bundle serves all platforms. The bundle is checked in. Rebuild it after a Flutter upgrade; a bundle from another `impellerc` fails to load, and the sink is then not available.
+`shaders/frame.wgsl` holds the same shaders in WGSL for WebGPU; keep it in step with the GLSL sources. Run `tool/build_shaders.sh` to compile `shaders/frame.vert` and `shaders/frame.frag` into `shaders/frame.shaderbundle` with the `impellerc` of the Flutter SDK. In the bundle format `impellerc` writes the shaders of every backend, Metal, Vulkan and OpenGL ES, so one bundle serves all platforms. The bundle is checked in. Rebuild it after a Flutter upgrade; a bundle from another `impellerc` fails to load, and the sink is then not available.
 
 ## Capturing a frame
 
@@ -48,11 +48,15 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
 
 - Volumes that apply to translucent triangles or to the background, the secondary accumulation buffer, bump maps and mipmaps are not drawn.
 - Without a stencil in the depth format, volume and inside batches are skipped.
-- Automatic sorting of translucent triangles is approximated by the mean depth of each triangle. The sorted triangles blend over every opaque depth they are not behind and write no depth, so that layers at the same depth all blend.
+- Automatic sorting of translucent triangles is done per triangle, not per pixel. The core orders them by mean depth and compares each large triangle with the triangles it overlaps inside the overlap, so that a small triangle just behind a large tilted one is drawn first. Triangles that cut through each other cannot be ordered right. The sorted triangles blend over every opaque depth they are not behind and write no depth, so that layers at the same depth all blend.
 - Renders through the strip buffer or the scaler stay with the core's renderer.
 
 ## Behavior of the Linux GLES backend
 
-- A read of a texture often showed it as it was at the read before. The sink reads the pixels twice after the next frame of the engine. About one frame in a few hundred still came back as the frame before; it is drawn into video memory as it is.
-- A pass that draws nothing was not run. The sink checks a new target with a white textured triangle, which also tells whether Flutter GPU works.
-- The completion callback of a command buffer was not a reliable sign that the GPU had finished.
+- A read of a texture often showed it as it was at the read before. The check of `mp_gpu` at start chooses a wait that reads right, a frame of the engine and a second read on this backend; see the README of `mp_gpu`. Now and then, mostly after a frame that uploaded many textures, a read still comes back as the frame before; it is drawn into video memory as it is.
+- A pass that draws nothing was not run. The sink checks a new target with a white textured triangle, which also tells whether the GPU works.
+- The completion callback of a command buffer alone was not a sign that a read would show the result.
+
+## Other cores
+
+`CORES.md` describes how another core can draw its renders on the host GPU, and what N64 and PS2 will need.

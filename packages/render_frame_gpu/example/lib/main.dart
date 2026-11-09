@@ -4,14 +4,13 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:fnesemu_core/app_api.dart';
+import 'package:mp_gpu/mp_gpu.dart';
 import 'package:render_frame_gpu/frame_renderer.dart';
 import 'package:render_frame_gpu/render_frame_gpu.dart';
 
-/// Draws a captured render frame with Flutter GPU, times it and compares it
-/// with the colors of the core's own renderer.
+/// Draws a captured render frame on the GPU of the platform, times it and
+/// compares it with the colors of the core's own renderer.
 ///
 /// Arguments: the .rframe file, then optionally the number of timed draws
 /// and an output directory for gpu.png. With --exit the app quits after the
@@ -50,7 +49,15 @@ class _FrameViewState extends State<FrameView> {
     final rounds = args.length > 1 ? int.parse(args[1]) : 100;
     final out = args.length > 2 ? args[2] : null;
     final frame = RenderFrame.decode(File(path).readAsBytesSync());
-    final renderer = await FrameRenderer.create();
+    final device = await GpuDevice.create();
+    if (device == null) {
+      stdout.writeln('no GPU');
+      if (widget.args.contains('--exit')) exit(1);
+      setState(() => _report = 'no GPU');
+      return;
+    }
+    final renderer = await FrameRenderer.create(device);
+    final target = device.target(frame.width, frame.height);
 
     final prepare = Stopwatch()..start();
     renderer.prepare(frame);
@@ -61,33 +68,33 @@ class _FrameViewState extends State<FrameView> {
     for (var i = 0; i < rounds + 10; i++) {
       final done = Completer<void>();
       final sw = Stopwatch()..start();
-      renderer.draw(frame, onComplete: (_) => done.complete());
+      renderer.draw(frame, target, onComplete: (_) => done.complete());
       final encoded = sw.elapsedMicroseconds / 1000;
       await done.future;
       if (i >= 10) {
         encode.add(encoded);
         complete.add(sw.elapsedMicroseconds / 1000);
       }
+      await device.settle();
     }
     // Draws without waiting in between, then reads the last one back: the
-    // time per draw when the GPU work overlaps the next encoding, with one
-    // frame of the engine at the end.
+    // time per draw when the GPU work overlaps the next encoding, with the
+    // device settling at the end.
     final pipelined = Stopwatch()..start();
-    late gpu.Texture texture;
     for (var i = 0; i < rounds; i++) {
-      texture = renderer.draw(frame);
+      renderer.draw(frame, target);
     }
-    // On the GLES backend, a read shows the texture as at the read before
-    // unless a frame passed and the texture is read twice; see GpuFrameSink.
-    await SchedulerBinding.instance.endOfFrame;
-    await texture.asImage().toByteData(format: ui.ImageByteFormat.rawRgba);
-    final image = texture.asImage();
-    final pixels = (await image.toByteData(
-      format: ui.ImageByteFormat.rawRgba,
-    ))!;
+    await device.settle();
+    final pixels = await device.read(target);
+    if (pixels == null) {
+      stdout.writeln('cannot read the target');
+      if (widget.args.contains('--exit')) exit(1);
+      return;
+    }
     final pipelinedMs = pipelined.elapsedMicroseconds / 1000 / rounds;
 
     final report = StringBuffer()
+      ..writeln(device.name)
       ..writeln(
         '${frame.width}x${frame.height}, ${frame.triangleCount} triangles, '
         '${frame.batches.length} batches, ${frame.textures.length} textures',
@@ -110,7 +117,7 @@ class _FrameViewState extends State<FrameView> {
         rgba[i * 4 + 3] = 255;
         var d = 0;
         for (var k = 0; k < 3; k++) {
-          final e = (pixels.getUint8(i * 4 + k) - rgba[i * 4 + k]).abs();
+          final e = (pixels[i * 4 + k] - rgba[i * 4 + k]).abs();
           if (e > d) d = e;
         }
         if (d > 0) differing++;
@@ -168,16 +175,15 @@ class _FrameViewState extends State<FrameView> {
         );
       }
     }
+    // The target keeps the blended alpha, which the PNG encoder would
+    // divide the colors by; the colors are shown and saved as they are.
+    final opaque = Uint8List.fromList(pixels);
+    for (var i = 3; i < opaque.length; i += 4) {
+      opaque[i] = 255;
+    }
+    final image = await _decode(opaque, frame.width, frame.height);
     if (out != null) {
-      // The target keeps the blended alpha, which the PNG encoder would
-      // divide the colors by; the colors are saved as they are.
-      final rgba = Uint8List.fromList(pixels.buffer.asUint8List(
-          pixels.offsetInBytes, pixels.lengthInBytes));
-      for (var i = 3; i < rgba.length; i += 4) {
-        rgba[i] = 255;
-      }
-      final opaque = await _decode(rgba, frame.width, frame.height);
-      final png = await opaque.toByteData(format: ui.ImageByteFormat.png);
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
       File('$out/gpu.png').writeAsBytesSync(png!.buffer.asUint8List());
     }
     stdout.write(report);

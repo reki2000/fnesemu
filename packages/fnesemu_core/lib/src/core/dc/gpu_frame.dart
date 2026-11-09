@@ -22,7 +22,7 @@ class _FrameTriangle {
 /// a functional approximation: translucent modifier volumes, the shadow of
 /// the background, the secondary accumulation buffer, bump maps, MIP levels
 /// and the color clamp are left out, and auto-sorted translucent triangles
-/// are ordered by their mean depth.
+/// are ordered per triangle, not per pixel; see [_sortTranslucent].
 extension _FrameBuilder on DcGpuRender {
   RenderFrame _buildFrame() {
     final type2 = read(0x7c) & 0x200000 != 0;
@@ -83,13 +83,7 @@ extension _FrameBuilder on DcGpuRender {
       _frameVolumePolygons(list, tiles, polygons);
     }
     _packVolumes(_frameVolumes(polygons), triangles[RenderBatch.volume]);
-    if (!presort) {
-      // Farther triangles first, then in input order.
-      triangles[2].sort((p, q) {
-        final c = p.depth.compareTo(q.depth);
-        return c != 0 ? c : p.order.compareTo(q.order);
-      });
-    }
+    if (!presort) triangles[2] = _sortTranslucent(triangles[2]);
     final count = triangles.fold(0, (n, list) => n + list.length);
     final vertices = Float32List(count * 3 * RenderFrame.vertexFloats);
     final batches = <RenderBatch>[];
@@ -367,6 +361,291 @@ extension _FrameBuilder on DcGpuRender {
       }
     }
     return volumes;
+  }
+
+  /// Orders auto-sorted translucent triangles from far to near. The base
+  /// order is by mean depth, then by input order. The mean depth of a large
+  /// triangle on a tilted plane stands for a point far from most of its
+  /// pixels, so a small triangle just behind it can come out in front. Each
+  /// large triangle is therefore compared with the triangles it overlaps by
+  /// the depths of both planes inside the overlap. Where that contradicts
+  /// the base order, the run of triangles between the two is ordered so
+  /// that of every two overlapping triangles the farther one goes first.
+  /// Cycles and long runs keep the base order.
+  static List<_FrameTriangle> _sortTranslucent(
+      List<_FrameTriangle> triangles) {
+    triangles.sort((p, q) {
+      final c = p.depth.compareTo(q.depth);
+      return c != 0 ? c : p.order.compareTo(q.order);
+    });
+    final count = triangles.length;
+    // Per triangle: the bounds, the nearest and the farthest depth, and the
+    // plane z = a x + b y + c.
+    const stride = 9, large = 64.0, longestRun = 256;
+    final data = Float64List(count * stride);
+    final larges = <int>[];
+    final isLarge = Uint8List(count);
+    for (var i = 0; i < count; i++) {
+      final t = triangles[i], a = t.a, b = t.b, c = t.c, o = i * stride;
+      final left = math.min(a.x, math.min(b.x, c.x));
+      final top = math.min(a.y, math.min(b.y, c.y));
+      final right = math.max(a.x, math.max(b.x, c.x));
+      final bottom = math.max(a.y, math.max(b.y, c.y));
+      data
+        ..[o] = left
+        ..[o + 1] = top
+        ..[o + 2] = right
+        ..[o + 3] = bottom
+        ..[o + 4] = math.max(a.z, math.max(b.z, c.z))
+        ..[o + 5] = math.min(a.z, math.min(b.z, c.z));
+      final ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+      final vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+      final area = ux * vy - vx * uy;
+      if (area != 0) {
+        final dx = (uz * vy - vz * uy) / area, dy = (ux * vz - vx * uz) / area;
+        data
+          ..[o + 6] = dx
+          ..[o + 7] = dy
+          ..[o + 8] = a.z - dx * a.x - dy * a.y;
+      } else {
+        data[o + 8] = t.depth;
+      }
+      if (right - left >= large || bottom - top >= large) {
+        larges.add(i);
+        isLarge[i] = 1;
+      }
+    }
+    if (larges.isEmpty) return triangles;
+    bool apart(int oi, int oj) =>
+        data[oi] > data[oj + 2] ||
+        data[oj] > data[oi + 2] ||
+        data[oi + 1] > data[oj + 3] ||
+        data[oj + 1] > data[oi + 3];
+    bool disjointDepths(int oi, int oj) =>
+        data[oi + 4] < data[oj + 5] || data[oj + 4] < data[oi + 5];
+    // The farther of two triangles that overlap, or -1.
+    int farther(int i, int j) {
+      final oi = i * stride, oj = j * stride;
+      if (apart(oi, oj)) return -1;
+      if (disjointDepths(oi, oj)) return data[oi + 4] < data[oj + 5] ? i : j;
+      if (!_overlap(triangles[i], triangles[j])) return -1;
+      final x = _overlapX, y = _overlapY;
+      final zi = data[oi + 6] * x + data[oi + 7] * y + data[oi + 8];
+      final zj = data[oj + 6] * x + data[oj + 7] * y + data[oj + 8];
+      if ((zi - zj).abs() <= 1e-5 * math.max(zi.abs(), zj.abs())) return -1;
+      // A smaller depth is farther.
+      return zi < zj ? i : j;
+    }
+
+    // The runs of the base order between triangles in the wrong order.
+    final runs = <(int, int)>[];
+    // Adds a run if large triangle [i] and triangle [j] overlap against the
+    // base order.
+    void check(int i, int j) {
+      final oi = i * stride, oj = j * stride;
+      if (apart(oi, oj) || disjointDepths(oi, oj)) return;
+      // The base order is right when the plane of the first triangle is
+      // nowhere in front of the plane of the second one in the rectangle
+      // where the bounds overlap. Each plane is linear there and kept
+      // within the depths of its triangle.
+      final left = math.max(data[oi], data[oj]);
+      final right = math.min(data[oi + 2], data[oj + 2]);
+      final top = math.max(data[oi + 1], data[oj + 1]);
+      final bottom = math.min(data[oi + 3], data[oj + 3]);
+      final (first, second) = i < j ? (oi, oj) : (oj, oi);
+      final ax = data[first + 6] * left, bx = data[first + 6] * right;
+      final ay = data[first + 7] * top, by = data[first + 7] * bottom;
+      final cx = data[second + 6] * left, dx = data[second + 6] * right;
+      final cy = data[second + 7] * top, dy = data[second + 7] * bottom;
+      final nearest = math.min(data[first + 4],
+          data[first + 8] + math.max(ax, bx) + math.max(ay, by));
+      final farthest = math.max(data[second + 5],
+          data[second + 8] + math.min(cx, dx) + math.min(cy, dy));
+      if (nearest <= farthest) return;
+      final far = farther(i, j);
+      if (far < 0) return;
+      final near = far == i ? j : i;
+      if (far > near) runs.add((near, far));
+    }
+
+    for (var m = 0; m < larges.length; m++) {
+      for (var n = m + 1; n < larges.length; n++) {
+        check(larges[m], larges[n]);
+      }
+    }
+    // The other triangles in cells of the size of a large triangle by the
+    // corner of their bounds, so that a large triangle looks at the cells
+    // around it only.
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (var i = 0; i < count; i++) {
+      minX = math.min(minX, data[i * stride]);
+      minY = math.min(minY, data[i * stride + 1]);
+      maxX = math.max(maxX, data[i * stride]);
+      maxY = math.max(maxY, data[i * stride + 1]);
+    }
+    final columns = math.min(64, ((maxX - minX) / large).floor() + 1);
+    final rows = math.min(64, ((maxY - minY) / large).floor() + 1);
+    int column(double x) => ((x - minX) / large).floor().clamp(0, columns - 1);
+    int row(double y) => ((y - minY) / large).floor().clamp(0, rows - 1);
+    final cellOf = Int32List(count);
+    final cellStart = Int32List(columns * rows + 1);
+    for (var i = 0; i < count; i++) {
+      if (isLarge[i] != 0) continue;
+      final c = row(data[i * stride + 1]) * columns + column(data[i * stride]);
+      cellOf[i] = c;
+      cellStart[c + 1]++;
+    }
+    for (var c = 0; c < columns * rows; c++) {
+      cellStart[c + 1] += cellStart[c];
+    }
+    final cells = Int32List(count - larges.length);
+    final fill = Int32List.fromList(cellStart);
+    for (var i = 0; i < count; i++) {
+      if (isLarge[i] == 0) cells[fill[cellOf[i]]++] = i;
+    }
+    for (final i in larges) {
+      final oi = i * stride;
+      final left = data[oi], top = data[oi + 1], right = data[oi + 2];
+      final bottom = data[oi + 3], near = data[oi + 4], far = data[oi + 5];
+      final x0 = column(left - large), x1 = column(right);
+      final y0 = row(top - large), y1 = row(bottom);
+      for (var y = y0; y <= y1; y++) {
+        for (var c = y * columns + x0; c <= y * columns + x1; c++) {
+          for (var k = cellStart[c]; k < cellStart[c + 1]; k++) {
+            final j = cells[k], oj = j * stride;
+            if (data[oj] <= right &&
+                data[oj + 2] >= left &&
+                data[oj + 1] <= bottom &&
+                data[oj + 3] >= top &&
+                data[oj + 4] >= far &&
+                data[oj + 5] <= near) {
+              check(i, j);
+            }
+          }
+        }
+      }
+    }
+    if (runs.isEmpty) return triangles;
+    runs.sort((p, q) => p.$1.compareTo(q.$1));
+    final out = List.of(triangles);
+    var (start, end) = runs.first;
+    void order() {
+      final length = end - start + 1;
+      if (length > longestRun) return;
+      // The triangles that must come after each triangle of the run.
+      final after = List<List<int>>.generate(length, (_) => []);
+      final before = Int32List(length);
+      for (var m = 0; m < length; m++) {
+        final om = (start + m) * stride;
+        final left = data[om], top = data[om + 1];
+        final right = data[om + 2], bottom = data[om + 3];
+        for (var n = m + 1; n < length; n++) {
+          final on = (start + n) * stride;
+          if (data[on] > right ||
+              data[on + 2] < left ||
+              data[on + 1] > bottom ||
+              data[on + 3] < top) {
+            continue;
+          }
+          final far = farther(start + m, start + n);
+          if (far < 0) continue;
+          final (f, k) = far == start + m ? (m, n) : (n, m);
+          after[f].add(k);
+          before[k]++;
+        }
+      }
+      // The first ready triangle in the base order goes next; in a cycle,
+      // the first triangle left.
+      final done = Uint8List(length);
+      for (var placed = 0; placed < length; placed++) {
+        var next = -1;
+        for (var m = 0; m < length; m++) {
+          if (done[m] == 0 && before[m] == 0) {
+            next = m;
+            break;
+          }
+        }
+        if (next < 0) next = done.indexOf(0);
+        done[next] = 1;
+        out[start + placed] = triangles[start + next];
+        for (final k in after[next]) {
+          before[k]--;
+        }
+      }
+    }
+
+    for (final (s, e) in runs.skip(1)) {
+      if (s <= end) {
+        end = math.max(end, e);
+      } else {
+        order();
+        (start, end) = (s, e);
+      }
+    }
+    order();
+    return out;
+  }
+
+  // The clipped polygons of [_overlap], and the point it found.
+  static final _clipX = Float64List(16), _clipY = Float64List(16);
+  static double _overlapX = 0, _overlapY = 0;
+
+  /// Whether the triangles overlap by more than half a pixel. If so, sets
+  /// [_overlapX] and [_overlapY] to a point inside both.
+  static bool _overlap(_FrameTriangle p, _FrameTriangle q) {
+    final xs = _clipX, ys = _clipY;
+    xs
+      ..[0] = p.a.x
+      ..[1] = p.b.x
+      ..[2] = p.c.x;
+    ys
+      ..[0] = p.a.y
+      ..[1] = p.b.y
+      ..[2] = p.c.y;
+    final qa = q.a, qb = q.b, qc = q.c;
+    final sign = (qb.x - qa.x) * (qc.y - qa.y) - (qc.x - qa.x) * (qb.y - qa.y);
+    if (sign == 0) return false;
+    // Clips [p] to the inner side of each edge of [q], from the first half
+    // of the buffers into the second half and back.
+    var from = 0, length = 3;
+    for (var e = 0; e < 3 && length >= 3; e++) {
+      final v0 = e == 0 ? qa : (e == 1 ? qb : qc);
+      final v1 = e == 0 ? qb : (e == 1 ? qc : qa);
+      final x0 = v0.x, y0 = v0.y, ex = v1.x - x0, ey = v1.y - y0;
+      final to = 8 - from;
+      var n = 0;
+      for (var k = 0; k < length; k++) {
+        final l = k + 1 == length ? 0 : k + 1;
+        final ax = xs[from + k], ay = ys[from + k];
+        final bx = xs[from + l], by = ys[from + l];
+        final sa = (ex * (ay - y0) - ey * (ax - x0)) * sign;
+        final sb = (ex * (by - y0) - ey * (bx - x0)) * sign;
+        if (sa >= 0) {
+          xs[to + n] = ax;
+          ys[to + n++] = ay;
+        }
+        if ((sa >= 0) != (sb >= 0)) {
+          final t = sa / (sa - sb);
+          xs[to + n] = ax + (bx - ax) * t;
+          ys[to + n++] = ay + (by - ay) * t;
+        }
+      }
+      from = to;
+      length = n;
+    }
+    if (length < 3) return false;
+    var area = 0.0, x = 0.0, y = 0.0;
+    for (var k = 0; k < length; k++) {
+      final l = k + 1 == length ? 0 : k + 1;
+      area += xs[from + k] * ys[from + l] - xs[from + l] * ys[from + k];
+      x += xs[from + k];
+      y += ys[from + k];
+    }
+    if (area.abs() <= 1) return false;
+    _overlapX = x / length;
+    _overlapY = y / length;
+    return true;
   }
 
   /// Adds the triangles of [volumes] to [out] with the states of

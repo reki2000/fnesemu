@@ -30,10 +30,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_gpu:
-    sdk: flutter
   fnesemu_core:
     path: ../../fnesemu_core
+  mp_gpu:
+    path: ../../mp_gpu
   render_frame_gpu:
     path: ..
 
