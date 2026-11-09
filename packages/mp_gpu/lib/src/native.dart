@@ -49,7 +49,7 @@ class _NativeDevice implements GpuDevice {
   // a frame of the engine, and a read may need a second read. Vulkan and
   // Metal show it at once.
   static const _syncs = [_Sync(0, 1), _Sync(0, 2), _Sync(1, 2), _Sync(2, 2)];
-  _Sync _sync = _syncs.last;
+  _Sync _sync = _syncs.first;
 
   // The completions of the passes ended since the last [settle].
   final _pending = <Future<void>>[];
@@ -185,21 +185,30 @@ class _NativeDevice implements GpuDevice {
   /// Chooses the shortest way to wait in [_syncs] that reads every check
   /// right. A check draws numbered frames into two targets, with large
   /// texture uploads as in a busy frame, and reads them back. A way fails at
-  /// its first wrong read; the check takes at most two seconds in all, and then
-  /// keeps the longest way. It also keeps the longest way when the shaders
-  /// of the check do not load.
+  /// its first wrong read, and the longest way is kept when all fail. When
+  /// the check cannot tell, because its shaders do not load or its budget
+  /// of two seconds runs out, as while the app is hidden, the first way,
+  /// the completion alone, is used.
   Future<void> _calibrate() async {
     final watch = Stopwatch()..start();
     try {
       final check = await _Check.create(this);
       for (final sync in _syncs) {
         _sync = sync;
-        if (await check.passes(watch)) return;
+        switch (await check.passes(watch)) {
+          case true:
+            return;
+          case null:
+            _sync = _syncs.first;
+            return;
+          case false:
+          // A wrong read: the next way is tried.
+        }
       }
+      _sync = _syncs.last;
     } catch (_) {
-      // The longest way is kept.
+      _sync = _syncs.first;
     }
-    _sync = _syncs.last;
   }
 }
 
@@ -428,10 +437,11 @@ class _Check {
   static final _large = Uint8List(256 * 256 * 4);
 
   /// Whether every read of [_rounds] rounds is right with the current way to
-  /// wait. A check past the budget of [watch] does not pass.
-  Future<bool> passes(Stopwatch watch) async {
+  /// wait: false at the first wrong read, and null when the budget of
+  /// [watch] runs out first or a target cannot be read.
+  Future<bool?> passes(Stopwatch watch) async {
     for (var round = 0; round < _rounds; round++) {
-      if (watch.elapsed > _budget) return false;
+      if (watch.elapsed > _budget) return null;
       final frames = [for (final t in _targets) _draw(t)];
       // The engine makes no frames while the app is hidden, so no wait may
       // run past the budget.
@@ -439,16 +449,16 @@ class _Check {
       try {
         await limit(_device.settle());
       } on TimeoutException {
-        return false;
+        return null;
       }
       for (final (i, t) in _targets.indexed) {
         final Uint8List? rgba;
         try {
           rgba = await limit(_device.read(t));
         } on TimeoutException {
-          return false;
+          return null;
         }
-        if (rgba == null) return false;
+        if (rgba == null) return null;
         final center = (_size ~/ 2 * _size + _size ~/ 2) * 4;
         if (rgba[center] != frames[i] & 0xff ||
             rgba[center + 1] != frames[i] >> 8 & 0xff) {
@@ -456,7 +466,7 @@ class _Check {
         }
       }
     }
-    return watch.elapsed <= _budget;
+    return true;
   }
 
   // Draws the next frame into [target]: red and green of the whole target
