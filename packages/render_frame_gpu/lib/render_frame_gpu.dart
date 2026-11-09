@@ -1,6 +1,6 @@
-/// Draws the render frames of a core with Flutter GPU. On platforms without
-/// Flutter GPU, [GpuFrameSink.create] returns null.
+/// Draws the render frames of a core on the GPU of the platform through
+/// `mp_gpu`: Flutter GPU on native platforms and WebGPU on the Web.
+/// [GpuFrameSink.create] returns null when none is available.
 library;
 
-export 'src/gpu_frame_sink_stub.dart'
-    if (dart.library.io) 'src/gpu_frame_sink.dart';
+export 'src/gpu_frame_sink.dart';

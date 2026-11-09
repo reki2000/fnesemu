@@ -1,3 +1,4 @@
+// Keep in step with frame.wgsl, which holds this shader in WGSL for WebGPU.
 // Shades a fragment of a render frame: texture shading, the offset color,
 // fog and the punch-through alpha test.
 uniform sampler2D texture_sampler;

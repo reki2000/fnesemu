@@ -43,6 +43,7 @@ test:
 	cd packages/cdrom_image && dart test
 	cd packages/mp_jit_recompiler && dart test
 	cd packages/mp_pixel_image && flutter test
+	cd packages/mp_gpu && flutter test
 	cd $(CORE) && dart test
 	flutter test
 
@@ -67,5 +68,6 @@ format:
 	cd packages/cdrom_image && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 	cd packages/mp_jit_recompiler && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 	cd packages/mp_pixel_image && dart fix --apply --code=prefer_relative_imports,directives_ordering .
+	cd packages/mp_gpu && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 
 .PHONY: test format regress regress-full

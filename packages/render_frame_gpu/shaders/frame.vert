@@ -1,3 +1,4 @@
+// Keep in step with frame.wgsl, which holds this shader in WGSL for WebGPU.
 // Places a vertex of a render frame. Positions are in pixels with y down,
 // and the depth is the reciprocal of w.
 uniform FrameInfo {

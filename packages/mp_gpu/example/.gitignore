@@ -1,0 +1,15 @@
+# tool/prepare.sh generates these.
+/android/
+/ios/
+/linux/
+/macos/
+/web/
+/windows/
+/test/
+/.metadata
+/*.iml
+/shaders/probe.shaderbundle
+
+.dart_tool/
+build/
+pubspec.lock

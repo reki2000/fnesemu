@@ -314,6 +314,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  mp_gpu:
+    dependency: transitive
+    description:
+      path: "packages/mp_gpu"
+      relative: true
+    source: path
+    version: "0.1.0"
   mp_jit_recompiler:
     dependency: transitive
     description:
