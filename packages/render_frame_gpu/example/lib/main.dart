@@ -64,6 +64,7 @@ class _FrameViewState extends State<FrameView> {
       renderer.draw(frame, onComplete: (_) => done.complete());
       final encoded = sw.elapsedMicroseconds / 1000;
       await done.future;
+      renderer.nextFrame();
       if (i >= 10) {
         encode.add(encoded);
         complete.add(sw.elapsedMicroseconds / 1000);

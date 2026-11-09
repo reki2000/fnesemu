@@ -25,6 +25,9 @@ class FrameRenderer {
 
   final gpu.Shader _vertex, _fragment;
   final gpu.RenderPipeline _pipeline;
+  // The uniforms of the draws. It cycles through four blocks, one for each
+  // call of [nextFrame], so the data of a draw stays in place until the
+  // GPU has run it.
   final _host = gpu.gpuContext.createHostBuffer();
   gpu.Texture? _color, _depth;
   final gpu.Texture _white =
@@ -80,6 +83,12 @@ class FrameRenderer {
         format: context.defaultColorFormat);
   }
 
+  /// Starts a new block for the uniforms of the next draws. Call it once a
+  /// frame of the engine has passed since the last call, not once per draw:
+  /// the block of a draw is reused four calls later, and draws that the GPU
+  /// has not run yet would read the uniforms of other draws.
+  void nextFrame() => _host.reset();
+
   /// Draws [frame] into [target], or into a texture of the renderer, and
   /// returns the texture. [onComplete] is called when the GPU has finished.
   gpu.Texture draw(RenderFrame frame,
@@ -87,7 +96,6 @@ class FrameRenderer {
     prepare(frame);
     final context = gpu.gpuContext;
     final color = target ?? _color!, depth = _depth;
-    _host.reset();
     final vertices = context
         .createDeviceBufferWithCopy(ByteData.sublistView(frame.vertices));
     final commands = context.createCommandBuffer();

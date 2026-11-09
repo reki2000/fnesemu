@@ -63,6 +63,7 @@ class GpuFrameSink implements RenderFrameSink {
           drawn.add((frame, target));
         }
         await SchedulerBinding.instance.endOfFrame;
+        _renderer.nextFrame();
         for (final (frame, target) in drawn) {
           final rgba = await _read(target);
           _free.add(target);
@@ -80,6 +81,7 @@ class GpuFrameSink implements RenderFrameSink {
   Future<Uint8List?> _draw(RenderFrame frame, gpu.Texture target) async {
     _renderer.draw(frame, target: target);
     await SchedulerBinding.instance.endOfFrame;
+    _renderer.nextFrame();
     return _read(target);
   }
 
