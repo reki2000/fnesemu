@@ -433,9 +433,21 @@ class _Check {
     for (var round = 0; round < _rounds; round++) {
       if (watch.elapsed > _budget) return false;
       final frames = [for (final t in _targets) _draw(t)];
-      await _device.settle();
+      // The engine makes no frames while the app is hidden, so no wait may
+      // run past the budget.
+      Future<T> limit<T>(Future<T> f) => f.timeout(_budget - watch.elapsed);
+      try {
+        await limit(_device.settle());
+      } on TimeoutException {
+        return false;
+      }
       for (final (i, t) in _targets.indexed) {
-        final rgba = await _device.read(t);
+        final Uint8List? rgba;
+        try {
+          rgba = await limit(_device.read(t));
+        } on TimeoutException {
+          return false;
+        }
         if (rgba == null) return false;
         final center = (_size ~/ 2 * _size + _size ~/ 2) * 4;
         if (rgba[center] != frames[i] & 0xff ||
