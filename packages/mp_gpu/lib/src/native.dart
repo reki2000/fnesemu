@@ -7,6 +7,7 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:vector_math/vector_math.dart' as vm;
 
 import 'gpu.dart';
+import 'stamp.dart';
 
 /// Flutter GPU, or null when the engine runs without it. The device checks
 /// how long it has to wait before a read; see [_NativeDevice._calibrate].
@@ -18,6 +19,12 @@ Future<GpuDevice?> createDevice() async {
     return null;
   }
   final device = _NativeDevice(context);
+  try {
+    device._stampProgram =
+        await device.program(checkSource) as _NativeProgram;
+  } catch (_) {
+    // Without the program, passes draw no stamps and the check cannot run.
+  }
   await device._calibrate();
   return device;
 }
@@ -34,7 +41,7 @@ class _Sync {
       '${reads > 1 ? ', $reads reads' : ''}';
 }
 
-class _NativeDevice implements GpuDevice {
+class _NativeDevice implements GpuDevice, GpuStamping {
   _NativeDevice(this._context) : _host = _context.createHostBuffer();
 
   final gpu.GpuContext _context;
@@ -53,6 +60,41 @@ class _NativeDevice implements GpuDevice {
 
   // The completions of the passes ended since the last [settle].
   final _pending = <Future<void>>[];
+
+  // The program of the check and the stamps, a white texture for it, and
+  // the vertices of the last row of a target by its height.
+  _NativeProgram? _stampProgram;
+  late final gpu.Texture _white = (texture(
+    1,
+    1,
+    Uint8List.fromList([255, 255, 255, 255]),
+  ) as _NativeTexture).texture;
+  final _stampRows = <int, gpu.DeviceBuffer>{};
+
+  @override
+  bool get stamps => _stampProgram != null;
+
+  @override
+  void stampOnly(GpuTarget target) => pass(
+    target,
+    _stampProgram!,
+    const [],
+    clearColor: const [0, 0, 0, 0],
+    clearDepth: 0,
+  ).end();
+
+  /// A rectangle over the last row of a target of [height], with x and y
+  /// in clip space and u and v.
+  gpu.DeviceBuffer _stampRow(int height) =>
+      _stampRows[height] ??= _context.createDeviceBufferWithCopy(() {
+        final top = -1 + 2 / height;
+        return ByteData.sublistView(
+          Float32List.fromList([
+            -1, -1, 0, 0, 1, -1, 0, 0, -1, top, 0, 0, //
+            -1, top, 0, 0, 1, -1, 0, 0, 1, top, 0, 0,
+          ]),
+        );
+      }());
 
   @override
   String get name => 'Flutter GPU';
@@ -144,10 +186,17 @@ class _NativeDevice implements GpuDevice {
         ),
       ),
     );
-    return _NativePass(this, program as _NativeProgram, commands, pass, [
-      for (final v in vertices)
-        _context.createDeviceBufferWithCopy(ByteData.sublistView(v)),
-    ]);
+    return _NativePass(
+      this,
+      target,
+      program as _NativeProgram,
+      commands,
+      pass,
+      [
+        for (final v in vertices)
+          _context.createDeviceBufferWithCopy(ByteData.sublistView(v)),
+      ],
+    );
   }
 
   /// Waits for the passes to complete and then for the frames of the engine
@@ -192,7 +241,7 @@ class _NativeDevice implements GpuDevice {
   Future<void> _calibrate() async {
     final watch = Stopwatch()..start();
     try {
-      final check = await _Check.create(this);
+      final check = _Check.create(this);
       for (final sync in _syncs) {
         _sync = sync;
         switch (await check.passes(watch)) {
@@ -244,6 +293,7 @@ class _NativeTarget implements GpuTarget {
 class _NativePass implements GpuPass {
   _NativePass(
     this._device,
+    this._target,
     this._program,
     this._commands,
     this._pass,
@@ -253,6 +303,7 @@ class _NativePass implements GpuPass {
       _samplers = List.filled(_program.slots.length, null);
 
   final _NativeDevice _device;
+  final _NativeTarget _target;
   final _NativeProgram _program;
   final gpu.CommandBuffer _commands;
   final gpu.RenderPass _pass;
@@ -350,6 +401,7 @@ class _NativePass implements GpuPass {
 
   @override
   void end({void Function(bool success)? onComplete}) {
+    _drawStamp();
     final done = Completer<void>();
     _device._pending.add(done.future);
     _commands.submit(
@@ -358,6 +410,53 @@ class _NativePass implements GpuPass {
         onComplete?.call(success);
       },
     );
+  }
+
+  /// Draws the stamp of the target, if it has one, into its last row: the
+  /// number in red, green and blue from the least significant byte.
+  void _drawStamp() {
+    final stamp = targetStamps[_target];
+    final program = _device._stampProgram;
+    if (stamp == null || program == null) return;
+    final pass = _pass;
+    pass.bindPipeline(program.pipeline);
+    pass.setCullMode(gpu.CullMode.none);
+    pass.bindVertexBuffer(
+      gpu.BufferView(
+        _device._stampRow(_target.height),
+        offsetInBytes: 0,
+        lengthInBytes: 6 * program.vertexBytes,
+      ),
+    );
+    pass.bindUniform(
+      program.slots[0],
+      _device._host.emplace(
+        ByteData.sublistView(
+          Float32List.fromList([
+            (stamp & 0xff) / 255,
+            (stamp >> 8 & 0xff) / 255,
+            (stamp >> 16 & 0xff) / 255,
+            1,
+          ]),
+        ),
+      ),
+    );
+    pass.bindTexture(
+      program.slots[1],
+      _device._white,
+      sampler: gpu.SamplerOptions(),
+    );
+    pass.setColorBlendEnable(false);
+    pass.setDepthWriteEnable(false);
+    pass.setDepthCompareOperation(gpu.CompareFunction.always);
+    pass.setStencilReference(0);
+    pass.setStencilConfig(
+      gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.always,
+        depthStencilPassOperation: gpu.StencilOperation.keep,
+      ),
+    );
+    pass.draw(6);
   }
 
   static const _address = [
@@ -402,23 +501,14 @@ class _NativePass implements GpuPass {
 class _Check {
   _Check._(this._device, this._program, this._targets);
 
-  static const _source = GpuProgramSource(
-    bundle: 'packages/mp_gpu/shaders/check.shaderbundle',
-    vertexEntry: 'CheckVertex',
-    fragmentEntry: 'CheckFragment',
-    wgsl: '',
-    attributes: [2, 2],
-    bindings: [GpuBinding.uniform('Info', 0), GpuBinding.texture('image', 1)],
-  );
-
   static const _size = 16;
   static const _rounds = 10;
   static const _uploads = 4;
   static const _budget = Duration(seconds: 2);
 
-  static Future<_Check> create(_NativeDevice device) async => _Check._(
+  static _Check create(_NativeDevice device) => _Check._(
     device,
-    await device.program(_source),
+    device._stampProgram ?? (throw StateError('no check program')),
     [for (var i = 0; i < 2; i++) device.target(_size, _size)],
   );
 

@@ -56,8 +56,9 @@ class FrameRenderer {
     _prepared = frame;
   }
 
-  /// Draws [frame] into [target], a target of the size of the frame.
-  /// [onComplete] is called when the GPU has finished.
+  /// Draws [frame] into the top rows of [target], a target of the width of
+  /// the frame and at least its height. [onComplete] is called when the GPU
+  /// has finished.
   void draw(RenderFrame frame, GpuTarget target,
       {void Function(bool)? onComplete}) {
     prepare(frame);
@@ -73,8 +74,8 @@ class FrameRenderer {
     pass.uniform(
         'FrameInfo',
         ByteData.sublistView(Float32List.fromList([
-          frame.width.toDouble(),
-          frame.height.toDouble(),
+          target.width.toDouble(),
+          target.height.toDouble(),
           frame.depthScale,
           1e-7 / frame.depthScale
         ])));

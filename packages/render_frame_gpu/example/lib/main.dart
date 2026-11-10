@@ -136,7 +136,7 @@ class _FrameViewState extends State<FrameView> {
     if (sink != null) {
       final bytes = File(path).readAsBytesSync();
       final over = <int>[];
-      var late = 0;
+      var late = 0, dropped = 0;
       final roundTrip = Stopwatch()..start();
       for (var i = 0; i < rounds; i++) {
         // A new frame each time, as from a core: every tenth one with new
@@ -151,8 +151,14 @@ class _FrameViewState extends State<FrameView> {
         final drawn = Completer<Uint8List>();
         f.onDrawn = drawn.complete;
         sink.submit(f);
-        final rgba = await drawn.future;
-        if (blank) {
+        // The sink drops a frame whose read shows an older one.
+        final rgba = await drawn.future.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => Uint8List(0),
+        );
+        if (rgba.isEmpty) {
+          dropped++;
+        } else if (blank) {
           final c = frame.clearColor;
           if (rgba[0] != ((c >> 16) & 255) ||
               rgba[rgba.length - 2] != (c & 255)) {
@@ -165,7 +171,7 @@ class _FrameViewState extends State<FrameView> {
       over.sort();
       report.writeln(
         'sink ${(roundTrip.elapsedMicroseconds / 1000 / rounds).toStringAsFixed(2)} ms per frame, '
-        'submit to pixels; $late blank frames read as drawn',
+        'submit to pixels; $late blank frames read as drawn, $dropped dropped',
       );
       if (over.isNotEmpty) {
         report.writeln(

@@ -6,8 +6,8 @@ This note collects what a developer needs to know to let another core, such as N
 
 | Layer | Package | Role |
 |---|---|---|
-| GPU device | `mp_gpu` | Offscreen drawing on Flutter GPU or WebGPU: programs, textures, targets, passes with per-draw state, `settle` and `read`. It knows nothing of cores. |
-| Renderer and sink | `render_frame_gpu` | `FrameRenderer` draws one `RenderFrame` with its shaders; `GpuFrameSink` queues frames, draws them, reads them back and returns the pixels. |
+| GPU device | `mp_gpu` | Offscreen drawing on Flutter GPU or WebGPU: programs, textures, targets, passes with per-draw state, `settle` and `read`. `GpuQueue` queues jobs, draws them into targets of its own, reads them back and checks the reads. It knows nothing of cores. |
+| Renderer and sink | `render_frame_gpu` | `FrameRenderer` draws one `RenderFrame` with its shaders; `GpuFrameSink` gives each frame to the `GpuQueue` with the renderer of its type and returns the pixels. |
 | Frame and contract | `fnesemu_core` | `RenderFrame`, `RenderBatch`, `RenderTexture`, `RenderFrameSink`, `Core.rendersFrames` and `Core.renderFrameSink`. No Flutter imports. |
 | App | root | Creates the sink at start, offers GPU or Software in the setup menu, and sets `CoreController.renderFrameSink`. |
 
@@ -31,8 +31,9 @@ The sink returns the pixels after the device settles, so the emulated framebuffe
 ## The sink
 
 - `GpuFrameSink.create()` returns null when there is no GPU. The app falls back to the core's renderer.
-- The frames that come while others are drawn wait, and are drawn together, each into a target of its own, and read back after one `settle`. When more than eight wait, the oldest are dropped, so a slow GPU loses renders instead of falling behind.
-- A new target is checked with a white textured triangle until the white comes back. This also shows whether the GPU works at all.
+- The sink draws through the `GpuQueue` of `mp_gpu`. The frames that come while others are drawn wait, and are drawn together, each into a target of its own, and read back after one `settle`. When more than eight wait, the oldest are dropped, so a slow GPU loses renders instead of falling behind.
+- On Flutter GPU, the queue draws a number below each frame and drops a read that does not show it. A new target is drawn with its number until it comes back, which also shows whether the GPU works at all.
+- A renderer draws a frame into the top rows of the target it gets, which may have more rows than the frame, and converts pixels to clip space with the size of the target.
 
 ## The read-back wait of mp_gpu
 
@@ -44,7 +45,7 @@ How soon a target can be read after its passes differs by backend and driver. `G
 | GLES on Linux with Mesa | The completion, a frame of the engine and a second read; even then a frame with large uploads now and then shows the frame before |
 | WebGPU | None besides the mapping of the read buffer |
 
-So a core must not assume that the pixels come back within a fixed time, and the GLES backend may now and then return the frame before. Run the probe after a Flutter upgrade or on a new kind of device. Emulators and simulators do not show the behavior of real drivers.
+So a core must not assume that the pixels come back within a fixed time, or that every render comes back. The GLES backend may now and then return the frame before, and the queue drops it. Run the probe after a Flutter upgrade or on a new kind of device. Emulators and simulators do not show the behavior of real drivers.
 
 ## What is specific to DC
 

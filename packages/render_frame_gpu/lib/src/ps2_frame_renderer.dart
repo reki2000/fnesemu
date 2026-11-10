@@ -41,10 +41,13 @@ class Ps2FrameRenderer {
     ],
   );
 
-  Future<GpuProgram>? _feedbackProgram;
+  Future<GpuProgram?>? _feedbackProgram;
 
-  Future<GpuProgram> feedbackProgram() =>
-      _feedbackProgram ??= _device.program(_feedbackSource);
+  /// The program of the feedback draws, or null on a platform without its
+  /// shaders: it has none in WGSL.
+  Future<GpuProgram?> feedbackProgram() =>
+      _feedbackProgram ??= _device.program(_feedbackSource).then<GpuProgram?>(
+          (program) => program, onError: (_) => null);
 
   static Future<Ps2FrameRenderer> create(GpuDevice device) async =>
       Ps2FrameRenderer._(device, await device.program(_source),
@@ -54,12 +57,13 @@ class Ps2FrameRenderer {
   final GpuProgram _program;
   final GpuProgram _spriteProgram;
 
-  void draw(Ps2RenderFrame frame, GpuTarget target, int marker) {
+  /// Draws [frame] into the top rows of [target].
+  void draw(Ps2RenderFrame frame, GpuTarget target) {
     if (frame is Ps2SpriteFrame) {
-      _drawSprite(frame, target, marker);
+      drawSprites(target, [(frame: frame, x: 0, y: 0, marker: 0)]);
       return;
     }
-    final vertices = Float32List((frame.rectangles.length + 1) * 6 * 5);
+    final vertices = Float32List(frame.rectangles.length * 6 * 5);
     var offset = 0;
 
     void rectangle(int left, int top, int right, int bottom, int index) {
@@ -82,57 +86,65 @@ class Ps2FrameRenderer {
     for (final (i, rect) in frame.rectangles.indexed) {
       rectangle(rect.left, rect.top, rect.right, rect.bottom, i + 1);
     }
-    // The extra row distinguishes this readback from an older use of the target.
-    rectangle(0, frame.height, 1, frame.height + 1, marker);
-    final pass = _device.pass(target, _program, [vertices],
+    final pass = _device.pass(
+        target, _program, [if (vertices.isNotEmpty) vertices],
         clearColor: const [0, 0, 0, 1], clearDepth: 0);
     pass.state(const GpuState());
-    pass.draw(0, vertices.length ~/ 5);
+    if (vertices.isNotEmpty) pass.draw(0, vertices.length ~/ 5);
     pass.end();
   }
 
-  void _drawSprite(Ps2SpriteFrame frame, GpuTarget target, int marker) {
-    drawSprites(target, [(frame: frame, x: 0, y: 0, marker: marker)]);
-  }
-
+  /// Draws the sprites of [tiles] at their places in [target]. A tile with
+  /// a marker other than zero also gets the marker in the row below it.
   void drawSprites(GpuTarget target, List<Ps2SpriteTile> tiles,
       {GpuTexture? input}) {
-    final vertices = Float32List(tiles.length * 12 * 7);
+    final counts = [for (final tile in tiles) tile.marker == 0 ? 6 : 12];
+    final vertices = Float32List(counts.fold(0, (n, c) => n + c) * 7);
     var offset = 0;
     for (final tile in tiles) {
       _spriteQuad(vertices, offset, target, tile, 0, tile.frame.width,
           tile.frame.height, 0);
-      _spriteQuad(vertices, offset + 6 * 7, target, tile,
-          tile.frame.height, 1, tile.frame.height + 1, tile.marker);
-      offset += 12 * 7;
+      offset += 6 * 7;
+      if (tile.marker != 0) {
+        _spriteQuad(vertices, offset, target, tile,
+            tile.frame.height, 1, tile.frame.height + 1, tile.marker);
+        offset += 6 * 7;
+      }
     }
     final pass = _device.pass(target, _spriteProgram, [vertices],
         clearColor: const [0, 0, 0, 1], clearDepth: 0);
     pass.state(const GpuState());
+    var first = 0;
     for (final (i, tile) in tiles.indexed) {
       final frame = tile.frame;
       pass.uniform('SpriteInfo', ByteData.sublistView(frame.state));
       pass.texture('sprite_input', input ??
           _device.texture(frame.inputWidth, frame.inputHeight, frame.input));
-      pass.draw(i * 12, 12);
+      pass.draw(first, counts[i]);
+      first += counts[i];
     }
     pass.end();
   }
 
   // The first draw feeds a patch of the texture for the second draw.
   // Compose the two valid row ranges into the only CPU readback target.
+  // The rows of the frame and a marker row below them, the size of the
+  // intermediate targets, go to the top of [output]. [scratch] gives the
+  // intermediate targets.
   void drawFeedback(GpuProgram program, Ps2SpriteFrame frame, GpuTarget output,
-      {required int split, required int left, required int top,
+      {required GpuTarget Function(int width, int height) scratch,
+      required int split, required int left, required int top,
       required int colorMask, required bool forceAlpha,
       required int firstMarker, required int secondMarker}) {
+    final width = frame.width, height = frame.height + 1;
     final input = _device.texture(frame.inputWidth, frame.inputHeight, frame.input);
-    final first = _device.target(output.width, output.height);
-    final patched = _device.target(input.width, input.height);
-    final second = _device.target(output.width, output.height);
+    final first = scratch(width, height);
+    final patched = scratch(input.width, input.height);
+    final second = scratch(width, height);
     final firstTile = (frame: frame, x: 0, y: 0, marker: firstMarker);
     final secondTile = (frame: frame, x: 0, y: 0, marker: secondMarker);
     final data = Float32List.fromList([
-      output.width.toDouble(), output.height.toDouble(),
+      width.toDouble(), height.toDouble(),
       input.width.toDouble(), input.height.toDouble(),
       left.toDouble(), top.toDouble(), split.toDouble(), 0,
       for (var shift = 0; shift < 32; shift += 8)
@@ -146,17 +158,18 @@ class Ps2FrameRenderer {
     ]);
     drawSprites(first, [firstTile], input: input);
     _feedbackPass(program, patched, firstTile, first.colorTexture, input, data,
-        forceAlpha ? 255 : 0);
+        patched.height, forceAlpha ? 255 : 0);
     drawSprites(second, [secondTile], input: patched.colorTexture);
     data[7] = 1;
     _feedbackPass(program, output, firstTile, first.colorTexture,
-        second.colorTexture, data, 0);
+        second.colorTexture, data, height, 0);
   }
 
   void _feedbackPass(GpuProgram program, GpuTarget output, Ps2SpriteTile tile,
-      GpuTexture first, GpuTexture second, Float32List info, int marker) {
+      GpuTexture first, GpuTexture second, Float32List info, int height,
+      int marker) {
     final vertices = Float32List(6 * 7);
-    _spriteQuad(vertices, 0, output, tile, 0, output.width, output.height, marker);
+    _spriteQuad(vertices, 0, output, tile, 0, output.width, height, marker);
     final pass = _device.pass(output, program, [vertices],
         clearColor: const [0, 0, 0, 0], clearDepth: 0);
     pass.uniform('FeedbackInfo', ByteData.sublistView(info));

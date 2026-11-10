@@ -4,3 +4,4 @@
 library;
 
 export 'src/gpu.dart';
+export 'src/queue.dart';
