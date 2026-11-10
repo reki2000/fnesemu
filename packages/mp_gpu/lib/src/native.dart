@@ -305,7 +305,10 @@ class _NativePass implements GpuPass {
     this._vertices,
   ) : _uniforms = List.filled(_program.slots.length, null),
       _textures = List.filled(_program.slots.length, null),
-      _samplers = List.filled(_program.slots.length, null);
+      _samplers = List.filled(_program.slots.length, null),
+      _boundUniforms = List.filled(_program.slots.length, null),
+      _boundTextures = List.filled(_program.slots.length, null),
+      _boundSamplers = List.filled(_program.slots.length, null);
 
   final _NativeDevice _device;
   final _NativeTarget _target;
@@ -313,11 +316,17 @@ class _NativePass implements GpuPass {
   final gpu.CommandBuffer _commands;
   final gpu.RenderPass _pass;
   final List<gpu.DeviceBuffer> _vertices;
-  // The bindings by index. They and the state are set again before each
-  // draw: the backend may not keep them over a change of the vertex buffer.
+  // The bindings of the next draw by index.
   final List<gpu.BufferView?> _uniforms;
   final List<gpu.Texture?> _textures;
   final List<gpu.SamplerOptions?> _samplers;
+  // What the render pass holds. It keeps its bindings and state from draw
+  // to draw, so a draw sets only what differs from the draw before.
+  final List<gpu.BufferView?> _boundUniforms;
+  final List<gpu.Texture?> _boundTextures;
+  final List<gpu.SamplerOptions?> _boundSamplers;
+  bool _pipelineBound = false;
+  int _boundState = -1, _boundReference = -1;
   GpuState _state = const GpuState();
   int _reference = 0;
 
@@ -379,8 +388,11 @@ class _NativePass implements GpuPass {
   void draw(int first, int count, [int array = 0]) {
     final pass = _pass, state = _state, bytes = _program.vertexBytes;
     final slots = _program.slots;
-    pass.bindPipeline(_program.pipeline);
-    pass.setCullMode(gpu.CullMode.none);
+    if (!_pipelineBound) {
+      pass.bindPipeline(_program.pipeline);
+      pass.setCullMode(gpu.CullMode.none);
+      _pipelineBound = true;
+    }
     pass.bindVertexBuffer(
       gpu.BufferView(
         _vertices[array],
@@ -391,14 +403,40 @@ class _NativePass implements GpuPass {
     for (var i = 0; i < slots.length; i++) {
       final uniform = _uniforms[i];
       if (uniform != null) {
-        pass.bindUniform(slots[i], uniform);
+        final bound = _boundUniforms[i];
+        if (bound == null ||
+            !identical(bound.buffer, uniform.buffer) ||
+            bound.offsetInBytes != uniform.offsetInBytes ||
+            bound.lengthInBytes != uniform.lengthInBytes) {
+          pass.bindUniform(slots[i], uniform);
+          _boundUniforms[i] = uniform;
+        }
       } else {
         final texture = _textures[i];
-        if (texture != null) {
-          pass.bindTexture(slots[i], texture, sampler: _samplers[i]);
+        final sampler = _samplers[i];
+        if (texture != null &&
+            (!identical(texture, _boundTextures[i]) ||
+                !identical(sampler, _boundSamplers[i]))) {
+          pass.bindTexture(slots[i], texture, sampler: sampler);
+          _boundTextures[i] = texture;
+          _boundSamplers[i] = sampler;
         }
       }
     }
+    final key = state.key;
+    if (key != _boundState) {
+      _setState(state);
+      _boundState = key;
+    }
+    if (_reference != _boundReference) {
+      pass.setStencilReference(_reference);
+      _boundReference = _reference;
+    }
+    pass.draw(count);
+  }
+
+  void _setState(GpuState state) {
+    final pass = _pass;
     pass.setColorBlendEnable(state.blend);
     if (state.blend) {
       final source = _factors[state.sourceFactor.index];
@@ -414,7 +452,6 @@ class _NativePass implements GpuPass {
     }
     pass.setDepthWriteEnable(state.depthWrite);
     pass.setDepthCompareOperation(_compare[state.depthCompare.index]);
-    pass.setStencilReference(_reference);
     pass.setStencilConfig(
       gpu.StencilConfig(
         compareFunction: _compare[state.stencilCompare.index],
@@ -423,7 +460,6 @@ class _NativePass implements GpuPass {
         writeMask: state.stencilWriteMask,
       ),
     );
-    pass.draw(count);
   }
 
   @override
