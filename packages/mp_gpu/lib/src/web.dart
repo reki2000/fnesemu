@@ -199,6 +199,7 @@ class _WebDevice implements GpuDevice {
       bindings,
       {'arrayStride': offset, 'attributes': attributes},
       offset,
+      source.cacheBindGroups,
     );
   }
 
@@ -232,7 +233,7 @@ class _WebDevice implements GpuDevice {
       _object({
         'size': [width, height],
         'format': _colorFormat,
-        'usage': _renderAttachment | _textureCopySource,
+        'usage': _renderAttachment | _textureCopySource | _textureBinding,
       }),
     );
     final depth = _device.createTexture(
@@ -243,11 +244,8 @@ class _WebDevice implements GpuDevice {
       }),
     );
     return _WebTarget(
-      color,
-      color.createView(),
+      _WebTexture(color, color.createView(), width, height, _textureIds++),
       depth.createView(),
-      width,
-      height,
     );
   }
 
@@ -339,12 +337,14 @@ class _WebProgram implements GpuProgram {
     this.bindings,
     this.vertexLayout,
     this.vertexBytes,
+    this.cacheBindGroups,
   );
   final JSObject module, bindGroupLayout, layout;
   // Sorted by binding.
   final List<GpuBinding> bindings;
   final Map<String, Object?> vertexLayout;
   final int vertexBytes;
+  final bool cacheBindGroups;
   final pipelines = <int, JSObject>{};
   final bindGroups = <String, JSObject>{};
 }
@@ -359,17 +359,16 @@ class _WebTexture implements GpuTexture {
 }
 
 class _WebTarget implements GpuTarget {
-  _WebTarget(
-    this.color,
-    this.colorView,
-    this.depthView,
-    this.width,
-    this.height,
-  );
-  final _Texture color;
-  final JSObject colorView, depthView;
+  _WebTarget(this.colorTexture, this.depthView);
   @override
-  final int width, height;
+  final _WebTexture colorTexture;
+  final JSObject depthView;
+  _Texture get color => colorTexture.texture;
+  JSObject get colorView => colorTexture.view;
+  @override
+  int get width => colorTexture.width;
+  @override
+  int get height => colorTexture.height;
 }
 
 /// A draw with the bindings and the state at its time.
@@ -545,6 +544,7 @@ class _WebPass implements GpuPass {
 
   JSObject _bindGroup(_Draw draw, _Buffer uniformBuffer) {
     final program = _program;
+    if (!program.cacheBindGroups) return _createBindGroup(draw, uniformBuffer);
     final key = StringBuffer('${_device._generation}');
     for (final (texture, sampler) in draw.textures) {
       key.write(',${texture.id}:${sampler.key}');
@@ -552,10 +552,14 @@ class _WebPass implements GpuPass {
     for (final b in program.bindings) {
       if (!b.texture) key.write(',${_uniformSizes[b.name]}');
     }
-    return program.bindGroups[key.toString()] ??= _device._device
+    return program.bindGroups[key.toString()] ??=
+        _createBindGroup(draw, uniformBuffer);
+  }
+
+  JSObject _createBindGroup(_Draw draw, _Buffer uniformBuffer) => _device._device
         .createBindGroup(
           _object({
-            'layout': program.bindGroupLayout,
+            'layout': _program.bindGroupLayout,
             'entries': [
               for (final (b, texture) in _pairs(draw))
                 if (texture != null) ...[
@@ -575,7 +579,6 @@ class _WebPass implements GpuPass {
             ],
           }),
         );
-  }
 
   /// The bindings of the program with the texture of [draw] for each
   /// texture binding.

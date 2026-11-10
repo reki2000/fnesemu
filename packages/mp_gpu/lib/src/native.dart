@@ -234,6 +234,8 @@ class _NativeTarget implements GpuTarget {
   _NativeTarget(this.color, this.depth);
   final gpu.Texture color, depth;
   @override
+  GpuTexture get colorTexture => _NativeTexture(color);
+  @override
   int get width => color.width;
   @override
   int get height => color.height;

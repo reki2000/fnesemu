@@ -168,7 +168,7 @@ class CoreController {
           continue;
         }
 
-        _runFrame();
+        final presentAfterPacing = _runFrame();
         fpsCounter.count();
         final fps = fpsCounter.fps(DateTime.now());
         if (fps != null) {
@@ -187,6 +187,7 @@ class CoreController {
             minimumDeadlineUs: frameEndUs + frameYieldUs);
         await Future.delayed(Duration(
             milliseconds: (frameDeadlineUs - frameEndUs + 999) ~/ 1000));
+        if (presentAfterPacing) _renderAll();
 
         // keeps up to 1 frame behind
         final behind = targetClocks - _currentCpuClocks;
@@ -267,8 +268,8 @@ class CoreController {
     if (wasRunning) run();
   }
 
-  /// executes emulation during 1 frame
-  void _runFrame() {
+  /// Executes one frame and reports whether presentation uses the pacing delay.
+  bool _runFrame() {
     final core = _core;
     if (!debugger.needsInstructionLoop) {
       // the core runs the rest of the frame by itself
@@ -277,12 +278,12 @@ class CoreController {
       if (result.stopped) {
         _scanline = 0;
         _stopRequested = true;
-        return;
+        return false;
       }
     } else {
       while (_scanline < core.scanlinesInFrame) {
         if (!_runScanLine()) {
-          return;
+          return false;
         }
       }
     }
@@ -293,7 +294,9 @@ class CoreController {
       _stopRequested = true;
     }
 
+    if (!_stopRequested && core.prepareImage()) return true;
     _renderAll();
+    return false;
   }
 
   /// for debugger: executes emulation during 1 scanline

@@ -72,6 +72,10 @@ class Core extends CoreDebug {
   /// ignore it
   set renderFrameSink(RenderFrameSink? sink) {}
 
+  /// Requests presentation after the existing frame pacing delay so a host
+  /// render can finish. The image can be read immediately at any time.
+  bool prepareImage() => false;
+
   /// releases what the core holds outside the Dart heap; the core is not
   /// used afterwards
   void dispose() {}

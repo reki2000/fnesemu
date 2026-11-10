@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../../ps2_render_frame.dart';
 import '../state.dart';
 import 'gs.dart';
 import 'gs_memory.dart';
+
+part 'gs_host_sprite.dart';
 
 /// Draws primitives into the GS local memory.
 ///
@@ -14,8 +17,9 @@ import 'gs_memory.dart';
 /// Not implemented: antialiasing (AA1) and the texture cache, so a draw that reads its own frame as a texture sees the pixels it already wrote.
 class GsRaster {
   final Gs gs;
+  final GsMemory _mem;
 
-  GsRaster(this.gs);
+  GsRaster(this.gs) : _mem = gs.mem;
 
   // ---- state decoded at the start of a primitive ----
   late GsContext _ctx;
@@ -32,6 +36,7 @@ class GsRaster {
   bool _ate = false, _date = false, _datm = false, _zte = true;
   int _atst = 0, _aref = 0, _afail = 0, _ztst = 0;
   bool _tme = false, _fge = false, _abe = false, _fst = false, _iip = false;
+  bool _pabe = false, _colclamp = false;
   int _blendA = 0, _blendB = 0, _blendC = 0, _blendD = 0, _fix = 0;
 
   // texture
@@ -59,6 +64,7 @@ class GsRaster {
   int _dr = 0, _dg = 0, _db = 0, _da = 0;
 
   void _setup(int ctxIndex, int attrs) {
+    final mem = gs.mem;
     _ctx = gs.contexts[ctxIndex];
     final frame = _ctx.frame;
     _fbp = (frame & 0x1ff) * 32;
@@ -76,7 +82,6 @@ class GsRaster {
       GsPsm.z16 || GsPsm.z16s => 0xffff,
       _ => 0xffffffff,
     };
-    final mem = gs.mem;
     _frameLayout = mem.layout(_fpsm);
     _framePages = _frameLayout.pagesInRow(_fbw);
     _zLayout = mem.layout(_zpsm);
@@ -103,6 +108,8 @@ class GsRaster {
     _abe = attrs & 0x40 != 0;
     _fst = attrs & 0x100 != 0;
     _iip = attrs & 0x08 != 0;
+    _pabe = gs.pabe != 0;
+    _colclamp = gs.colclamp != 0;
     final alpha = _ctx.alpha;
     _blendA = alpha & 3;
     _blendB = (alpha >> 2) & 3;
@@ -149,6 +156,15 @@ class GsRaster {
   /// attribute bits in effect.
   void draw(Gs gs, int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
     _setup((attrs >> 9) & 1, attrs);
+    if (gs.residentSink != null || gsDrawRecorder != null || gsReplayDraw != null) {
+      _recordDraw(type, attrs, [a, if (type != Gs.primPoint) b], null,
+          () => _drawPrimitive(type, attrs, a, b, c));
+      return;
+    }
+    _drawPrimitive(type, attrs, a, b, c);
+  }
+
+  void _drawPrimitive(int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
     switch (type) {
       case Gs.primPoint:
         _point(a, attrs);
@@ -334,7 +350,7 @@ class GsRaster {
   static int _clamp8(int v) => v < 0 ? 0 : (v > 255 ? 255 : v);
 
   void _pixel(int x, int y, int z, int r, int g, int b, int a, int f) {
-    final mem = gs.mem;
+    final mem = _mem;
     if (z < 0) z = 0;
     if (z > _zmax) z = _zmax;
     // Texture and destination reads have no side effects, so a failed depth
@@ -400,7 +416,7 @@ class GsRaster {
     // share memory. The 32-bit formats read as a plain word, without the
     // format switch of readAt on the per-pixel path.
     final needFraw = (_date && _fcolor != GsPsm.ct24) ||
-        (_abe && (gs.pabe == 0 || a & 0x80 != 0)) ||
+        (_abe && (!_pabe || a & 0x80 != 0)) ||
         _fbmsk != 0 ||
         keepAlpha;
     final fraw = !needFraw
@@ -421,17 +437,17 @@ class GsRaster {
       }
     }
     if (!writeColor) return;
-    if (_abe && (gs.pabe == 0 || a & 0x80 != 0)) {
+    if (_abe && (!_pabe || a & 0x80 != 0)) {
       _decodeFrame(fraw);
       final coef = _blendC == 0 ? a : (_blendC == 1 ? _da : _fix);
-      final clamp = gs.colclamp != 0;
+      final clamp = _colclamp;
       r = _blend(r, _dr, coef, clamp);
       g = _blend(g, _dg, coef, clamp);
       b = _blend(b, _db, coef, clamp);
     }
     if (gs.dthe & 1 != 0 && (_fcolor == GsPsm.ct16 || _fcolor == GsPsm.ct16s)) {
       final d = ((gs.dimx >> ((y & 3) * 16 + (x & 3) * 4)) & 7).toSigned(3);
-      final clamp = gs.colclamp != 0;
+      final clamp = _colclamp;
       r = clamp ? _clamp8(r + d) : (r + d) & 0xff;
       g = clamp ? _clamp8(g + d) : (g + d) & 0xff;
       b = clamp ? _clamp8(b + d) : (b + d) & 0xff;
@@ -509,9 +525,9 @@ class GsRaster {
     // the 32-bit formats store as a plain word, without the format switch
     // of writeAt on the per-pixel path
     if (_fpsm == GsPsm.ct32 || _fpsm == GsPsm.z32) {
-      gs.mem.setWord(fi, merged);
+      _mem.setWord(fi, merged);
     } else {
-      gs.mem.writeAt(_fpsm, fi, merged);
+      _mem.writeAt(_fpsm, fi, merged);
     }
   }
 
@@ -739,7 +755,7 @@ class GsRaster {
 
   /// the texel at the wrapped coordinates (u, v) in RGBA8888
   int _texel(int u, int v) {
-    final mem = gs.mem;
+    final mem = _mem;
     final i = _texLayout.index(_tbp, _texPages, u, v);
     if (_tpsm == GsPsm.ct32) return mem.word(i);
     switch (_tpsm) {
@@ -776,6 +792,7 @@ class GsRaster {
   // 16-bit format, as raw values.
   final _clutBuffer = Uint32List(512);
   int _cbp0 = 0, _cbp1 = 0;
+  Uint32List get residentClut => Uint32List.fromList(_clutBuffer);
 
   /// The CLUT buffer is the only state kept between primitives.
   void saveState(StateWriter w) {
@@ -838,23 +855,23 @@ class GsRaster {
     final start = _clutStart(tex0, cpsm);
     final eight = GsPsm.pixelBits(psm) == 8;
     final count = eight ? 256 : 16;
+    final resident = gs.residentSink;
     final mem = gs.mem;
-    if ((tex0 >> 55) & 1 == 0) {
-      // CSM1: the entries are pixels of a 16x16 image for the 8-bit formats
-      // and of an 8x2 image for the 4-bit ones. In the 16x16 image, the
-      // position of an entry swaps bits 3 and 4 of its index.
-      for (var i = 0; i < count; i++) {
-        final x = eight ? (i & 7) | (i & 0x10) >> 1 : i & 7;
-        final y = eight ? (i & 0xe0) >> 4 | (i & 8) >> 3 : i >> 3;
-        _clutBuffer[(start + i) & 511] = mem.read(cpsm, cbp, 1, x, y);
-      }
-    } else {
-      // CSM2: the entries are pixels of a row of the CLUT buffer image
-      final cbw = gs.texclut & 0x3f;
-      final cou = ((gs.texclut >> 6) & 0x3f) * 16;
-      final cov = (gs.texclut >> 12) & 0x3ff;
-      for (var i = 0; i < count; i++) {
-        _clutBuffer[(start + i) & 511] = mem.read(cpsm, cbp, cbw, cou + i, cov);
+    final csm2 = tex0 >> 55 & 1 != 0;
+    final layout = mem.layout(cpsm);
+    final pages = layout.pagesInRow(csm2 ? gs.texclut & 0x3f : 1);
+    final cou = (gs.texclut >> 6 & 0x3f) * 16;
+    final cov = gs.texclut >> 12 & 0x3ff;
+    for (var i = 0; i < count; i++) {
+      // CSM1 swaps bits 3 and 4 in the 16x16 image. CSM2 reads a row.
+      final x = csm2 ? cou + i : eight ? (i & 7) | (i & 0x10) >> 1 : i & 7;
+      final y = csm2 ? cov : eight ? (i & 0xe0) >> 4 | (i & 8) >> 3 : i >> 3;
+      final entry = (start + i) & 511;
+      final index = layout.index(cbp, pages, x, y);
+      if (resident == null) {
+        _clutBuffer[entry] = mem.readAt(cpsm, index);
+      } else {
+        resident.loadClut(entry, cpsm, index);
       }
     }
   }

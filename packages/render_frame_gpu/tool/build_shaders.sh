@@ -11,3 +11,8 @@ impellerc="$(ls "$engine"/*/impellerc | head -n 1)"
   --sl=shaders/frame.shaderbundle \
   --runtime-stage-vulkan --runtime-stage-gles --runtime-stage-gles3 \
   --include="$(dirname "$impellerc")/shader_lib"
+"$impellerc" \
+  --shader-bundle='{"Ps2Vertex":{"type":"vertex","file":"shaders/ps2.vert"},"Ps2Fragment":{"type":"fragment","file":"shaders/ps2.frag"},"Ps2SpriteVertex":{"type":"vertex","file":"shaders/ps2_sprite.vert"},"Ps2SpriteFragment":{"type":"fragment","file":"shaders/ps2_sprite.frag"},"Ps2FeedbackFragment":{"type":"fragment","file":"shaders/ps2_feedback.frag"}}' \
+  --sl=shaders/ps2.shaderbundle \
+  --runtime-stage-vulkan --runtime-stage-gles --runtime-stage-gles3 \
+  --include="$(dirname "$impellerc")/shader_lib"

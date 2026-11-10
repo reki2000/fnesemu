@@ -66,6 +66,7 @@ class GpuProgramSource {
     required this.wgsl,
     required this.attributes,
     required this.bindings,
+    this.cacheBindGroups = true,
   });
 
   /// The asset of the shader bundle for Flutter GPU, and the names of the
@@ -82,6 +83,9 @@ class GpuProgramSource {
 
   /// The uniform blocks and textures of the shaders.
   final List<GpuBinding> bindings;
+
+  /// Disable when the program binds newly uploaded textures on each draw.
+  final bool cacheBindGroups;
 }
 
 /// A uniform block or a texture of a program. [name] is the name in the
@@ -114,6 +118,8 @@ abstract class GpuTexture {
 /// A color target with its depth and stencil buffer; see
 /// [GpuDevice.target].
 abstract class GpuTarget {
+  /// The color attachment for sampling in a subsequent pass.
+  GpuTexture get colorTexture;
   int get width;
   int get height;
 }

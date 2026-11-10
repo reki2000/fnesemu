@@ -5,6 +5,7 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
+import '../../render_frame.dart';
 import '../../sram.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
@@ -158,6 +159,7 @@ class Ps2 extends Core {
       ..cpCond0 = () => io.dmac.cpCond0;
     io.iopRam = iopMemory.ram;
     io.intc.upcoming = _upcomingIntc;
+    io.gs.renderFrameSink = _renderFrameSink;
     return io;
   }
 
@@ -198,6 +200,20 @@ class Ps2 extends Core {
 
   @override
   ImageBuffer imageBuffer() => io.gs.image();
+
+  RenderFrameSink? _renderFrameSink;
+
+  @override
+  bool get rendersFrames => true;
+
+  @override
+  set renderFrameSink(RenderFrameSink? sink) {
+    _renderFrameSink = sink;
+    io.gs.renderFrameSink = sink;
+  }
+
+  @override
+  bool prepareImage() => io.gs.prepareImage();
 
   late final _pad = Ps2Pad()..source = padPort;
 
