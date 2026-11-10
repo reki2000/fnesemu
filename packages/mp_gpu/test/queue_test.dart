@@ -132,9 +132,10 @@ class _FakeDevice implements GpuDevice, GpuStamping {
     GpuTarget target,
     GpuProgram program,
     List<Float32List> vertices, {
-    required List<double> clearColor,
+    required List<double>? clearColor,
     required double clearDepth,
-  }) => _FakePass(target as _FakeTarget, (clearColor[0] * 255).round());
+    List<Uint32List> indices = const [],
+  }) => _FakePass(target as _FakeTarget, (clearColor![0] * 255).round());
 
   @override
   void stampOnly(GpuTarget target) => fill(target, 0);
@@ -197,6 +198,12 @@ class _FakePass implements GpuPass {
 
   @override
   void draw(int first, int count, [int array = 0]) {}
+
+  @override
+  void drawIndexed(int first, int count, [int array = 0, int indexArray = 0]) {}
+
+  @override
+  void scissor(int x, int y, int width, int height) {}
 
   @override
   void end({void Function(bool success)? onComplete}) {

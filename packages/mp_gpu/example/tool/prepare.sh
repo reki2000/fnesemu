@@ -29,7 +29,7 @@ patch android/app/src/main/AndroidManifest.xml EnableFlutterGPU \
 flutter_root="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
 impellerc="$(ls "$flutter_root"/bin/cache/artifacts/engine/*/impellerc* | head -n 1)"
 "$impellerc" \
-  --shader-bundle='{"ProbeVertex":{"type":"vertex","file":"shaders/probe.vert"},"ProbeFragment":{"type":"fragment","file":"shaders/probe.frag"}}' \
+  --shader-bundle='{"ProbeVertex":{"type":"vertex","file":"shaders/probe.vert"},"ProbeFragment":{"type":"fragment","file":"shaders/probe.frag"},"VramFragment":{"type":"fragment","file":"shaders/vram.frag"}}' \
   --sl=shaders/probe.shaderbundle \
   --runtime-stage-vulkan --runtime-stage-gles --runtime-stage-gles3 \
   --include="$(dirname "$impellerc")/shader_lib"

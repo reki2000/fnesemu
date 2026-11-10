@@ -39,13 +39,17 @@ abstract class GpuDevice {
 
   /// Starts a pass that clears [target] and then draws triangles of the
   /// vertex arrays [vertices] with [program]. [clearColor] holds red,
-  /// green, blue and alpha in 0 to 1. The stencil is cleared to 0.
+  /// green, blue and alpha in 0 to 1; when it is null, the pass keeps the
+  /// colors that the target holds. The depth is cleared to [clearDepth] and
+  /// the stencil to 0 in every pass. [indices] are the index arrays of
+  /// [GpuPass.drawIndexed].
   GpuPass pass(
     GpuTarget target,
     GpuProgram program,
     List<Float32List> vertices, {
-    required List<double> clearColor,
+    required List<double>? clearColor,
     required double clearDepth,
+    List<Uint32List> indices = const [],
   });
 
   /// Waits until the passes ended so far can be read. Call it once after
@@ -117,6 +121,10 @@ abstract class GpuTexture {
   int get width;
   int get height;
 
+  /// Replaces the texels with [rgba], the RGBA bytes of the whole texture
+  /// row by row from the top. The passes ended before see the old texels.
+  void overwrite(Uint8List rgba);
+
   /// Frees the texture once the passes ended so far are done with it. A
   /// later pass must not use it. Do not dispose the [GpuTarget.colorTexture]
   /// of a target. On Flutter GPU, the memory goes with the last reference.
@@ -159,6 +167,15 @@ abstract class GpuPass {
   /// Draws the triangles of [count] vertices from vertex [first] of the
   /// vertex array [array] of the pass.
   void draw(int first, int count, [int array = 0]);
+
+  /// Draws the triangles of [count] indices from index [first] of the index
+  /// array [indexArray], which index the vertex array [array].
+  void drawIndexed(int first, int count, [int array = 0, int indexArray = 0]);
+
+  /// Limits the next draws to the rectangle of [width] x [height] pixels at
+  /// [x] and [y] from the top left. A pass starts without a limit; a
+  /// rectangle over the whole target removes it.
+  void scissor(int x, int y, int width, int height);
 
   /// Ends the pass and submits it. [onComplete] is called when the GPU has
   /// run it, with whether it succeeded.
@@ -207,14 +224,28 @@ enum GpuBlendFactor {
 
 enum GpuStencilOperation { keep, zero, replace, invert }
 
-/// The state of draws: blending, the depth test and the stencil test. Back
-/// faces are drawn too. The stencil operation applies where both tests
-/// pass; elsewhere the stencil is kept.
+/// How a blend combines the source and the destination, each scaled by its
+/// factor: `source + destination`, `source - destination` or
+/// `destination - source`.
+enum GpuBlendOperation { add, subtract, reverseSubtract }
+
+/// Which triangles are not drawn. A triangle whose vertices go counter
+/// clockwise in clip space, with y up, faces the front.
+enum GpuCull { none, front, back }
+
+/// The state of draws: blending, culling, the depth test and the stencil
+/// test. The stencil operation applies where both tests pass; elsewhere the
+/// stencil is kept.
 class GpuState {
   const GpuState({
     this.blend = false,
     this.sourceFactor = GpuBlendFactor.one,
     this.destinationFactor = GpuBlendFactor.zero,
+    this.operation = GpuBlendOperation.add,
+    this.sourceAlphaFactor,
+    this.destinationAlphaFactor,
+    this.alphaOperation,
+    this.cull = GpuCull.none,
     this.depthCompare = GpuCompare.always,
     this.depthWrite = false,
     this.stencilCompare = GpuCompare.always,
@@ -223,10 +254,16 @@ class GpuState {
     this.stencilWriteMask = 0xff,
   });
 
-  /// Whether the color blends with [sourceFactor] and [destinationFactor],
-  /// the same for the alpha.
+  /// Whether the color blends with [sourceFactor], [destinationFactor] and
+  /// [operation]. The alpha blends with [sourceAlphaFactor],
+  /// [destinationAlphaFactor] and [alphaOperation], or with the color's
+  /// where they are null.
   final bool blend;
   final GpuBlendFactor sourceFactor, destinationFactor;
+  final GpuBlendOperation operation;
+  final GpuBlendFactor? sourceAlphaFactor, destinationAlphaFactor;
+  final GpuBlendOperation? alphaOperation;
+  final GpuCull cull;
   final GpuCompare depthCompare;
   final bool depthWrite;
   final GpuCompare stencilCompare;
@@ -243,5 +280,16 @@ class GpuState {
       stencilCompare.index << 13 |
       stencilOperation.index << 16 |
       (stencilReadMask & 0xff) << 18 |
-      (stencilWriteMask & 0xff) << 26;
+      (stencilWriteMask & 0xff) << 26 |
+      operation.index << 34 |
+      (alphaOperation?.index ?? 3) << 36 |
+      (sourceAlphaFactor?.index ?? 15) << 38 |
+      (destinationAlphaFactor?.index ?? 15) << 42 |
+      cull.index << 46;
+
+  /// The factors and the operation of the alpha.
+  GpuBlendFactor get alphaSource => sourceAlphaFactor ?? sourceFactor;
+  GpuBlendFactor get alphaDestination =>
+      destinationAlphaFactor ?? destinationFactor;
+  GpuBlendOperation get alphaBlend => alphaOperation ?? operation;
 }

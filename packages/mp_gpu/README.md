@@ -13,6 +13,7 @@ Offscreen drawing on the GPU of the platform. `GpuDevice.create()` picks the API
 - `GpuDevice.program` loads a program from a `GpuProgramSource`, which names the shader bundle for Flutter GPU, the WGSL source for WebGPU, the vertex attributes and the bindings. The WGSL source has the entry points `vertex_main` and `fragment_main` and all bindings in group 0; the sampler of a texture takes the binding after the texture.
 - `GpuDevice.texture` uploads an RGBA texture, and `GpuDevice.target` creates a color target with a depth and stencil buffer. `GpuTexture.dispose` frees a texture once the passes ended so far are done with it: WebGPU destroys it then, and Flutter GPU frees it with its last reference.
 - `GpuDevice.pass` starts a pass over one or more vertex arrays. Uniforms, textures, the draw state (`GpuState`) and the stencil reference are set per draw, as in Flutter GPU. `GpuPass.uniformAt` sets a uniform block from a list that holds the blocks of many draws at multiples of `GpuDevice.uniformAlignment`; the pass uploads the list once instead of each block. The WebGPU backend keeps a pipeline for each state and a bind group for each set of textures, and writes the uniforms of a pass into one buffer with dynamic offsets.
+- `GpuState` also sets the blend operation, separate factors and operation for the alpha, and culling; a triangle that goes counter clockwise in clip space faces the front. `GpuPass.scissor` limits the draws to a rectangle, and `GpuPass.drawIndexed` draws from the 32-bit index arrays given to `GpuDevice.pass`. A pass with no clear color keeps the colors of its target; the depth and the stencil are always cleared. `GpuTexture.overwrite` writes all texels of a texture again.
 - `GpuDevice.settle` waits until the passes ended so far can be read, and `GpuDevice.read` returns the RGBA bytes of a target.
 - `GpuQueue` draws jobs into targets and returns their pixels. The jobs that come while others are drawn wait, and are drawn together, each into a target of its own, and read back after one `settle`. When more than eight wait, the oldest get null. The queue keeps the targets for later jobs of the same size, and `GpuQueue.scratch` gives a job more targets to sample in its later passes.
 
@@ -25,6 +26,8 @@ Offscreen drawing on the GPU of the platform. `GpuDevice.create()` picks the API
 - WebGPU: `settle` waits for the submitted work, and `read` copies the target into a buffer and maps it. The headless Chrome of the tests runs WebGPU on SwiftShader with `--enable-unsafe-webgpu`.
 
 ## Shaders
+
+The GLES backend of Flutter GPU runs fragment shaders with mediump floats, whatever precision the source asks for, so whole numbers in a float are exact only up to 2048. Compute large texel positions with ints.
 
 `shaders/check.vert` and `shaders/check.frag` are the shaders of the check and of the numbers of the queue. Run `tool/build_shaders.sh` to compile them into `shaders/check.shaderbundle` with the `impellerc` of the Flutter SDK; rebuild it after a Flutter upgrade. A bundle that does not load makes the check fall back to the completion, and the queue then reads the targets without numbers.
 

@@ -165,8 +165,9 @@ class _NativeDevice implements GpuDevice, GpuStamping {
     GpuTarget target,
     GpuProgram program,
     List<Float32List> vertices, {
-    required List<double> clearColor,
+    required List<double>? clearColor,
     required double clearDepth,
+    List<Uint32List> indices = const [],
   }) {
     target as _NativeTarget;
     final commands = _context.createCommandBuffer();
@@ -175,12 +176,17 @@ class _NativeDevice implements GpuDevice, GpuStamping {
         colorAttachments: [
           gpu.ColorAttachment(
             texture: target.color,
-            clearValue: vm.Vector4(
-              clearColor[0],
-              clearColor[1],
-              clearColor[2],
-              clearColor[3],
-            ),
+            loadAction: clearColor == null
+                ? gpu.LoadAction.load
+                : gpu.LoadAction.clear,
+            clearValue: clearColor == null
+                ? null
+                : vm.Vector4(
+                    clearColor[0],
+                    clearColor[1],
+                    clearColor[2],
+                    clearColor[3],
+                  ),
           ),
         ],
         depthStencilAttachment: gpu.DepthStencilAttachment(
@@ -198,6 +204,10 @@ class _NativeDevice implements GpuDevice, GpuStamping {
       [
         for (final v in vertices)
           _context.createDeviceBufferWithCopy(ByteData.sublistView(v)),
+      ],
+      [
+        for (final i in indices)
+          _context.createDeviceBufferWithCopy(ByteData.sublistView(i)),
       ],
     );
   }
@@ -281,6 +291,9 @@ class _NativeTexture implements GpuTexture {
   @override
   int get height => texture.height;
   @override
+  void overwrite(Uint8List rgba) =>
+      texture.overwrite(ByteData.sublistView(rgba));
+  @override
   void dispose() {}
 }
 
@@ -303,6 +316,7 @@ class _NativePass implements GpuPass {
     this._commands,
     this._pass,
     this._vertices,
+    this._indices,
   ) : _uniforms = List.filled(_program.slots.length, null),
       _textures = List.filled(_program.slots.length, null),
       _samplers = List.filled(_program.slots.length, null),
@@ -315,7 +329,7 @@ class _NativePass implements GpuPass {
   final _NativeProgram _program;
   final gpu.CommandBuffer _commands;
   final gpu.RenderPass _pass;
-  final List<gpu.DeviceBuffer> _vertices;
+  final List<gpu.DeviceBuffer> _vertices, _indices;
   // The bindings of the next draw by index.
   final List<gpu.BufferView?> _uniforms;
   final List<gpu.Texture?> _textures;
@@ -327,6 +341,10 @@ class _NativePass implements GpuPass {
   final List<gpu.SamplerOptions?> _boundSamplers;
   bool _pipelineBound = false;
   int _boundState = -1, _boundReference = -1;
+  // The scissor of the next draws and of the render pass, as x, y, width
+  // and height; a width of -1 means none.
+  final _scissor = Int32List(4)..[2] = -1;
+  final _boundScissor = Int32List(4)..[2] = -1;
   GpuState _state = const GpuState();
   int _reference = 0;
 
@@ -385,21 +403,59 @@ class _NativePass implements GpuPass {
   void stencilReference(int value) => _reference = value;
 
   @override
+  @override
+  void scissor(int x, int y, int width, int height) => _scissor
+    ..[0] = x
+    ..[1] = y
+    ..[2] = width
+    ..[3] = height;
+
+  @override
   void draw(int first, int count, [int array = 0]) {
-    final pass = _pass, state = _state, bytes = _program.vertexBytes;
-    final slots = _program.slots;
-    if (!_pipelineBound) {
-      pass.bindPipeline(_program.pipeline);
-      pass.setCullMode(gpu.CullMode.none);
-      _pipelineBound = true;
-    }
-    pass.bindVertexBuffer(
+    final bytes = _program.vertexBytes;
+    _pass.bindVertexBuffer(
       gpu.BufferView(
         _vertices[array],
         offsetInBytes: first * bytes,
         lengthInBytes: count * bytes,
       ),
     );
+    _bind();
+    _pass.draw(count);
+  }
+
+  @override
+  void drawIndexed(int first, int count, [int array = 0, int indexArray = 0]) {
+    final vertices = _vertices[array];
+    _pass.bindVertexBuffer(
+      gpu.BufferView(
+        vertices,
+        offsetInBytes: 0,
+        lengthInBytes: vertices.sizeInBytes,
+      ),
+    );
+    _pass.bindIndexBuffer(
+      gpu.BufferView(
+        _indices[indexArray],
+        offsetInBytes: first * 4,
+        lengthInBytes: count * 4,
+      ),
+      gpu.IndexType.int32,
+    );
+    _bind();
+    _pass.drawIndexed(count);
+  }
+
+  /// Sets the bindings and the state of the next draw that differ from the
+  /// render pass.
+  void _bind() {
+    final pass = _pass, state = _state;
+    final slots = _program.slots;
+    if (!_pipelineBound) {
+      pass.bindPipeline(_program.pipeline);
+      pass.setWindingOrder(gpu.WindingOrder.counterClockwise);
+      _pipelineBound = true;
+    }
     for (var i = 0; i < slots.length; i++) {
       final uniform = _uniforms[i];
       if (uniform != null) {
@@ -432,21 +488,43 @@ class _NativePass implements GpuPass {
       pass.setStencilReference(_reference);
       _boundReference = _reference;
     }
-    pass.draw(count);
+    final scissor = _scissor, bound = _boundScissor;
+    if (scissor[0] != bound[0] ||
+        scissor[1] != bound[1] ||
+        scissor[2] != bound[2] ||
+        scissor[3] != bound[3]) {
+      _setScissor(scissor);
+      bound.setAll(0, scissor);
+    }
+  }
+
+  /// Sets the scissor of the render pass to [scissor], or to the whole
+  /// target when its width is -1.
+  void _setScissor(Int32List scissor) {
+    final none = scissor[2] < 0;
+    _pass.setScissor(
+      gpu.Scissor(
+        x: none ? 0 : scissor[0],
+        y: none ? 0 : scissor[1],
+        width: none ? _target.width : scissor[2],
+        height: none ? _target.height : scissor[3],
+      ),
+    );
   }
 
   void _setState(GpuState state) {
     final pass = _pass;
+    pass.setCullMode(_culls[state.cull.index]);
     pass.setColorBlendEnable(state.blend);
     if (state.blend) {
-      final source = _factors[state.sourceFactor.index];
-      final destination = _factors[state.destinationFactor.index];
       pass.setColorBlendEquation(
         gpu.ColorBlendEquation(
-          sourceColorBlendFactor: source,
-          destinationColorBlendFactor: destination,
-          sourceAlphaBlendFactor: source,
-          destinationAlphaBlendFactor: destination,
+          colorBlendOperation: _operationsOfBlend[state.operation.index],
+          sourceColorBlendFactor: _factors[state.sourceFactor.index],
+          destinationColorBlendFactor: _factors[state.destinationFactor.index],
+          alphaBlendOperation: _operationsOfBlend[state.alphaBlend.index],
+          sourceAlphaBlendFactor: _factors[state.alphaSource.index],
+          destinationAlphaBlendFactor: _factors[state.alphaDestination.index],
         ),
       );
     }
@@ -482,6 +560,9 @@ class _NativePass implements GpuPass {
     final program = _device._stampProgram;
     if (stamp == null || program == null) return;
     final pass = _pass;
+    // The bindings of the draws before stay in the render pass, and one of
+    // the same name as a binding of the stamp would be used instead.
+    pass.clearBindings();
     pass.bindPipeline(program.pipeline);
     pass.setCullMode(gpu.CullMode.none);
     pass.bindVertexBuffer(
@@ -509,6 +590,9 @@ class _NativePass implements GpuPass {
       _device._white,
       sampler: gpu.SamplerOptions(),
     );
+    pass.setScissor(
+      gpu.Scissor(width: _target.width, height: _target.height),
+    );
     pass.setColorBlendEnable(false);
     pass.setDepthWriteEnable(false);
     pass.setDepthCompareOperation(gpu.CompareFunction.always);
@@ -521,6 +605,18 @@ class _NativePass implements GpuPass {
     );
     pass.draw(6);
   }
+
+  static const _culls = [
+    gpu.CullMode.none,
+    gpu.CullMode.frontFace,
+    gpu.CullMode.backFace,
+  ];
+
+  static const _operationsOfBlend = [
+    gpu.BlendOperation.add,
+    gpu.BlendOperation.subtract,
+    gpu.BlendOperation.reverseSubtract,
+  ];
 
   static const _address = [
     gpu.SamplerAddressMode.repeat,

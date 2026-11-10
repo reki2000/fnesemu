@@ -19,3 +19,4 @@ flutter:
   assets:
     - shaders/probe.shaderbundle
     - shaders/probe.wgsl
+    - shaders/vram.wgsl

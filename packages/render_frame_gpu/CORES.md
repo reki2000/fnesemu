@@ -71,25 +71,39 @@ The recommended way:
 
 ### What mp_gpu offers and lacks
 
-`mp_gpu` covers what the DC renderer needs. A new core will likely need more, and each addition must work on both backends:
+`mp_gpu` covers what the DC renderer needs, and the features below for the next cores. Each addition must work on both backends. The probe in `packages/mp_gpu/example` checks the features marked yes by drawing with them (`features`), on Linux GLES and on WebGPU so far.
 
 | Feature | mp_gpu now | Flutter GPU | WebGPU |
 |---|---|---|---|
-| Blend factors on color and alpha together | yes | yes | yes |
-| Blend operation other than add (subtract, reverse subtract) | no | yes | yes |
-| Constant blend color | no | yes | yes |
-| Separate factors for alpha | no | yes | yes |
-| Color write mask | no | yes | yes |
+| Blend factors, the same for color and alpha | yes | yes | yes |
+| Blend operation other than add (subtract, reverse subtract) | yes | yes | yes |
+| Separate factors and operation for alpha | yes | yes | yes |
+| Constant blend color | no | no | yes |
+| Color write mask | no | no | yes |
 | Depth compare, depth write, stencil compare, keep/zero/replace/invert, masks | yes | yes | yes |
-| Back-face culling | no, all faces are drawn | yes | yes |
-| Scissor | no | yes | yes |
-| Load the old contents of a target instead of clearing | no | yes | yes |
-| Sample a target in a later pass | no | yes, with shader read usage | yes |
+| Culling of front or back faces | yes | yes | yes |
+| Scissor | yes | yes | yes |
+| Indexed draws | yes, 32-bit indices | yes | yes |
+| Keep the old colors of a target instead of clearing | yes; depth and stencil are always cleared | yes | yes |
+| Sample a target in a later pass | yes | yes | yes |
+| Write a texture again | yes, the whole texture | the whole of a mip level | any region |
 | Mipmaps | no | yes | yes |
 | Color formats other than RGBA8 | no | yes | yes |
 | Read back the depth | no | not checked | yes |
+| Compute shaders and storage buffers | no | no | yes |
 
-The Flutter GPU column is from the API of the SDK; check each one on a real backend before relying on it.
+The Flutter GPU column is from the API of the SDK. Its GLES backend runs fragment shaders with mediump floats: `impellerc` writes `precision mediump float` and drops a default precision of the source, so whole numbers in a float are exact only up to 2048. Compute addresses into large textures with ints, which are highp.
+
+### Keeping video memory on the GPU
+
+A core could keep its video memory in a texture of 32-bit words and read it in its shaders by addresses that they compute, instead of decoding textures on the CPU. The `vram` case of the probe keeps 4 MB (PS2), 8 MB (DC) and 64 MB images, reads 512 x 512 words of them at interleaved addresses, and writes the whole image again in each of 20 rounds:
+
+| Backend | Exact reads | Write of 4 MB | Write of 8 MB | Write of 64 MB |
+|---|---|---|---|---|
+| Flutter GPU, GLES on Linux with Mesa | all | 0.7 ms | 1.9 ms | 39 ms |
+| WebGPU on SwiftShader in headless Chrome | all | 7.8 ms | 15 ms | 130 ms |
+
+The times are of the call on the CPU. Flutter GPU can only write a whole mip level, so a core that changes a few pages of memory between draws writes the whole image, or splits the memory into several textures. WebGPU can write any region. Run the probe on real devices before relying on these numbers.
 
 ## Notes for N64
 

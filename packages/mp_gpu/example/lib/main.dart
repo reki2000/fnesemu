@@ -13,9 +13,11 @@
 // wait that the device chose when it was created, then lines that start
 // with `MP_GPU_PROBE `, one JSON object for each case, a
 // `MP_GPU_PROBE_BEST ` line that ranks the waits by wrong reads and
-// latency, and `MP_GPU_PROBE_DONE`. The `settle` cases use the chosen
-// wait. The
-// latency of a case runs from the draws to the last read. A native build
+// latency, a `MP_GPU_PROBE_FEATURES ` line and `MP_GPU_PROBE_VRAM ` lines
+// with the checks of checks.dart, and `MP_GPU_PROBE_DONE`. The `settle`
+// cases use the chosen wait. The latency of a case runs from the draws to
+// the last read. `--dart-define=MP_GPU_PROBE_CASES=features,vram` runs
+// only some of the cases. A native build
 // also writes them to the file named by the environment variable
 // `MP_GPU_PROBE_OUT` and exits.
 import 'dart:async';
@@ -26,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:mp_gpu/mp_gpu.dart';
 
+import 'checks.dart';
 import 'finish_stub.dart' if (dart.library.io) 'finish_io.dart';
 
 void main() => runApp(const ProbeApp());
@@ -69,19 +72,40 @@ class _ProbeAppState extends State<ProbeApp> {
         _log(
           'MP_GPU_PROBE_DEVICE ${jsonEncode({'device': device.name, 'readBack': device.readBack, 'createMs': created.elapsedMilliseconds})}',
         );
-        final probe = await _Probe.create(device);
-        final results = <Map<String, Object?>>[];
-        for (final uploads in _uploads) {
-          for (final targets in _targets) {
-            for (final wait in _Wait.values) {
-              _log('MP_GPU_PROBE_STEP ${wait.name} $uploads $targets');
-              final result = await probe.run(wait, uploads, targets);
-              results.add(result);
-              _log('MP_GPU_PROBE ${jsonEncode(result)}');
+        if (_cases.contains('readback')) {
+          final probe = await _Probe.create(device);
+          final results = <Map<String, Object?>>[];
+          for (final uploads in _uploads) {
+            for (final targets in _targets) {
+              for (final wait in _Wait.values) {
+                _log('MP_GPU_PROBE_STEP ${wait.name} $uploads $targets');
+                final result = await probe.run(wait, uploads, targets);
+                results.add(result);
+                _log('MP_GPU_PROBE ${jsonEncode(result)}');
+              }
             }
           }
+          _log('MP_GPU_PROBE_BEST ${jsonEncode(_best(results))}');
         }
-        _log('MP_GPU_PROBE_BEST ${jsonEncode(_best(results))}');
+        if (_cases.contains('features')) {
+          _log('MP_GPU_PROBE_STEP features');
+          final features = await checkFeatures(device);
+          _log('MP_GPU_PROBE_FEATURES ${jsonEncode(features)}');
+        }
+        if (_cases.contains('vram')) {
+          // PS2 local memory, DC video memory, and a larger image.
+          const sizes = [(1024, 1024), (2048, 1024), (4096, 4096)];
+          for (final (width, height) in sizes) {
+            _log('MP_GPU_PROBE_STEP vram $width $height');
+            Map<String, Object?> result;
+            try {
+              result = await checkVram(device, width, height);
+            } catch (e) {
+              result = {'words': '${width}x$height', 'error': '$e'};
+            }
+            _log('MP_GPU_PROBE_VRAM ${jsonEncode(result)}');
+          }
+        }
       }
     } catch (e) {
       _log('MP_GPU_PROBE ${jsonEncode({'error': '$e'})}');
@@ -132,6 +156,13 @@ class _ProbeAppState extends State<ProbeApp> {
     ),
   );
 }
+
+// The cases to run, separated by commas: `readback`, the waits before a
+// read, `features` and `vram`, as described in checks.dart.
+const _cases = String.fromEnvironment(
+  'MP_GPU_PROBE_CASES',
+  defaultValue: 'readback,features,vram',
+);
 
 // The number of large textures that each frame uploads besides its own.
 const _uploads = [0, 16];
