@@ -111,6 +111,9 @@ class _FakeDevice implements GpuDevice, GpuStamping {
   bool get stencil => true;
 
   @override
+  int get uniformAlignment => 16;
+
+  @override
   Future<GpuProgram> program(GpuProgramSource source) async => _FakeProgram();
 
   @override
@@ -175,6 +178,9 @@ class _FakePass implements GpuPass {
 
   @override
   void uniform(String name, ByteData data) {}
+
+  @override
+  void uniformAt(String name, ByteData data, int offset, int length) {}
 
   @override
   void texture(

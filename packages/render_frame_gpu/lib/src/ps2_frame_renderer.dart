@@ -115,15 +115,21 @@ class Ps2FrameRenderer {
         clearColor: const [0, 0, 0, 1], clearDepth: 0);
     pass.state(const GpuState());
     var first = 0;
+    final uploads = <GpuTexture>[];
     for (final (i, tile) in tiles.indexed) {
       final frame = tile.frame;
       pass.uniform('SpriteInfo', ByteData.sublistView(frame.state));
-      pass.texture('sprite_input', input ??
-          _device.texture(frame.inputWidth, frame.inputHeight, frame.input));
+      final texture = input ??
+          _device.texture(frame.inputWidth, frame.inputHeight, frame.input);
+      if (input == null) uploads.add(texture);
+      pass.texture('sprite_input', texture);
       pass.draw(first, counts[i]);
       first += counts[i];
     }
     pass.end();
+    for (final texture in uploads) {
+      texture.dispose();
+    }
   }
 
   // The first draw feeds a patch of the texture for the second draw.
@@ -163,6 +169,7 @@ class Ps2FrameRenderer {
     data[7] = 1;
     _feedbackPass(program, output, firstTile, first.colorTexture,
         second.colorTexture, data, height, 0);
+    input.dispose();
   }
 
   void _feedbackPass(GpuProgram program, GpuTarget output, Ps2SpriteTile tile,

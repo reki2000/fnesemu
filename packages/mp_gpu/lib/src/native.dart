@@ -75,6 +75,9 @@ class _NativeDevice implements GpuDevice, GpuStamping {
   bool get stamps => _stampProgram != null;
 
   @override
+  late final int uniformAlignment = _context.minimumUniformByteAlignment;
+
+  @override
   void stampOnly(GpuTarget target) => pass(
     target,
     _stampProgram!,
@@ -277,6 +280,8 @@ class _NativeTexture implements GpuTexture {
   int get width => texture.width;
   @override
   int get height => texture.height;
+  @override
+  void dispose() {}
 }
 
 class _NativeTarget implements GpuTarget {
@@ -316,9 +321,31 @@ class _NativePass implements GpuPass {
   GpuState _state = const GpuState();
   int _reference = 0;
 
+  // The last list of [uniformAt] and the buffer it was uploaded to.
+  ByteData? _shared;
+  gpu.DeviceBuffer? _sharedBuffer;
+
   @override
   void uniform(String name, ByteData data) =>
       _uniforms[_program.indices[name]!] = _device._host.emplace(data);
+
+  @override
+  void uniformAt(String name, ByteData data, int offset, int length) {
+    // A buffer of its own: the host buffer fails to place a list that does
+    // not fit into the rest of its block.
+    var buffer = _sharedBuffer;
+    if (buffer == null || !identical(data, _shared)) {
+      buffer = _sharedBuffer = _device._context.createDeviceBufferWithCopy(
+        data,
+      );
+      _shared = data;
+    }
+    _uniforms[_program.indices[name]!] = gpu.BufferView(
+      buffer,
+      offsetInBytes: offset,
+      lengthInBytes: length,
+    );
+  }
 
   @override
   void texture(

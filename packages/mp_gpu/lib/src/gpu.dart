@@ -24,6 +24,9 @@ abstract class GpuDevice {
   /// Whether the depth buffers of targets have a stencil.
   bool get stencil;
 
+  /// The alignment in bytes of the offsets of [GpuPass.uniformAt].
+  int get uniformAlignment;
+
   /// Loads the shaders of [source] for this platform.
   Future<GpuProgram> program(GpuProgramSource source);
 
@@ -113,6 +116,11 @@ abstract class GpuProgram {}
 abstract class GpuTexture {
   int get width;
   int get height;
+
+  /// Frees the texture once the passes ended so far are done with it. A
+  /// later pass must not use it. Do not dispose the [GpuTarget.colorTexture]
+  /// of a target. On Flutter GPU, the memory goes with the last reference.
+  void dispose();
 }
 
 /// A color target with its depth and stencil buffer; see
@@ -128,6 +136,12 @@ abstract class GpuTarget {
 abstract class GpuPass {
   /// Sets the uniform block [name] of the next draws to [data].
   void uniform(String name, ByteData data);
+
+  /// Sets the uniform block [name] of the next draws to [length] bytes of
+  /// [data] from [offset], a multiple of [GpuDevice.uniformAlignment]. The
+  /// pass uploads [data] once for all the draws that use it, so the blocks
+  /// of many draws go in one list.
+  void uniformAt(String name, ByteData data, int offset, int length);
 
   /// Sets the texture [name] of the next draws.
   void texture(

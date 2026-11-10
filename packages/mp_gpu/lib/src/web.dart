@@ -88,6 +88,7 @@ extension type _Buffer._(JSObject _) implements JSObject {
 
 extension type _Texture._(JSObject _) implements JSObject {
   external JSObject createView();
+  external void destroy();
 }
 
 /// A JS object of [values], with Dart numbers, strings, booleans, maps and
@@ -147,6 +148,9 @@ class _WebDevice implements GpuDevice {
 
   @override
   bool get stencil => true;
+
+  @override
+  int get uniformAlignment => _alignment;
 
   @override
   Future<GpuProgram> program(GpuProgramSource source) async {
@@ -356,6 +360,9 @@ class _WebTexture implements GpuTexture {
   @override
   final int width, height;
   final int id;
+  // WebGPU destroys it after the work submitted so far.
+  @override
+  void dispose() => texture.destroy();
 }
 
 class _WebTarget implements GpuTarget {
@@ -418,14 +425,33 @@ class _WebPass implements GpuPass {
   GpuState _state = const GpuState();
   int _reference = 0;
 
+  // The last list of [uniformAt] and its offset in the uniforms.
+  ByteData? _shared;
+  int _sharedOffset = 0;
+
   @override
   void uniform(String name, ByteData data) {
+    _uniformOffsets[name] = _addUniforms(data);
+    _uniformSizes[name] = data.lengthInBytes;
+  }
+
+  @override
+  void uniformAt(String name, ByteData data, int offset, int length) {
+    if (!identical(data, _shared)) {
+      _sharedOffset = _addUniforms(data);
+      _shared = data;
+    }
+    _uniformOffsets[name] = _sharedOffset + offset;
+    _uniformSizes[name] = length;
+  }
+
+  /// Appends [data] to the uniforms of the pass and returns its offset.
+  int _addUniforms(ByteData data) {
     final offset = _uniformBytes.length;
     _uniformBytes.add(Uint8List.sublistView(data));
     final pad = _aligned(data.lengthInBytes) - data.lengthInBytes;
     if (pad > 0) _uniformBytes.add(Uint8List(pad));
-    _uniformOffsets[name] = offset;
-    _uniformSizes[name] = data.lengthInBytes;
+    return offset;
   }
 
   @override
