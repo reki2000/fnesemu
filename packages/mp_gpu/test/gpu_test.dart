@@ -17,6 +17,11 @@ void main() {
       const GpuState(stencilOperation: GpuStencilOperation.invert),
       const GpuState(stencilReadMask: 0x7f),
       const GpuState(stencilWriteMask: 0x7f),
+      const GpuState(operation: GpuBlendOperation.reverseSubtract),
+      const GpuState(alphaOperation: GpuBlendOperation.add),
+      const GpuState(sourceAlphaFactor: GpuBlendFactor.zero),
+      const GpuState(destinationAlphaFactor: GpuBlendFactor.zero),
+      const GpuState(cull: GpuCull.back),
     ];
     expect({for (final s in states) s.key}, hasLength(states.length));
   });

@@ -73,6 +73,14 @@ extension type _RenderPass._(JSObject _) implements JSObject {
     JSArray<JSNumber> dynamicOffsets,
   );
   external void setVertexBuffer(int slot, _Buffer buffer, int offset);
+  external void setIndexBuffer(_Buffer buffer, String format, int offset);
+  external void setScissorRect(int x, int y, int width, int height);
+  external void drawIndexed(
+    int indexCount,
+    int instanceCount,
+    int firstIndex,
+    int baseVertex,
+  );
   external void setStencilReference(int reference);
   external void draw(int vertexCount, int instanceCount, int firstVertex);
   external void end();
@@ -88,6 +96,7 @@ extension type _Buffer._(JSObject _) implements JSObject {
 
 extension type _Texture._(JSObject _) implements JSObject {
   external JSObject createView();
+  external void destroy();
 }
 
 /// A JS object of [values], with Dart numbers, strings, booleans, maps and
@@ -113,7 +122,7 @@ JSAny? _value(Object? value) => switch (value) {
 
 // Usage flags of buffers and textures.
 const _mapRead = 1, _copyDestination = 8;
-const _vertexUsage = 32, _uniformUsage = 64;
+const _indexUsage = 16, _vertexUsage = 32, _uniformUsage = 64;
 const _textureCopySource = 1, _textureCopyDestination = 2;
 const _textureBinding = 4, _renderAttachment = 16;
 const _vertexStage = 1, _fragmentStage = 2;
@@ -134,7 +143,7 @@ class _WebDevice implements GpuDevice {
   // submitted. The queue runs the writes and the passes in order, so the
   // next pass can write over them. A buffer that grows is a new one, which
   // [_generation] counts for the bind groups that refer to it.
-  _Buffer? _vertexBuffer, _uniformBuffer;
+  _Buffer? _vertexBuffer, _indexBuffer, _uniformBuffer;
   int _generation = 0;
   final _samplers = <int, JSObject>{};
   int _textureIds = 0;
@@ -147,6 +156,9 @@ class _WebDevice implements GpuDevice {
 
   @override
   bool get stencil => true;
+
+  @override
+  int get uniformAlignment => _alignment;
 
   @override
   Future<GpuProgram> program(GpuProgramSource source) async {
@@ -199,6 +211,7 @@ class _WebDevice implements GpuDevice {
       bindings,
       {'arrayStride': offset, 'attributes': attributes},
       offset,
+      source.cacheBindGroups,
     );
   }
 
@@ -211,13 +224,9 @@ class _WebDevice implements GpuDevice {
         'usage': _textureBinding | _textureCopyDestination,
       }),
     );
-    _queue.writeTexture(
-      _object({'texture': texture}),
-      rgba.toJS,
-      _object({'bytesPerRow': width * 4, 'rowsPerImage': height}),
-      _object({'width': width, 'height': height}),
-    );
+    _writeTexels(_queue, texture, width, height, rgba);
     return _WebTexture(
+      _queue,
       texture,
       texture.createView(),
       width,
@@ -232,7 +241,7 @@ class _WebDevice implements GpuDevice {
       _object({
         'size': [width, height],
         'format': _colorFormat,
-        'usage': _renderAttachment | _textureCopySource,
+        'usage': _renderAttachment | _textureCopySource | _textureBinding,
       }),
     );
     final depth = _device.createTexture(
@@ -243,11 +252,15 @@ class _WebDevice implements GpuDevice {
       }),
     );
     return _WebTarget(
-      color,
-      color.createView(),
+      _WebTexture(
+        _queue,
+        color,
+        color.createView(),
+        width,
+        height,
+        _textureIds++,
+      ),
       depth.createView(),
-      width,
-      height,
     );
   }
 
@@ -256,13 +269,15 @@ class _WebDevice implements GpuDevice {
     GpuTarget target,
     GpuProgram program,
     List<Float32List> vertices, {
-    required List<double> clearColor,
+    required List<double>? clearColor,
     required double clearDepth,
+    List<Uint32List> indices = const [],
   }) => _WebPass(
     this,
     target as _WebTarget,
     program as _WebProgram,
     vertices,
+    indices,
     clearColor,
     clearDepth,
   );
@@ -339,37 +354,66 @@ class _WebProgram implements GpuProgram {
     this.bindings,
     this.vertexLayout,
     this.vertexBytes,
+    this.cacheBindGroups,
   );
   final JSObject module, bindGroupLayout, layout;
   // Sorted by binding.
   final List<GpuBinding> bindings;
   final Map<String, Object?> vertexLayout;
   final int vertexBytes;
+  final bool cacheBindGroups;
   final pipelines = <int, JSObject>{};
   final bindGroups = <String, JSObject>{};
 }
 
 class _WebTexture implements GpuTexture {
-  _WebTexture(this.texture, this.view, this.width, this.height, this.id);
+  _WebTexture(
+    this._queue,
+    this.texture,
+    this.view,
+    this.width,
+    this.height,
+    this.id,
+  );
+  final _Queue _queue;
   final _Texture texture;
   final JSObject view;
   @override
   final int width, height;
   final int id;
+  // WebGPU destroys it after the work submitted so far.
+  @override
+  void dispose() => texture.destroy();
+  @override
+  void overwrite(Uint8List rgba) =>
+      _writeTexels(_queue, texture, width, height, rgba);
 }
 
+/// Writes [rgba], the texels of all of [texture], with [queue].
+void _writeTexels(
+  _Queue queue,
+  _Texture texture,
+  int width,
+  int height,
+  Uint8List rgba,
+) => queue.writeTexture(
+  _object({'texture': texture}),
+  rgba.toJS,
+  _object({'bytesPerRow': width * 4, 'rowsPerImage': height}),
+  _object({'width': width, 'height': height}),
+);
+
 class _WebTarget implements GpuTarget {
-  _WebTarget(
-    this.color,
-    this.colorView,
-    this.depthView,
-    this.width,
-    this.height,
-  );
-  final _Texture color;
-  final JSObject colorView, depthView;
+  _WebTarget(this.colorTexture, this.depthView);
   @override
-  final int width, height;
+  final _WebTexture colorTexture;
+  final JSObject depthView;
+  _Texture get color => colorTexture.texture;
+  JSObject get colorView => colorTexture.view;
+  @override
+  int get width => colorTexture.width;
+  @override
+  int get height => colorTexture.height;
 }
 
 /// A draw with the bindings and the state at its time.
@@ -382,6 +426,8 @@ class _Draw {
     this.first,
     this.count,
     this.array,
+    this.indexArray,
+    this.scissor,
   );
   final GpuState state;
   final int reference;
@@ -390,6 +436,10 @@ class _Draw {
   final List<int> uniforms;
   final List<(_WebTexture, GpuSampler)> textures;
   final int first, count, array;
+  // The index array of an indexed draw, or -1.
+  final int indexArray;
+  // The scissor as x, y, width and height, or null for none.
+  final Int32List? scissor;
 }
 
 /// Collects the draws and encodes them when the pass ends, when the size
@@ -400,6 +450,7 @@ class _WebPass implements GpuPass {
     this._target,
     this._program,
     this._vertices,
+    this._indices,
     this._clearColor,
     this._clearDepth,
   );
@@ -408,7 +459,8 @@ class _WebPass implements GpuPass {
   final _WebTarget _target;
   final _WebProgram _program;
   final List<Float32List> _vertices;
-  final List<double> _clearColor;
+  final List<Uint32List> _indices;
+  final List<double>? _clearColor;
   final double _clearDepth;
 
   final _draws = <_Draw>[];
@@ -418,15 +470,35 @@ class _WebPass implements GpuPass {
   final _textures = <String, (_WebTexture, GpuSampler)>{};
   GpuState _state = const GpuState();
   int _reference = 0;
+  Int32List? _scissor;
+
+  // The last list of [uniformAt] and its offset in the uniforms.
+  ByteData? _shared;
+  int _sharedOffset = 0;
 
   @override
   void uniform(String name, ByteData data) {
+    _uniformOffsets[name] = _addUniforms(data);
+    _uniformSizes[name] = data.lengthInBytes;
+  }
+
+  @override
+  void uniformAt(String name, ByteData data, int offset, int length) {
+    if (!identical(data, _shared)) {
+      _sharedOffset = _addUniforms(data);
+      _shared = data;
+    }
+    _uniformOffsets[name] = _sharedOffset + offset;
+    _uniformSizes[name] = length;
+  }
+
+  /// Appends [data] to the uniforms of the pass and returns its offset.
+  int _addUniforms(ByteData data) {
     final offset = _uniformBytes.length;
     _uniformBytes.add(Uint8List.sublistView(data));
     final pad = _aligned(data.lengthInBytes) - data.lengthInBytes;
     if (pad > 0) _uniformBytes.add(Uint8List(pad));
-    _uniformOffsets[name] = offset;
-    _uniformSizes[name] = data.lengthInBytes;
+    return offset;
   }
 
   @override
@@ -443,7 +515,18 @@ class _WebPass implements GpuPass {
   void stencilReference(int value) => _reference = value;
 
   @override
-  void draw(int first, int count, [int array = 0]) {
+  void scissor(int x, int y, int width, int height) =>
+      _scissor = Int32List.fromList([x, y, width, height]);
+
+  @override
+  void draw(int first, int count, [int array = 0]) =>
+      _add(first, count, array, -1);
+
+  @override
+  void drawIndexed(int first, int count, [int array = 0, int indexArray = 0]) =>
+      _add(first, count, array, indexArray);
+
+  void _add(int first, int count, int array, int indexArray) {
     final uniforms = <int>[];
     final textures = <(_WebTexture, GpuSampler)>[];
     for (final b in _program.bindings) {
@@ -454,7 +537,17 @@ class _WebPass implements GpuPass {
       }
     }
     _draws.add(
-      _Draw(_state, _reference, uniforms, textures, first, count, array),
+      _Draw(
+        _state,
+        _reference,
+        uniforms,
+        textures,
+        first,
+        count,
+        array,
+        indexArray,
+        _scissor,
+      ),
     );
   }
 
@@ -489,6 +582,30 @@ class _WebPass implements GpuPass {
         );
       }
     }
+    // The index arrays follow each other in one buffer too.
+    final indexOffsets = <int>[];
+    var indexBytes = 0;
+    for (final i in _indices) {
+      indexOffsets.add(indexBytes);
+      indexBytes += _aligned(i.lengthInBytes);
+    }
+    _Buffer? indexBuffer;
+    if (indexBytes > 0) {
+      indexBuffer = device._indexBuffer = device._buffer(
+        device._indexBuffer,
+        indexBytes,
+        _indexUsage,
+      );
+      for (final (k, i) in _indices.indexed) {
+        if (i.isNotEmpty) {
+          queue.writeBuffer(
+            indexBuffer,
+            indexOffsets[k],
+            Uint8List.sublistView(i).toJS,
+          );
+        }
+      }
+    }
     if (uniforms.isNotEmpty) queue.writeBuffer(uniformBuffer, 0, uniforms.toJS);
     final encoder = gpu.createCommandEncoder();
     final pass = encoder.beginRenderPass(
@@ -496,13 +613,14 @@ class _WebPass implements GpuPass {
         'colorAttachments': [
           {
             'view': _target.colorView,
-            'clearValue': {
-              'r': _clearColor[0],
-              'g': _clearColor[1],
-              'b': _clearColor[2],
-              'a': _clearColor[3],
-            },
-            'loadOp': 'clear',
+            if (_clearColor case final clear?)
+              'clearValue': {
+                'r': clear[0],
+                'g': clear[1],
+                'b': clear[2],
+                'a': clear[3],
+              },
+            'loadOp': _clearColor == null ? 'load' : 'clear',
             'storeOp': 'store',
           },
         ],
@@ -518,11 +636,24 @@ class _WebPass implements GpuPass {
       }),
     );
     if (program.bindGroups.length > 4096) program.bindGroups.clear();
-    var array = -1;
+    var array = -1, indexArray = -1;
+    Int32List? scissor;
     for (final draw in _draws) {
       if (draw.array != array) {
         array = draw.array;
         pass.setVertexBuffer(0, vertexBuffer, offsets[array]);
+      }
+      if (draw.indexArray >= 0 && draw.indexArray != indexArray) {
+        indexArray = draw.indexArray;
+        pass.setIndexBuffer(indexBuffer!, 'uint32', indexOffsets[indexArray]);
+      }
+      if (!identical(draw.scissor, scissor)) {
+        scissor = draw.scissor;
+        if (scissor == null) {
+          pass.setScissorRect(0, 0, _target.width, _target.height);
+        } else {
+          pass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3]);
+        }
       }
       pass.setPipeline(_pipeline(draw.state));
       pass.setBindGroup(
@@ -531,7 +662,11 @@ class _WebPass implements GpuPass {
         [for (final o in draw.uniforms) o.toJS].toJS,
       );
       pass.setStencilReference(draw.reference);
-      pass.draw(draw.count, 1, draw.first);
+      if (draw.indexArray >= 0) {
+        pass.drawIndexed(draw.count, 1, draw.first, 0);
+      } else {
+        pass.draw(draw.count, 1, draw.first);
+      }
     }
     pass.end();
     queue.submit([encoder.finish()].toJS);
@@ -545,6 +680,7 @@ class _WebPass implements GpuPass {
 
   JSObject _bindGroup(_Draw draw, _Buffer uniformBuffer) {
     final program = _program;
+    if (!program.cacheBindGroups) return _createBindGroup(draw, uniformBuffer);
     final key = StringBuffer('${_device._generation}');
     for (final (texture, sampler) in draw.textures) {
       key.write(',${texture.id}:${sampler.key}');
@@ -552,10 +688,14 @@ class _WebPass implements GpuPass {
     for (final b in program.bindings) {
       if (!b.texture) key.write(',${_uniformSizes[b.name]}');
     }
-    return program.bindGroups[key.toString()] ??= _device._device
+    return program.bindGroups[key.toString()] ??=
+        _createBindGroup(draw, uniformBuffer);
+  }
+
+  JSObject _createBindGroup(_Draw draw, _Buffer uniformBuffer) => _device._device
         .createBindGroup(
           _object({
-            'layout': program.bindGroupLayout,
+            'layout': _program.bindGroupLayout,
             'entries': [
               for (final (b, texture) in _pairs(draw))
                 if (texture != null) ...[
@@ -575,7 +715,6 @@ class _WebPass implements GpuPass {
             ],
           }),
         );
-  }
 
   /// The bindings of the program with the texture of [draw] for each
   /// texture binding.
@@ -603,17 +742,25 @@ class _WebPass implements GpuPass {
                 'format': _colorFormat,
                 if (state.blend)
                   'blend': {
-                    for (final part in ['color', 'alpha'])
-                      part: {
-                        'operation': 'add',
-                        'srcFactor': _factors[state.sourceFactor.index],
-                        'dstFactor': _factors[state.destinationFactor.index],
-                      },
+                    'color': {
+                      'operation': _blendOperations[state.operation.index],
+                      'srcFactor': _factors[state.sourceFactor.index],
+                      'dstFactor': _factors[state.destinationFactor.index],
+                    },
+                    'alpha': {
+                      'operation': _blendOperations[state.alphaBlend.index],
+                      'srcFactor': _factors[state.alphaSource.index],
+                      'dstFactor': _factors[state.alphaDestination.index],
+                    },
                   },
               },
             ],
           },
-          'primitive': {'topology': 'triangle-list', 'cullMode': 'none'},
+          'primitive': {
+            'topology': 'triangle-list',
+            'frontFace': 'ccw',
+            'cullMode': _culls[state.cull.index],
+          },
           'depthStencil': {
             'format': _depthFormat,
             'depthWriteEnabled': state.depthWrite,
@@ -656,4 +803,8 @@ class _WebPass implements GpuPass {
   ];
 
   static const _operations = ['keep', 'zero', 'replace', 'invert'];
+
+  static const _blendOperations = ['add', 'subtract', 'reverse-subtract'];
+
+  static const _culls = ['none', 'front', 'back'];
 }

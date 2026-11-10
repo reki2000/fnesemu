@@ -6,8 +6,8 @@ This note collects what a developer needs to know to let another core, such as N
 
 | Layer | Package | Role |
 |---|---|---|
-| GPU device | `mp_gpu` | Offscreen drawing on Flutter GPU or WebGPU: programs, textures, targets, passes with per-draw state, `settle` and `read`. It knows nothing of cores. |
-| Renderer and sink | `render_frame_gpu` | `FrameRenderer` draws one `RenderFrame` with its shaders; `GpuFrameSink` queues frames, draws them, reads them back and returns the pixels. |
+| GPU device | `mp_gpu` | Offscreen drawing on Flutter GPU or WebGPU: programs, textures, targets, passes with per-draw state, `settle` and `read`. `GpuQueue` queues jobs, draws them into targets of its own, reads them back and checks the reads. It knows nothing of cores. |
+| Renderer and sink | `render_frame_gpu` | `FrameRenderer` draws one `RenderFrame` with its shaders; `GpuFrameSink` gives each frame to the `GpuQueue` with the renderer of its type and returns the pixels. |
 | Frame and contract | `fnesemu_core` | `RenderFrame`, `RenderBatch`, `RenderTexture`, `RenderFrameSink`, `Core.rendersFrames` and `Core.renderFrameSink`. No Flutter imports. |
 | App | root | Creates the sink at start, offers GPU or Software in the setup menu, and sets `CoreController.renderFrameSink`. |
 
@@ -31,8 +31,9 @@ The sink returns the pixels after the device settles, so the emulated framebuffe
 ## The sink
 
 - `GpuFrameSink.create()` returns null when there is no GPU. The app falls back to the core's renderer.
-- The frames that come while others are drawn wait, and are drawn together, each into a target of its own, and read back after one `settle`. When more than eight wait, the oldest are dropped, so a slow GPU loses renders instead of falling behind.
-- A new target is checked with a white textured triangle until the white comes back. This also shows whether the GPU works at all.
+- The sink draws through the `GpuQueue` of `mp_gpu`. The frames that come while others are drawn wait, and are drawn together, each into a target of its own, and read back after one `settle`. When more than eight wait, the oldest are dropped, so a slow GPU loses renders instead of falling behind.
+- On Flutter GPU, the queue draws a number below each frame and drops a read that does not show it. A new target is drawn with its number until it comes back, which also shows whether the GPU works at all.
+- A renderer draws a frame into the top rows of the target it gets, which may have more rows than the frame, and converts pixels to clip space with the size of the target.
 
 ## The read-back wait of mp_gpu
 
@@ -44,7 +45,7 @@ How soon a target can be read after its passes differs by backend and driver. `G
 | GLES on Linux with Mesa | The completion, a frame of the engine and a second read; even then a frame with large uploads now and then shows the frame before |
 | WebGPU | None besides the mapping of the read buffer |
 
-So a core must not assume that the pixels come back within a fixed time, and the GLES backend may now and then return the frame before. Run the probe after a Flutter upgrade or on a new kind of device. Emulators and simulators do not show the behavior of real drivers.
+So a core must not assume that the pixels come back within a fixed time, or that every render comes back. The GLES backend may now and then return the frame before, and the queue drops it. Run the probe after a Flutter upgrade or on a new kind of device. Emulators and simulators do not show the behavior of real drivers.
 
 ## What is specific to DC
 
@@ -70,25 +71,39 @@ The recommended way:
 
 ### What mp_gpu offers and lacks
 
-`mp_gpu` covers what the DC renderer needs. A new core will likely need more, and each addition must work on both backends:
+`mp_gpu` covers what the DC renderer needs, and the features below for the next cores. Each addition must work on both backends. The probe in `packages/mp_gpu/example` checks the features marked yes by drawing with them (`features`), on Linux GLES and on WebGPU so far.
 
 | Feature | mp_gpu now | Flutter GPU | WebGPU |
 |---|---|---|---|
-| Blend factors on color and alpha together | yes | yes | yes |
-| Blend operation other than add (subtract, reverse subtract) | no | yes | yes |
-| Constant blend color | no | yes | yes |
-| Separate factors for alpha | no | yes | yes |
-| Color write mask | no | yes | yes |
+| Blend factors, the same for color and alpha | yes | yes | yes |
+| Blend operation other than add (subtract, reverse subtract) | yes | yes | yes |
+| Separate factors and operation for alpha | yes | yes | yes |
+| Constant blend color | no | no | yes |
+| Color write mask | no | no | yes |
 | Depth compare, depth write, stencil compare, keep/zero/replace/invert, masks | yes | yes | yes |
-| Back-face culling | no, all faces are drawn | yes | yes |
-| Scissor | no | yes | yes |
-| Load the old contents of a target instead of clearing | no | yes | yes |
-| Sample a target in a later pass | no | yes, with shader read usage | yes |
+| Culling of front or back faces | yes | yes | yes |
+| Scissor | yes | yes | yes |
+| Indexed draws | yes, 32-bit indices | yes | yes |
+| Keep the old colors of a target instead of clearing | yes; depth and stencil are always cleared | yes | yes |
+| Sample a target in a later pass | yes | yes | yes |
+| Write a texture again | yes, the whole texture | the whole of a mip level | any region |
 | Mipmaps | no | yes | yes |
 | Color formats other than RGBA8 | no | yes | yes |
 | Read back the depth | no | not checked | yes |
+| Compute shaders and storage buffers | no | no | yes |
 
-The Flutter GPU column is from the API of the SDK; check each one on a real backend before relying on it.
+The Flutter GPU column is from the API of the SDK. Its GLES backend runs fragment shaders with mediump floats: `impellerc` writes `precision mediump float` and drops a default precision of the source, so whole numbers in a float are exact only up to 2048. Compute addresses into large textures with ints, which are highp.
+
+### Keeping video memory on the GPU
+
+A core could keep its video memory in a texture of 32-bit words and read it in its shaders by addresses that they compute, instead of decoding textures on the CPU. The `vram` case of the probe keeps 4 MB (PS2), 8 MB (DC) and 64 MB images, reads 512 x 512 words of them at interleaved addresses, and writes the whole image again in each of 20 rounds:
+
+| Backend | Exact reads | Write of 4 MB | Write of 8 MB | Write of 64 MB |
+|---|---|---|---|---|
+| Flutter GPU, GLES on Linux with Mesa | all | 0.7 ms | 1.9 ms | 39 ms |
+| WebGPU on SwiftShader in headless Chrome | all | 7.8 ms | 15 ms | 130 ms |
+
+The times are of the call on the CPU. Flutter GPU can only write a whole mip level, so a core that changes a few pages of memory between draws writes the whole image, or splits the memory into several textures. WebGPU can write any region. Run the probe on real devices before relying on these numbers.
 
 ## Notes for N64
 
@@ -100,7 +115,10 @@ The Flutter GPU column is from the API of the SDK; check each one on a real back
 
 ## Notes for PS2
 
-- The GS in `ps2/gs` takes primitives one by one through `writeRegister`, and `gs_raster.dart` draws them into the local memory at once. There is no render start. A frame would gather the primitives between points where the program can observe the result: a transfer from local memory to the host, a texture or CLUT that reads a target address, a change of the display, or a finish event.
+- The GPU path batches untextured, unblended CT32 sprites with a full color write and no effective pixel test or depth write. It submits the last eligible batch before progressive scanout or before the vertical blank captures an interlaced field. The GPU returns the index of the last sprite covering each pixel, and the GS writes the exact 32-bit color into swizzled local memory.
+- The last eligible draw can also be a CT32 sprite with fixed UV coordinates and a nearest texture with repeat or clamp addressing. The GPU applies the texture function, alpha and depth tests, and blending. The GS applies the color mask and commits depth and color writes. Draws with overlapping texture, frame, and depth regions that can affect each other use software.
+- Scanout and local memory accesses use completed GPU results when available. The GS discards a batch selected for the GPU if its result is missing or invalid at that point, so existing local memory contents remain visible. The controller can use its normal frame pacing delay for readback, and the GS ignores results that arrive after the batch was discarded.
+- The GS in `ps2/gs` takes primitives one by one through `writeRegister`. A GPU path that supports more primitives must preserve their order across local memory transfers, texture and CLUT reads, and scanout. GS events keep their emulated timing.
 - The blend formula takes any of the source color, the destination color and zero as its three color terms and any of three alphas or a fixed value as its factor, and subtracts. Plain blend factors cover only some combinations; the rest needs a blend operation, a constant color, or the old target contents in the shader.
 - Render to texture is common: a target is read as a texture by the next primitives. Keeping such targets on the GPU needs targets that a later pass can sample, and a map from local memory addresses to targets. Without it every such read is a late-pixel case.
 - The local memory holds the pixels in swizzled pages in several formats, and the frame and depth masks, the destination alpha test and 16-bit and 24-bit formats change how pixels are written. The read-back path must write the pixels in the right format and page layout, and keep the masked bits.

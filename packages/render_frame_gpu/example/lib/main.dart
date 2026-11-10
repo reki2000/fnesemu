@@ -85,13 +85,26 @@ class _FrameViewState extends State<FrameView> {
       renderer.draw(frame, target);
     }
     await device.settle();
-    final pixels = await device.read(target);
+    await device.read(target);
+    final pipelinedMs = pipelined.elapsedMicroseconds / 1000 / rounds;
+
+    // The pixels to compare and save come through a queue, which checks
+    // that a read shows this draw: a plain read after many draws may show
+    // an older state of the target on the GLES backend.
+    final queue = await GpuQueue.create(device);
+    Uint8List? pixels;
+    for (var i = 0; i < 10 && queue != null && pixels == null; i++) {
+      pixels = await queue.render(
+        frame.width,
+        frame.height,
+        (target) => renderer.draw(frame, target),
+      );
+    }
     if (pixels == null) {
       stdout.writeln('cannot read the target');
       if (widget.args.contains('--exit')) exit(1);
       return;
     }
-    final pipelinedMs = pipelined.elapsedMicroseconds / 1000 / rounds;
 
     final report = StringBuffer()
       ..writeln(device.name)
@@ -136,7 +149,7 @@ class _FrameViewState extends State<FrameView> {
     if (sink != null) {
       final bytes = File(path).readAsBytesSync();
       final over = <int>[];
-      var late = 0;
+      var late = 0, dropped = 0;
       final roundTrip = Stopwatch()..start();
       for (var i = 0; i < rounds; i++) {
         // A new frame each time, as from a core: every tenth one with new
@@ -151,8 +164,14 @@ class _FrameViewState extends State<FrameView> {
         final drawn = Completer<Uint8List>();
         f.onDrawn = drawn.complete;
         sink.submit(f);
-        final rgba = await drawn.future;
-        if (blank) {
+        // The sink drops a frame whose read shows an older one.
+        final rgba = await drawn.future.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => Uint8List(0),
+        );
+        if (rgba.isEmpty) {
+          dropped++;
+        } else if (blank) {
           final c = frame.clearColor;
           if (rgba[0] != ((c >> 16) & 255) ||
               rgba[rgba.length - 2] != (c & 255)) {
@@ -165,7 +184,7 @@ class _FrameViewState extends State<FrameView> {
       over.sort();
       report.writeln(
         'sink ${(roundTrip.elapsedMicroseconds / 1000 / rounds).toStringAsFixed(2)} ms per frame, '
-        'submit to pixels; $late blank frames read as drawn',
+        'submit to pixels; $late blank frames read as drawn, $dropped dropped',
       );
       if (over.isNotEmpty) {
         report.writeln(

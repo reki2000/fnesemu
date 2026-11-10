@@ -7,6 +7,7 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:vector_math/vector_math.dart' as vm;
 
 import 'gpu.dart';
+import 'stamp.dart';
 
 /// Flutter GPU, or null when the engine runs without it. The device checks
 /// how long it has to wait before a read; see [_NativeDevice._calibrate].
@@ -18,6 +19,12 @@ Future<GpuDevice?> createDevice() async {
     return null;
   }
   final device = _NativeDevice(context);
+  try {
+    device._stampProgram =
+        await device.program(checkSource) as _NativeProgram;
+  } catch (_) {
+    // Without the program, passes draw no stamps and the check cannot run.
+  }
   await device._calibrate();
   return device;
 }
@@ -34,7 +41,7 @@ class _Sync {
       '${reads > 1 ? ', $reads reads' : ''}';
 }
 
-class _NativeDevice implements GpuDevice {
+class _NativeDevice implements GpuDevice, GpuStamping {
   _NativeDevice(this._context) : _host = _context.createHostBuffer();
 
   final gpu.GpuContext _context;
@@ -53,6 +60,44 @@ class _NativeDevice implements GpuDevice {
 
   // The completions of the passes ended since the last [settle].
   final _pending = <Future<void>>[];
+
+  // The program of the check and the stamps, a white texture for it, and
+  // the vertices of the last row of a target by its height.
+  _NativeProgram? _stampProgram;
+  late final gpu.Texture _white = (texture(
+    1,
+    1,
+    Uint8List.fromList([255, 255, 255, 255]),
+  ) as _NativeTexture).texture;
+  final _stampRows = <int, gpu.DeviceBuffer>{};
+
+  @override
+  bool get stamps => _stampProgram != null;
+
+  @override
+  late final int uniformAlignment = _context.minimumUniformByteAlignment;
+
+  @override
+  void stampOnly(GpuTarget target) => pass(
+    target,
+    _stampProgram!,
+    const [],
+    clearColor: const [0, 0, 0, 0],
+    clearDepth: 0,
+  ).end();
+
+  /// A rectangle over the last row of a target of [height], with x and y
+  /// in clip space and u and v.
+  gpu.DeviceBuffer _stampRow(int height) =>
+      _stampRows[height] ??= _context.createDeviceBufferWithCopy(() {
+        final top = -1 + 2 / height;
+        return ByteData.sublistView(
+          Float32List.fromList([
+            -1, -1, 0, 0, 1, -1, 0, 0, -1, top, 0, 0, //
+            -1, top, 0, 0, 1, -1, 0, 0, 1, top, 0, 0,
+          ]),
+        );
+      }());
 
   @override
   String get name => 'Flutter GPU';
@@ -120,8 +165,9 @@ class _NativeDevice implements GpuDevice {
     GpuTarget target,
     GpuProgram program,
     List<Float32List> vertices, {
-    required List<double> clearColor,
+    required List<double>? clearColor,
     required double clearDepth,
+    List<Uint32List> indices = const [],
   }) {
     target as _NativeTarget;
     final commands = _context.createCommandBuffer();
@@ -130,12 +176,17 @@ class _NativeDevice implements GpuDevice {
         colorAttachments: [
           gpu.ColorAttachment(
             texture: target.color,
-            clearValue: vm.Vector4(
-              clearColor[0],
-              clearColor[1],
-              clearColor[2],
-              clearColor[3],
-            ),
+            loadAction: clearColor == null
+                ? gpu.LoadAction.load
+                : gpu.LoadAction.clear,
+            clearValue: clearColor == null
+                ? null
+                : vm.Vector4(
+                    clearColor[0],
+                    clearColor[1],
+                    clearColor[2],
+                    clearColor[3],
+                  ),
           ),
         ],
         depthStencilAttachment: gpu.DepthStencilAttachment(
@@ -144,10 +195,21 @@ class _NativeDevice implements GpuDevice {
         ),
       ),
     );
-    return _NativePass(this, program as _NativeProgram, commands, pass, [
-      for (final v in vertices)
-        _context.createDeviceBufferWithCopy(ByteData.sublistView(v)),
-    ]);
+    return _NativePass(
+      this,
+      target,
+      program as _NativeProgram,
+      commands,
+      pass,
+      [
+        for (final v in vertices)
+          _context.createDeviceBufferWithCopy(ByteData.sublistView(v)),
+      ],
+      [
+        for (final i in indices)
+          _context.createDeviceBufferWithCopy(ByteData.sublistView(i)),
+      ],
+    );
   }
 
   /// Waits for the passes to complete and then for the frames of the engine
@@ -192,7 +254,7 @@ class _NativeDevice implements GpuDevice {
   Future<void> _calibrate() async {
     final watch = Stopwatch()..start();
     try {
-      final check = await _Check.create(this);
+      final check = _Check.create(this);
       for (final sync in _syncs) {
         _sync = sync;
         switch (await check.passes(watch)) {
@@ -228,11 +290,18 @@ class _NativeTexture implements GpuTexture {
   int get width => texture.width;
   @override
   int get height => texture.height;
+  @override
+  void overwrite(Uint8List rgba) =>
+      texture.overwrite(ByteData.sublistView(rgba));
+  @override
+  void dispose() {}
 }
 
 class _NativeTarget implements GpuTarget {
   _NativeTarget(this.color, this.depth);
   final gpu.Texture color, depth;
+  @override
+  GpuTexture get colorTexture => _NativeTexture(color);
   @override
   int get width => color.width;
   @override
@@ -242,30 +311,68 @@ class _NativeTarget implements GpuTarget {
 class _NativePass implements GpuPass {
   _NativePass(
     this._device,
+    this._target,
     this._program,
     this._commands,
     this._pass,
     this._vertices,
+    this._indices,
   ) : _uniforms = List.filled(_program.slots.length, null),
       _textures = List.filled(_program.slots.length, null),
-      _samplers = List.filled(_program.slots.length, null);
+      _samplers = List.filled(_program.slots.length, null),
+      _boundUniforms = List.filled(_program.slots.length, null),
+      _boundTextures = List.filled(_program.slots.length, null),
+      _boundSamplers = List.filled(_program.slots.length, null);
 
   final _NativeDevice _device;
+  final _NativeTarget _target;
   final _NativeProgram _program;
   final gpu.CommandBuffer _commands;
   final gpu.RenderPass _pass;
-  final List<gpu.DeviceBuffer> _vertices;
-  // The bindings by index. They and the state are set again before each
-  // draw: the backend may not keep them over a change of the vertex buffer.
+  final List<gpu.DeviceBuffer> _vertices, _indices;
+  // The bindings of the next draw by index.
   final List<gpu.BufferView?> _uniforms;
   final List<gpu.Texture?> _textures;
   final List<gpu.SamplerOptions?> _samplers;
+  // What the render pass holds. It keeps its bindings and state from draw
+  // to draw, so a draw sets only what differs from the draw before.
+  final List<gpu.BufferView?> _boundUniforms;
+  final List<gpu.Texture?> _boundTextures;
+  final List<gpu.SamplerOptions?> _boundSamplers;
+  bool _pipelineBound = false;
+  int _boundState = -1, _boundReference = -1;
+  // The scissor of the next draws and of the render pass, as x, y, width
+  // and height; a width of -1 means none.
+  final _scissor = Int32List(4)..[2] = -1;
+  final _boundScissor = Int32List(4)..[2] = -1;
   GpuState _state = const GpuState();
   int _reference = 0;
+
+  // The last list of [uniformAt] and the buffer it was uploaded to.
+  ByteData? _shared;
+  gpu.DeviceBuffer? _sharedBuffer;
 
   @override
   void uniform(String name, ByteData data) =>
       _uniforms[_program.indices[name]!] = _device._host.emplace(data);
+
+  @override
+  void uniformAt(String name, ByteData data, int offset, int length) {
+    // A buffer of its own: the host buffer fails to place a list that does
+    // not fit into the rest of its block.
+    var buffer = _sharedBuffer;
+    if (buffer == null || !identical(data, _shared)) {
+      buffer = _sharedBuffer = _device._context.createDeviceBufferWithCopy(
+        data,
+      );
+      _shared = data;
+    }
+    _uniforms[_program.indices[name]!] = gpu.BufferView(
+      buffer,
+      offsetInBytes: offset,
+      lengthInBytes: length,
+    );
+  }
 
   @override
   void texture(
@@ -296,45 +403,133 @@ class _NativePass implements GpuPass {
   void stencilReference(int value) => _reference = value;
 
   @override
+  @override
+  void scissor(int x, int y, int width, int height) => _scissor
+    ..[0] = x
+    ..[1] = y
+    ..[2] = width
+    ..[3] = height;
+
+  @override
   void draw(int first, int count, [int array = 0]) {
-    final pass = _pass, state = _state, bytes = _program.vertexBytes;
-    final slots = _program.slots;
-    pass.bindPipeline(_program.pipeline);
-    pass.setCullMode(gpu.CullMode.none);
-    pass.bindVertexBuffer(
+    final bytes = _program.vertexBytes;
+    _pass.bindVertexBuffer(
       gpu.BufferView(
         _vertices[array],
         offsetInBytes: first * bytes,
         lengthInBytes: count * bytes,
       ),
     );
+    _bind();
+    _pass.draw(count);
+  }
+
+  @override
+  void drawIndexed(int first, int count, [int array = 0, int indexArray = 0]) {
+    final vertices = _vertices[array];
+    _pass.bindVertexBuffer(
+      gpu.BufferView(
+        vertices,
+        offsetInBytes: 0,
+        lengthInBytes: vertices.sizeInBytes,
+      ),
+    );
+    _pass.bindIndexBuffer(
+      gpu.BufferView(
+        _indices[indexArray],
+        offsetInBytes: first * 4,
+        lengthInBytes: count * 4,
+      ),
+      gpu.IndexType.int32,
+    );
+    _bind();
+    _pass.drawIndexed(count);
+  }
+
+  /// Sets the bindings and the state of the next draw that differ from the
+  /// render pass.
+  void _bind() {
+    final pass = _pass, state = _state;
+    final slots = _program.slots;
+    if (!_pipelineBound) {
+      pass.bindPipeline(_program.pipeline);
+      pass.setWindingOrder(gpu.WindingOrder.counterClockwise);
+      _pipelineBound = true;
+    }
     for (var i = 0; i < slots.length; i++) {
       final uniform = _uniforms[i];
       if (uniform != null) {
-        pass.bindUniform(slots[i], uniform);
+        final bound = _boundUniforms[i];
+        if (bound == null ||
+            !identical(bound.buffer, uniform.buffer) ||
+            bound.offsetInBytes != uniform.offsetInBytes ||
+            bound.lengthInBytes != uniform.lengthInBytes) {
+          pass.bindUniform(slots[i], uniform);
+          _boundUniforms[i] = uniform;
+        }
       } else {
         final texture = _textures[i];
-        if (texture != null) {
-          pass.bindTexture(slots[i], texture, sampler: _samplers[i]);
+        final sampler = _samplers[i];
+        if (texture != null &&
+            (!identical(texture, _boundTextures[i]) ||
+                !identical(sampler, _boundSamplers[i]))) {
+          pass.bindTexture(slots[i], texture, sampler: sampler);
+          _boundTextures[i] = texture;
+          _boundSamplers[i] = sampler;
         }
       }
     }
+    final key = state.key;
+    if (key != _boundState) {
+      _setState(state);
+      _boundState = key;
+    }
+    if (_reference != _boundReference) {
+      pass.setStencilReference(_reference);
+      _boundReference = _reference;
+    }
+    final scissor = _scissor, bound = _boundScissor;
+    if (scissor[0] != bound[0] ||
+        scissor[1] != bound[1] ||
+        scissor[2] != bound[2] ||
+        scissor[3] != bound[3]) {
+      _setScissor(scissor);
+      bound.setAll(0, scissor);
+    }
+  }
+
+  /// Sets the scissor of the render pass to [scissor], or to the whole
+  /// target when its width is -1.
+  void _setScissor(Int32List scissor) {
+    final none = scissor[2] < 0;
+    _pass.setScissor(
+      gpu.Scissor(
+        x: none ? 0 : scissor[0],
+        y: none ? 0 : scissor[1],
+        width: none ? _target.width : scissor[2],
+        height: none ? _target.height : scissor[3],
+      ),
+    );
+  }
+
+  void _setState(GpuState state) {
+    final pass = _pass;
+    pass.setCullMode(_culls[state.cull.index]);
     pass.setColorBlendEnable(state.blend);
     if (state.blend) {
-      final source = _factors[state.sourceFactor.index];
-      final destination = _factors[state.destinationFactor.index];
       pass.setColorBlendEquation(
         gpu.ColorBlendEquation(
-          sourceColorBlendFactor: source,
-          destinationColorBlendFactor: destination,
-          sourceAlphaBlendFactor: source,
-          destinationAlphaBlendFactor: destination,
+          colorBlendOperation: _operationsOfBlend[state.operation.index],
+          sourceColorBlendFactor: _factors[state.sourceFactor.index],
+          destinationColorBlendFactor: _factors[state.destinationFactor.index],
+          alphaBlendOperation: _operationsOfBlend[state.alphaBlend.index],
+          sourceAlphaBlendFactor: _factors[state.alphaSource.index],
+          destinationAlphaBlendFactor: _factors[state.alphaDestination.index],
         ),
       );
     }
     pass.setDepthWriteEnable(state.depthWrite);
     pass.setDepthCompareOperation(_compare[state.depthCompare.index]);
-    pass.setStencilReference(_reference);
     pass.setStencilConfig(
       gpu.StencilConfig(
         compareFunction: _compare[state.stencilCompare.index],
@@ -343,11 +538,11 @@ class _NativePass implements GpuPass {
         writeMask: state.stencilWriteMask,
       ),
     );
-    pass.draw(count);
   }
 
   @override
   void end({void Function(bool success)? onComplete}) {
+    _drawStamp();
     final done = Completer<void>();
     _device._pending.add(done.future);
     _commands.submit(
@@ -357,6 +552,71 @@ class _NativePass implements GpuPass {
       },
     );
   }
+
+  /// Draws the stamp of the target, if it has one, into its last row: the
+  /// number in red, green and blue from the least significant byte.
+  void _drawStamp() {
+    final stamp = targetStamps[_target];
+    final program = _device._stampProgram;
+    if (stamp == null || program == null) return;
+    final pass = _pass;
+    // The bindings of the draws before stay in the render pass, and one of
+    // the same name as a binding of the stamp would be used instead.
+    pass.clearBindings();
+    pass.bindPipeline(program.pipeline);
+    pass.setCullMode(gpu.CullMode.none);
+    pass.bindVertexBuffer(
+      gpu.BufferView(
+        _device._stampRow(_target.height),
+        offsetInBytes: 0,
+        lengthInBytes: 6 * program.vertexBytes,
+      ),
+    );
+    pass.bindUniform(
+      program.slots[0],
+      _device._host.emplace(
+        ByteData.sublistView(
+          Float32List.fromList([
+            (stamp & 0xff) / 255,
+            (stamp >> 8 & 0xff) / 255,
+            (stamp >> 16 & 0xff) / 255,
+            1,
+          ]),
+        ),
+      ),
+    );
+    pass.bindTexture(
+      program.slots[1],
+      _device._white,
+      sampler: gpu.SamplerOptions(),
+    );
+    pass.setScissor(
+      gpu.Scissor(width: _target.width, height: _target.height),
+    );
+    pass.setColorBlendEnable(false);
+    pass.setDepthWriteEnable(false);
+    pass.setDepthCompareOperation(gpu.CompareFunction.always);
+    pass.setStencilReference(0);
+    pass.setStencilConfig(
+      gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.always,
+        depthStencilPassOperation: gpu.StencilOperation.keep,
+      ),
+    );
+    pass.draw(6);
+  }
+
+  static const _culls = [
+    gpu.CullMode.none,
+    gpu.CullMode.frontFace,
+    gpu.CullMode.backFace,
+  ];
+
+  static const _operationsOfBlend = [
+    gpu.BlendOperation.add,
+    gpu.BlendOperation.subtract,
+    gpu.BlendOperation.reverseSubtract,
+  ];
 
   static const _address = [
     gpu.SamplerAddressMode.repeat,
@@ -400,23 +660,14 @@ class _NativePass implements GpuPass {
 class _Check {
   _Check._(this._device, this._program, this._targets);
 
-  static const _source = GpuProgramSource(
-    bundle: 'packages/mp_gpu/shaders/check.shaderbundle',
-    vertexEntry: 'CheckVertex',
-    fragmentEntry: 'CheckFragment',
-    wgsl: '',
-    attributes: [2, 2],
-    bindings: [GpuBinding.uniform('Info', 0), GpuBinding.texture('image', 1)],
-  );
-
   static const _size = 16;
   static const _rounds = 10;
   static const _uploads = 4;
   static const _budget = Duration(seconds: 2);
 
-  static Future<_Check> create(_NativeDevice device) async => _Check._(
+  static _Check create(_NativeDevice device) => _Check._(
     device,
-    await device.program(_source),
+    device._stampProgram ?? (throw StateError('no check program')),
     [for (var i = 0; i < 2; i++) device.target(_size, _size)],
   );
 

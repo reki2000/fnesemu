@@ -18,3 +18,6 @@ flutter:
   assets:
     - shaders/frame.shaderbundle
     - shaders/frame.wgsl
+    - shaders/ps2.shaderbundle
+    - shaders/ps2.wgsl
+    - shaders/ps2_sprite.wgsl

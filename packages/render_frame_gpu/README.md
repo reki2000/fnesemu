@@ -4,7 +4,7 @@ An experimental renderer that draws a core's `RenderFrame`s on the GPU of the pl
 
 ## Use in the app
 
-`GpuFrameSink.create()` returns a `RenderFrameSink`, or null when `mp_gpu` has no GPU on the platform; `GpuFrameSink.name` names the API. The app sets it as `CoreController.renderFrameSink` when the GPU setting selects it. A core that supports it then submits each 3D render as a `RenderFrame` and goes on without waiting. The sink draws the frame, reads the pixels back and passes them to `RenderFrame.onDrawn`, and the core writes them to its video memory. The pixels arrive about two frames later than with the core's renderer. The frames submitted while others are drawn wait and are then drawn together, each into a target of its own, and read back once the device settles. When more than eight frames wait, the oldest ones are dropped.
+`GpuFrameSink.create()` returns a `RenderFrameSink`, or null when `mp_gpu` has no GPU on the platform; `GpuFrameSink.name` names the API. The app sets it as `CoreController.renderFrameSink` when the GPU setting selects it. A core that supports it then submits each 3D render as a `RenderFrame` and goes on without waiting. The sink draws the frame, reads the pixels back and passes them to `RenderFrame.onDrawn`, and the core writes them to its video memory. The pixels arrive about two frames later than with the core's renderer. The sink leaves the queueing, the targets and the check of the reads to the `GpuQueue` of `mp_gpu`: the frames submitted while others are drawn wait and are then drawn together, and when more than eight frames wait, the oldest ones are dropped. A frame that cannot be read back right is dropped too, and `onDrawn` is not called for it.
 
 A core passes the same texel list for a texture that has not changed, and the renderer uploads a texel list only once.
 
@@ -53,8 +53,8 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
 
 ## Behavior of the Linux GLES backend
 
-- A read of a texture often showed it as it was at the read before. The check of `mp_gpu` at start chooses a wait that reads right, a frame of the engine and a second read on this backend; see the README of `mp_gpu`. Now and then, mostly after a frame that uploaded many textures, a read still comes back as the frame before; it is drawn into video memory as it is.
-- A pass that draws nothing was not run. The sink checks a new target with a white textured triangle, which also tells whether the GPU works.
+- A read of a texture often showed it as it was at the read before. The check of `mp_gpu` at start chooses a wait that reads right, a frame of the engine and a second read on this backend; see the README of `mp_gpu`. Now and then, mostly after a frame that uploaded many textures, a read still comes back as the frame before. The number that `GpuQueue` draws below each frame shows this, and the frame is dropped.
+- A pass that draws nothing was not run. Every pass of a `GpuQueue` job draws its number, and a new target is drawn with its number until it comes back, which also tells whether the GPU works.
 - The completion callback of a command buffer alone was not a sign that a read would show the result.
 
 ## Other cores

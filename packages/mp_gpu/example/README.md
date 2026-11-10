@@ -1,6 +1,6 @@
 # mp_gpu probe
 
-Checks how long the platform takes before the pixels of a pass can be read back, so that `GpuDevice.settle` can wait no longer than needed. `lib/main.dart` describes the cases and the output.
+Checks how long the platform takes before the pixels of a pass can be read back, so that `GpuDevice.settle` can wait no longer than needed. `lib/main.dart` describes the cases and the output. Two more cases are described in `lib/checks.dart`: `features` draws with each feature of `mp_gpu` and checks the pixels, and `vram` keeps a video memory image in a texture, reads it exactly by computed addresses and times writing it again. Build with `--dart-define=MP_GPU_PROBE_CASES=features,vram` to run only these.
 
 ## Running
 
