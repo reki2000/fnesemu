@@ -85,13 +85,26 @@ class _FrameViewState extends State<FrameView> {
       renderer.draw(frame, target);
     }
     await device.settle();
-    final pixels = await device.read(target);
+    await device.read(target);
+    final pipelinedMs = pipelined.elapsedMicroseconds / 1000 / rounds;
+
+    // The pixels to compare and save come through a queue, which checks
+    // that a read shows this draw: a plain read after many draws may show
+    // an older state of the target on the GLES backend.
+    final queue = await GpuQueue.create(device);
+    Uint8List? pixels;
+    for (var i = 0; i < 10 && queue != null && pixels == null; i++) {
+      pixels = await queue.render(
+        frame.width,
+        frame.height,
+        (target) => renderer.draw(frame, target),
+      );
+    }
     if (pixels == null) {
       stdout.writeln('cannot read the target');
       if (widget.args.contains('--exit')) exit(1);
       return;
     }
-    final pipelinedMs = pipelined.elapsedMicroseconds / 1000 / rounds;
 
     final report = StringBuffer()
       ..writeln(device.name)
