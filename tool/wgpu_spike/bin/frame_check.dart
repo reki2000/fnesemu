@@ -15,8 +15,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/app_api.dart';
+
 import 'package:fnesemu_core/src/core/ps2/gs/gs.dart';
 import 'package:fnesemu_core/src/core/ps2/gs/gs_memory.dart';
+import 'package:fnesemu_core/src/core/ps2/gs/gs_raster.dart';
 import 'package:image/image.dart' as img;
 import 'package:wgpu_spike/compute_gs.dart';
 import 'package:wgpu_spike/gpu.dart';
@@ -57,6 +60,28 @@ img.Image display(Gs gs, GsMemory mem) {
   return out;
 }
 
+/// a sink that drops all work, to time the command stream alone
+class _IdleSink implements GsResidentSink {
+  @override
+  ImageBuffer? get completedImage => null;
+  @override
+  void draw(GsHostDraw? draw, String unsupported) {}
+  @override
+  void beginUpload(int psm, int base, int bufferWidth, int x, int y,
+      int width, int height) {}
+  @override
+  bool uploadWord(int word) => false;
+  @override
+  void loadClut(int entry, int psm, int index) {}
+  @override
+  void copyLocal(int bitbltbuf, int trxpos, int trxreg) {}
+  @override
+  void beginDownload(int psm, int base, int bufferWidth, int x, int y,
+      int width, int height) {}
+  @override
+  void vblank(int field) {}
+}
+
 Uint32List words(GsMemory mem) => Uint32List.view(
     mem.bytes.buffer, mem.bytes.offsetInBytes, GsMemory.size ~/ 4);
 
@@ -74,6 +99,16 @@ void main(List<String> args) {
   replay(software, dir);
   final softwareMs = clock.elapsedMilliseconds;
 
+  // the replay without drawing: the cost of the command stream itself
+  for (var round = 0; round < 3; round++) {
+    final idle = loadGs('$dir/gs-start.bin')..residentSink = _IdleSink();
+    gsPrimitiveHook = (type, attrs, vertices) {};
+    clock = Stopwatch()..start();
+    replay(idle, dir);
+    stdout.writeln('{"replayWithoutWorkMs":${clock.elapsedMicroseconds / 1000}}');
+    gsPrimitiveHook = null;
+  }
+
   final here = File(Platform.script.toFilePath()).parent.parent.path;
   final gpu = GsGpu.open(GsGpu.defaultLibrary(),
       File(Platform.environment['GSGPU_WGSL'] ?? '$here/gs.wgsl')
@@ -86,7 +121,9 @@ void main(List<String> args) {
   late Uint32List vram;
   for (var round = 0; round < rounds; round++) {
     hardware = loadGs('$dir/gs-start.bin');
-    sink = ComputeGsSink(hardware, gpu)..attach();
+    sink = ComputeGsSink(hardware, gpu)
+      ..chunkSteps = int.parse(option('--chunk', '64'))
+      ..attach();
     clock = Stopwatch()..start();
     replay(hardware, dir);
     final issueMs = clock.elapsedMicroseconds / 1000;
@@ -99,6 +136,9 @@ void main(List<String> args) {
       'issueMs': issueMs,
       'totalMs': totalMs,
       'gpuRunMs': sink.gpuMs,
+      'uploadMs': sink.uploadMs,
+      'waitMs': sink.waitMs,
+      'uploadWords': sink.uploadWords,
       'submits': sink.submits,
       'draws': sink.draws,
       'steps': sink.stepCounts,

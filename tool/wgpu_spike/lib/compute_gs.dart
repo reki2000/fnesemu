@@ -56,6 +56,8 @@ class _Pages {
     any = true;
   }
 
+  bool has(int page) => bits[page >> 5] & (1 << (page & 31)) != 0;
+
   bool meets(_Pages o) {
     if (!any || !o.any) return false;
     for (var i = 0; i < 16; i++) {
@@ -92,6 +94,14 @@ class ComputeGsSink implements GsResidentSink {
   final (Pointer<Uint32>, Uint32List) _steps = nativeWords(_maxSteps * 4);
   final (Pointer<Uint32>, Uint32List) _params = nativeWords(_maxSteps * 64);
   int _primCount = 0, _dataLength = 0, _stepCount = 0;
+
+  /// the steps after which a run is submitted without waiting, so that the
+  /// GPU works while the core issues the rest; 0 submits once at the end
+  int chunkSteps = 0;
+
+  /// the words, the upload milliseconds and the wait milliseconds of the runs
+  int uploadWords = 0;
+  double uploadMs = 0, waitMs = 0;
 
   void _count(Map<String, int> m, String key) => m[key] = (m[key] ?? 0) + 1;
 
@@ -148,7 +158,7 @@ class ComputeGsSink implements GsResidentSink {
     _step(kind, x, (groups + x - 1) ~/ x, params);
   }
 
-  void _submit() {
+  void _submit({bool wait = true}) {
     if (_stepCount <= 1 && _primCount == 0) return;
     _steps.$2
       ..[0] = _setup
@@ -160,8 +170,12 @@ class ComputeGsSink implements GsResidentSink {
       ..[1] = _primCount;
     final clock = Stopwatch()..start();
     gpu.run(_steps.$1, _stepCount, _params.$1, _prims.$1,
-        _primCount * primWords, _data.$1, _dataLength);
+        _primCount * primWords, _data.$1, _dataLength, wait: wait);
     gpuMs += clock.elapsedMicroseconds / 1000;
+    final t = gpu.times;
+    uploadMs += t[0];
+    waitMs += t[2];
+    uploadWords += _primCount * primWords + _dataLength + _stepCount * 64;
     submits++;
     _begin();
   }
@@ -193,7 +207,9 @@ class ComputeGsSink implements GsResidentSink {
 
   final _clutSource = Uint32List(512);
   final _clutStamp = Int32List(512);
-  final _pendingEntries = <int>[];
+  // the entries loaded since the last version, each once
+  final _pendingEntries = Int32List(512);
+  int _pendingCount = 0;
   final _pendingMark = Int32List(512);
   int _pendingGeneration = 1;
   int _group = 1;
@@ -206,17 +222,22 @@ class ComputeGsSink implements GsResidentSink {
     _clutSource[entry] = 0x80000000 | psm << 24 | index;
     if (_pendingMark[entry] != _pendingGeneration) {
       _pendingMark[entry] = _pendingGeneration;
-      _pendingEntries.add(entry);
+      _pendingEntries[_pendingCount++] = entry;
     }
     _clutStamp[entry] = _group;
-    final page = (index >> gs.mem.layout(psm).unitShift) >> 11;
-    final reads = _Pages()..add(page);
-    if (reads.meets(_batchWrites)) _close(materialize: false);
+    if (psm != _clutPsm) {
+      _clutPsm = psm;
+      _clutShift = gs.mem.layout(psm).unitShift + 11;
+    }
+    final page = (index >> _clutShift) & 511;
+    if (_batchWrites.has(page)) _close(materialize: false);
     _pendingReads.add(page);
   }
 
+  int _clutPsm = -1, _clutShift = 0;
+
   void _materialize() {
-    if (_pendingEntries.isEmpty) return;
+    if (_pendingCount == 0) return;
     if (_groupCount == _versions - 1) _close(materialize: false);
     if (_groupCount == 0) {
       _groupBase = _version;
@@ -228,7 +249,7 @@ class ComputeGsSink implements GsResidentSink {
     }
     _groupCount++;
     _version = (_version + 1) & (_versions - 1);
-    _pendingEntries.clear();
+    _pendingCount = 0;
     _pendingGeneration++;
     _groupReads.addAll(_pendingReads);
     _pendingReads.clear();
@@ -242,8 +263,8 @@ class ComputeGsSink implements GsResidentSink {
     _groupCount = 0;
     _group++;
     // loads after the batch stay for the next group
-    for (final e in _pendingEntries) {
-      _clutStamp[e] = _group;
+    for (var i = 0; i < _pendingCount; i++) {
+      _clutStamp[_pendingEntries[i]] = _group;
     }
     _groupReads.clear();
   }
@@ -514,6 +535,10 @@ class ComputeGsSink implements GsResidentSink {
             _tex.meets(_batchWrites) ||
             _target.meets(_batchReads))) {
       _close(materialize: false);
+      // nothing of this run is open here, so the GPU can start on it
+      if (chunkSteps > 0 && _stepCount >= chunkSteps && !_uploading) {
+        _submit(wait: false);
+      }
     }
     final snap = _tex.meets(_target);
     if (snap) _batchSnap.addAll(_tex);

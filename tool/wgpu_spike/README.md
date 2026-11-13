@@ -26,6 +26,8 @@ For timing, build with `dart build cli --target bin/frame_check.dart` and set `G
 ## Notes on speed
 
 - The bilinear and mipmap texel reads are the main cost of the raster step. The texels are read in loops so that the texel read, with its layout and CLUT lookup, is compiled once; this cut the raster time to about a fifth.
+- The sink submits a run without waiting every `chunkSteps` steps (`frame_check --chunk`, 64 by default, 0 for one run at the end), so the GPU works while the core issues the rest of the frame. The buffers are written in queue order, so each run reuses them from the start.
+- The CLUT loads of the core come one entry at a time, so `loadClut` of the sink must not allocate.
 
 ## Not done
 

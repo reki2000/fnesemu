@@ -260,10 +260,13 @@ static void on_mapped_profile(WGPUMapAsyncStatus status, WGPUStringView m,
 // Runs [count] steps of 4 words (kind and dispatch size x, y, z) with 64
 // words of parameters per step, after uploading [primWords] words of
 // primitives and [dataWords] data words. [times] receives the milliseconds to
-// upload, to encode and submit, and to wait for the GPU.
+// upload, to encode and submit, and to wait for the GPU. Without [wait], the
+// run is only submitted: the buffers are written in queue order, so the next
+// run may reuse them at once.
 int gsgpu_run(const uint32_t *steps, uint32_t count, const uint32_t *stepParams,
               const uint32_t *primWords, uint32_t primCount,
-              const uint32_t *dataWords, uint32_t dataCount, double *times) {
+              const uint32_t *dataWords, uint32_t dataCount, uint32_t wait,
+              double *times) {
   if (count > MAX_STEPS || primCount * 4ull > PRIM_BYTES ||
       dataCount * 4ull > DATA_BYTES) {
     snprintf(lastError, sizeof lastError, "run too large");
@@ -310,7 +313,7 @@ int gsgpu_run(const uint32_t *steps, uint32_t count, const uint32_t *stepParams,
   wgpuComputePassEncoderRelease(pass);
   wgpuCommandEncoderRelease(enc);
   double t2 = now_ms();
-  wgpuDevicePoll(device, 1, NULL);
+  wgpuDevicePoll(device, wait || profile, NULL);
   double t3 = now_ms();
   if (profile && timed) {
     int done = 0;

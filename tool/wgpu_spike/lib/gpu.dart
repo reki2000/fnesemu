@@ -49,9 +49,9 @@ typedef _Write = void Function(Pointer<Uint32>, int, int);
 typedef _ClutC = Void Function(Uint32, Pointer<Uint32>);
 typedef _Clut = void Function(int, Pointer<Uint32>);
 typedef _RunC = Int32 Function(Pointer<Uint32>, Uint32, Pointer<Uint32>,
-    Pointer<Uint32>, Uint32, Pointer<Uint32>, Uint32, Pointer<Double>);
+    Pointer<Uint32>, Uint32, Pointer<Uint32>, Uint32, Uint32, Pointer<Double>);
 typedef _Run = int Function(Pointer<Uint32>, int, Pointer<Uint32>,
-    Pointer<Uint32>, int, Pointer<Uint32>, int, Pointer<Double>);
+    Pointer<Uint32>, int, Pointer<Uint32>, int, int, Pointer<Double>);
 typedef _ReadC = Int32 Function(Pointer<Uint32>);
 typedef _Read = int Function(Pointer<Uint32>);
 
@@ -111,11 +111,12 @@ class GsGpu {
     _clut(version, _clutWords.$1);
   }
 
+  /// Runs the steps; unless [wait], only submits them.
   void run(Pointer<Uint32> steps, int count, Pointer<Uint32> params,
           Pointer<Uint32> prims, int primWords, Pointer<Uint32> data,
-          int dataWords) =>
+          int dataWords, {bool wait = true}) =>
       _check(_run(steps, count, params, prims, primWords, data, dataWords,
-          _times), 'gsgpu_run');
+          wait ? 1 : 0, _times), 'gsgpu_run');
 
   Uint32List readVram() {
     _check(_read(_vram.$1), 'gsgpu_read_vram');
