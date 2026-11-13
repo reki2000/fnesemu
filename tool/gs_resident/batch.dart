@@ -50,6 +50,18 @@ class GsResidentBatchEncoder implements GsResidentSink {
   @override
   ImageBuffer? completedImage;
 
+  @override
+  void vblank(int field) {}
+
+  @override
+  void copyLocal(int bitbltbuf, int trxpos, int trxreg) =>
+      throw UnsupportedError('resident GS transfer 2');
+
+  @override
+  void beginDownload(int psm, int base, int bufferWidth, int x, int y,
+          int width, int height) =>
+      throw UnsupportedError('resident GS transfer 1');
+
   final Gs gs;
   final GsMemory _mem;
   late final Uint32List _layouts;

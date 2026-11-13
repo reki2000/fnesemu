@@ -12,6 +12,13 @@ typedef GsDrawRecorder = void Function(
 GsDrawRecorder? gsDrawRecorder;
 void Function(GsHostDraw?, String)? gsReplayDraw;
 
+/// Receives every primitive instead of the raster when set, with its Gs.prim*
+/// type, the PRIM attribute bits in effect and its vertices (one for a point,
+/// two for a line or a sprite, three for a triangle). The vertices are reused
+/// for the next primitive. The registers of the primitive are those of the Gs
+/// at the call.
+void Function(int type, int attrs, List<GsVertex> vertices)? gsPrimitiveHook;
+
 class _ResidentHazards {
   final written = Uint32List(GsMemory.size ~/ 4);
   final read = Uint32List(GsMemory.size ~/ 4);
@@ -122,6 +129,11 @@ abstract class GsHostDraw {
 extension GsHostSprites on GsRaster {
   GsHostDraw? drawTriangle(int attrs, GsVertex a, GsVertex b, GsVertex c,
       {required bool allowHost}) {
+    final hook = gsPrimitiveHook;
+    if (hook != null) {
+      hook(Gs.primTriangle, attrs, [a, b, c]);
+      return null;
+    }
     _setup(attrs >> 9 & 1, attrs);
     final recording =
         gs.residentSink != null || gsDrawRecorder != null || gsReplayDraw != null;
@@ -165,6 +177,11 @@ extension GsHostSprites on GsRaster {
 
   GsHostDraw? drawSprite(int attrs, GsVertex a, GsVertex b,
       {required bool allowHost}) {
+    final hook = gsPrimitiveHook;
+    if (hook != null) {
+      hook(Gs.primSprite, attrs, [a, b]);
+      return null;
+    }
     _setup(attrs >> 9 & 1, attrs);
     final recording =
         gs.residentSink != null || gsDrawRecorder != null || gsReplayDraw != null;

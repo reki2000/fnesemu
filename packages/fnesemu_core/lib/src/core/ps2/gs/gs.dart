@@ -24,6 +24,18 @@ abstract interface class GsResidentSink {
   /// Returns true after the last word of the transfer.
   bool uploadWord(int word);
   void loadClut(int entry, int psm, int index);
+
+  /// Copies the rectangle of a local to local transfer, with the fields of
+  /// BITBLTBUF, TRXPOS and TRXREG, in the order of DIR of TRXPOS.
+  void copyLocal(int bitbltbuf, int trxpos, int trxreg);
+
+  /// Brings the rectangle of a local to host transfer up to date in
+  /// [Gs.mem], from which the core then reads it.
+  void beginDownload(int psm, int base, int bufferWidth, int x, int y,
+      int width, int height);
+
+  /// Called at the start of each vertical blank with the field that ends.
+  void vblank(int field);
 }
 
 /// A vertex of the primitive being assembled.
@@ -407,6 +419,7 @@ class Gs {
   /// called at the start of the vertical blank
   void vblank() {
     gsCommandRecorder?.call(4, 0, 0);
+    residentSink?.vblank(_field);
     if (residentSink == null && smode2 & 1 != 0) {
       _capturePendingField();
       if (_submitHostBatch()) {
@@ -665,7 +678,15 @@ class Gs {
             (trxpos >> 48) & 0x7ff, w, h);
         return;
       }
-      if (direction != 3) throw UnsupportedError('resident GS transfer $direction');
+      if (direction == 2) {
+        resident.copyLocal(bitbltbuf, trxpos, trxreg);
+        _trxLeft = 0;
+        return;
+      }
+      if (direction == 1) {
+        resident.beginDownload(_spsm, _sbp, _sbw, trxpos & 0x7ff,
+            (trxpos >> 16) & 0x7ff, w, h);
+      }
     }
     if (direction == 2) {
       _localToLocal();

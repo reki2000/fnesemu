@@ -155,6 +155,11 @@ class GsRaster {
   /// Draws one primitive. [type] is a Gs.prim* value, [attrs] the PRIM
   /// attribute bits in effect.
   void draw(Gs gs, int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
+    final hook = gsPrimitiveHook;
+    if (hook != null) {
+      hook(type, attrs, [a, if (type != Gs.primPoint) b]);
+      return;
+    }
     _setup((attrs >> 9) & 1, attrs);
     if (gs.residentSink != null || gsDrawRecorder != null || gsReplayDraw != null) {
       _recordDraw(type, attrs, [a, if (type != Gs.primPoint) b], null,
