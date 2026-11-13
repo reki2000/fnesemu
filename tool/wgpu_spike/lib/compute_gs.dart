@@ -436,12 +436,8 @@ class ComputeGsSink implements GsResidentSink {
       Gs.primPoint => 3,
       Gs.primTriangle => 1,
       Gs.primSprite => 2,
-      _ => 0,
+      _ => 4,
     };
-    if (kind == 0) {
-      _count(unsupported, 'line');
-      return;
-    }
     _materialize();
     final c = gs.contexts[attrs >> 9 & 1];
     final ofx = c.xyoffset & 0xffff, ofy = c.xyoffset >> 32 & 0xffff;
@@ -449,7 +445,15 @@ class ComputeGsSink implements GsResidentSink {
     final sx0 = sc & 0x7ff, sx1 = sc >> 16 & 0x7ff;
     final sy0 = sc >> 32 & 0x7ff, sy1 = sc >> 48 & 0x7ff;
     int x0, y0, x1, y1;
-    if (kind == 3) {
+    if (kind == 4) {
+      final ax = v[0].x - ofx, bx = v[1].x - ofx;
+      final ay = v[0].y - ofy, by = v[1].y - ofy;
+      if (ax == bx && ay == by) return;
+      x0 = (ax < bx ? ax : bx) >> 4;
+      x1 = (ax < bx ? bx : ax) >> 4;
+      y0 = (ay < by ? ay : by) >> 4;
+      y1 = (ay < by ? by : ay) >> 4;
+    } else if (kind == 3) {
       x0 = x1 = (v[0].x - ofx) >> 4;
       y0 = y1 = (v[0].y - ofy) >> 4;
       if (x0 < sx0 || x0 > sx1 || y0 < sy0 || y0 > sy1) return;

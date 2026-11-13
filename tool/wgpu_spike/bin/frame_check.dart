@@ -116,6 +116,15 @@ void main(List<String> args) {
       pages[i >> 11] = (pages[i >> 11] ?? 0) + 1;
     }
   }
+  final dump = int.parse(option('--dump', '0'));
+  for (var i = 0, shown = 0; i < expected.length && shown < dump; i++) {
+    if (expected[i] != vram[i]) {
+      shown++;
+      stdout.writeln('word ${i.toRadixString(16)} page ${i >> 11}: '
+          'core ${expected[i].toRadixString(16).padLeft(8, '0')} '
+          'gpu ${vram[i].toRadixString(16).padLeft(8, '0')}');
+    }
+  }
   final worst = pages.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
   stdout.writeln(jsonEncode({

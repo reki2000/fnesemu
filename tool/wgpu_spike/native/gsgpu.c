@@ -32,6 +32,12 @@ static WGPUComputePipeline pipes[KINDS];
 static WGPUBindGroup group;
 static char lastError[1024];
 
+// GSGPU_PROFILE: timestamps around the first PROFILE_STEPS dispatches
+#define PROFILE_STEPS 2048u
+static int profile;
+static WGPUQuerySet queries;
+static WGPUBuffer resolved, profileRead;
+
 static double now_ms(void) {
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
@@ -80,7 +86,8 @@ int gsgpu_init(const char *name, uint32_t backends, const char *wgsl,
   extras.chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
   extras.backends = backends;
   // dozen (Vulkan over D3D12 in WSL) reports conformance version 0
-  extras.flags = WGPUInstanceFlag_AllowUnderlyingNoncompliantAdapter;
+  extras.flags = WGPUInstanceFlag_AllowUnderlyingNoncompliantAdapter |
+                 WGPUInstanceFlag_AutomaticTimestampNormalization;
   WGPUInstanceDescriptor id = WGPU_INSTANCE_DESCRIPTOR_INIT;
   id.nextInChain = &extras.chain;
   instance = wgpuCreateInstance(&id);
@@ -118,6 +125,15 @@ int gsgpu_init(const char *name, uint32_t backends, const char *wgsl,
   wgpuAdapterGetLimits(adapter, &limits);
   WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT;
   dd.requiredLimits = &limits;
+  WGPUFeatureName features[2] = {
+      WGPUFeatureName_TimestampQuery,
+      (WGPUFeatureName)WGPUNativeFeature_TimestampQueryInsidePasses};
+  profile = getenv("GSGPU_PROFILE") != NULL &&
+            wgpuAdapterHasFeature(adapter, features[1]);
+  if (profile) {
+    dd.requiredFeatureCount = 2;
+    dd.requiredFeatures = features;
+  }
   dd.uncapturedErrorCallbackInfo.callback = on_device_error;
   WGPURequestDeviceCallbackInfo cb = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
   cb.mode = WGPUCallbackMode_AllowProcessEvents;
@@ -201,6 +217,16 @@ int gsgpu_init(const char *name, uint32_t backends, const char *wgsl,
   gd.entryCount = 7;
   gd.entries = ge;
   group = wgpuDeviceCreateBindGroup(device, &gd);
+  if (profile) {
+    WGPUQuerySetDescriptor qd = WGPU_QUERY_SET_DESCRIPTOR_INIT;
+    qd.type = WGPUQueryType_Timestamp;
+    qd.count = PROFILE_STEPS * 2;
+    queries = wgpuDeviceCreateQuerySet(device, &qd);
+    resolved = buffer(PROFILE_STEPS * 16,
+                      WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc);
+    profileRead = buffer(PROFILE_STEPS * 16,
+                         WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
+  }
   wgpuDevicePoll(device, 1, NULL);
   return lastError[0] ? 4 : 0;
 }
@@ -225,6 +251,12 @@ static void on_mapped(WGPUMapAsyncStatus status, WGPUStringView message,
   *(int *)u1 = 1;
 }
 
+static void on_mapped_profile(WGPUMapAsyncStatus status, WGPUStringView m,
+                              void *u1, void *u2) {
+  (void)status, (void)m, (void)u2;
+  *(int *)u1 = 1;
+}
+
 // Runs [count] steps of 4 words (kind and dispatch size x, y, z) with 64
 // words of parameters per step, after uploading [primWords] words of
 // primitives and [dataWords] data words. [times] receives the milliseconds to
@@ -245,18 +277,33 @@ int gsgpu_run(const uint32_t *steps, uint32_t count, const uint32_t *stepParams,
   WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(device, NULL);
   WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(enc, NULL);
   int last = -1;
+  // GSGPU_SKIP lists step kinds (digits) to leave out, to time the others
+  const char *skip = getenv("GSGPU_SKIP");
   for (uint32_t k = 0; k < count; k++) {
     const uint32_t *s = steps + k * 4;
     if (s[0] >= KINDS || !s[1] || !s[2] || !s[3]) continue;
+    if (skip && strchr(skip, '0' + (int)s[0])) continue;
     if ((int)s[0] != last) {
       wgpuComputePassEncoderSetPipeline(pass, pipes[s[0]]);
       last = s[0];
     }
     uint32_t offset = k * STEP_STRIDE;
     wgpuComputePassEncoderSetBindGroup(pass, 0, group, 1, &offset);
+    if (profile && k < PROFILE_STEPS) {
+      wgpuComputePassEncoderWriteTimestamp(pass, queries, k * 2);
+    }
     wgpuComputePassEncoderDispatchWorkgroups(pass, s[1], s[2], s[3]);
+    if (profile && k < PROFILE_STEPS) {
+      wgpuComputePassEncoderWriteTimestamp(pass, queries, k * 2 + 1);
+    }
   }
   wgpuComputePassEncoderEnd(pass);
+  uint32_t timed = count < PROFILE_STEPS ? count : PROFILE_STEPS;
+  if (profile && timed) {
+    wgpuCommandEncoderResolveQuerySet(enc, queries, 0, timed * 2, resolved, 0);
+    wgpuCommandEncoderCopyBufferToBuffer(enc, resolved, 0, profileRead, 0,
+                                         timed * 16ull);
+  }
   WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, NULL);
   wgpuQueueSubmit(queue, 1, &cmd);
   wgpuCommandBufferRelease(cmd);
@@ -265,6 +312,58 @@ int gsgpu_run(const uint32_t *steps, uint32_t count, const uint32_t *stepParams,
   double t2 = now_ms();
   wgpuDevicePoll(device, 1, NULL);
   double t3 = now_ms();
+  if (profile && timed) {
+    int done = 0;
+    WGPUBufferMapCallbackInfo pc = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    pc.mode = WGPUCallbackMode_AllowProcessEvents;
+    pc.callback = on_mapped_profile;
+    pc.userdata1 = &done;
+    wgpuBufferMapAsync(profileRead, WGPUMapMode_Read, 0, timed * 16ull, pc);
+    while (!done) {
+      wgpuDevicePoll(device, 1, NULL);
+      wgpuInstanceProcessEvents(instance);
+    }
+    const uint64_t *ts =
+        wgpuBufferGetConstMappedRange(profileRead, 0, timed * 16ull);
+    static const char *names[KINDS] = {"setup", "raster", "clut",
+                                       "upload", "copy", "snapshot"};
+    uint32_t ranked[10] = {0};
+    double sum[KINDS] = {0}, top = 0;
+    uint32_t n[KINDS] = {0}, topStep = 0;
+    for (uint32_t k = 0; k < timed; k++) {
+      uint32_t kind = steps[k * 4];
+      if (kind >= KINDS || !steps[k * 4 + 1]) continue;
+      double ms = (ts[k * 2 + 1] - ts[k * 2]) / 1e6;
+      sum[kind] += ms;
+      n[kind]++;
+      if (ms > top) top = ms, topStep = k;
+    }
+    double span = (ts[(timed - 1) * 2 + 1] - ts[0]) / 1e6;
+    fprintf(stderr, "profile: span %.2f ms;", span);
+    for (int i = 0; i < KINDS; i++) {
+      if (n[i]) fprintf(stderr, " %s %u %.2f ms;", names[i], n[i], sum[i]);
+    }
+    fprintf(stderr, " longest step %u (%s %ux%u) %.2f ms\n", topStep,
+            names[steps[topStep * 4]], steps[topStep * 4 + 1],
+            steps[topStep * 4 + 2], top);
+    // the ten longest steps: kind, tiles, primitives (raster), ms
+    for (int r = 0; r < 10; r++) {
+      double best = -1;
+      uint32_t at = 0;
+      for (uint32_t k = 0; k < timed; k++) {
+        if (steps[k * 4] >= KINDS || !steps[k * 4 + 1]) continue;
+        double ms = (ts[k * 2 + 1] - ts[k * 2]) / 1e6;
+        int seen = 0;
+        for (int q = 0; q < r; q++) seen |= ranked[q] == k;
+        if (!seen && ms > best) best = ms, at = k;
+      }
+      ranked[r] = at;
+      fprintf(stderr, "  step %u %s %ux%u prims %u: %.2f ms\n", at,
+              names[steps[at * 4]], steps[at * 4 + 1], steps[at * 4 + 2],
+              stepParams[at * 64 + 1], best);
+    }
+    wgpuBufferUnmap(profileRead);
+  }
   times[0] = t1 - t0;
   times[1] = t2 - t1;
   times[2] = t3 - t2;

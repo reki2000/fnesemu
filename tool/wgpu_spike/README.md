@@ -21,9 +21,15 @@ dart run bin/frame_check.dart TRACE_DIR --adapter NVIDIA
 
 For timing, build with `dart build cli --target bin/frame_check.dart` and set `GSGPU_LIB` and `GSGPU_WGSL` to `build/libgsgpu.so` and `gs.wgsl`.
 
+`GSGPU_PROFILE=1` writes GPU timestamps around each step and prints the time per step kind and the longest steps. `GSGPU_SKIP` lists step kinds (digits) that the shim does not dispatch, to measure the rest. `frame_check --dump N` prints the primitives of step N.
+
+## Notes on speed
+
+- The bilinear and mipmap texel reads are the main cost of the raster step. The texels are read in loops so that the texel read, with its layout and CLUT lookup, is compiled once; this cut the raster time to about a fifth.
+
 ## Not done
 
-- Lines (`unsupported: line`), triangles of 2048 pixels or more, AA1.
+- Triangles of 2048 pixels or more, AA1.
 - Texture and colour interpolation use 32-bit floats where the core uses doubles, so a few pixels differ by a step. Depth is exact.
 - A draw that reads its own target pages reads them as they were before its batch, while the core reads the pixels it already wrote.
 - Local to host transfers read the whole memory back synchronously.

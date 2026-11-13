@@ -4,7 +4,7 @@
 // gs_raster.dart) step by step, so that a frame can be compared with it.
 //
 // Entry points, one per step kind:
-//   setup     per primitive: bounds and edges into setups
+//   setup     per primitive: bounds and edges (or line steps) into setups
 //   raster    one 16x16 tile per workgroup: the primitives of a batch in
 //             order, the frame and depth of the pixel kept in registers
 //   clut      CLUT versions from descriptors
@@ -75,6 +75,7 @@ const S_MIPTH = 70u;
 const KIND_TRIANGLE = 1u;
 const KIND_SPRITE = 2u;
 const KIND_POINT = 3u;
+const KIND_LINE = 4u;
 
 const CT32 = 0x00u;
 const CT24 = 0x01u;
@@ -287,6 +288,27 @@ fn setup(@builtin(global_invocation_id) g: vec3u) {
     setups[o + 1u] = setups[o];
     return;
   }
+  if (kind == KIND_LINE) {
+    let ax = vx(prims[p + 3u]) - ofx;
+    let ay = vy(prims[p + 3u]) - ofy;
+    let bx = vx(prims[p + 11u]) - ofx;
+    let by = vy(prims[p + 11u]) - ofy;
+    // GsRaster._line: ceil(max(|dx|, |dy|)) steps in pixels
+    let steps = (max(abs(bx - ax), abs(by - ay)) + 15) >> 4u;
+    let minx = max(min(ax, bx) >> 4u, sx0);
+    let maxx = min(max(ax, bx) >> 4u, sx1);
+    let miny = max(min(ay, by) >> 4u, sy0);
+    let maxy = min(max(ay, by) >> 4u, sy1);
+    if (steps == 0 || minx > maxx || miny > maxy) { empty(o); return; }
+    setups[o] = u32(minx) | (u32(miny) << 16u);
+    setups[o + 1u] = u32(maxx) | (u32(maxy) << 16u);
+    setups[o + 2u] = bitcast<u32>(ax);
+    setups[o + 3u] = bitcast<u32>(ay);
+    setups[o + 4u] = bitcast<u32>(bx);
+    setups[o + 5u] = bitcast<u32>(by);
+    setups[o + 6u] = u32(steps);
+    return;
+  }
   if (kind == KIND_SPRITE) {
     let x0 = vx(prims[p + 3u]) - ofx;
     let y0 = vy(prims[p + 3u]) - ofy;
@@ -390,6 +412,27 @@ fn div_round(n: vec2u, d: u32) -> u32 {
   return q + select(0u, 1u, r * 2u >= d);
 }
 
+// floor(n / d) + 0.5 rounded up, for d < 2^31 and a quotient below 2^32
+fn div_round64(n: vec2u, d: u32) -> u32 {
+  var r = 0u;
+  var q = 0u;
+  for (var i = 63i; i >= 0i; i--) {
+    let bit = select((n.x >> u32(i)) & 1u, (n.y >> u32(i - 32i)) & 1u, i >= 32i);
+    r = (r << 1u) | bit;
+    q = q << 1u;
+    if (r >= d) {
+      r -= d;
+      q |= 1u;
+    }
+  }
+  return q + select(0u, 1u, r * 2u >= d);
+}
+
+fn floor_div(a: i32, b: i32) -> i32 {
+  let q = a / b;
+  return select(q, q - 1, a % b != 0 && a < 0);
+}
+
 // ---- pixel pipeline (GsRaster._pixel) ----
 
 struct Frag {
@@ -484,34 +527,6 @@ fn bilinear(c00: u32, c10: u32, c01: u32, c11: u32, fu: f32, fv: f32) -> u32 {
       mix4(c00, c10, c01, c11, fu, fv, 16u) | mix4(c00, c10, c01, c11, fu, fv, 24u);
 }
 
-// GsRaster._sample on level l
-fn sample(state: u32, from_snap: bool, version: u32, l: Level, u: f32, v: f32,
-    linear: bool) -> u32 {
-  let size = 1i << l.tw;
-  let height = 1i << l.th;
-  let wms = st(state, S_WMS);
-  let wmt = st(state, S_WMT);
-  if (!linear) {
-    return texel(state, from_snap, version, l,
-        wrap(i32(floor(u)), wms, size, l.minu, l.maxu),
-        wrap(i32(floor(v)), wmt, height, l.minv, l.maxv));
-  }
-  let u0 = i32(floor(u - 0.5));
-  let v0 = i32(floor(v - 0.5));
-  let fu = u - 0.5 - f32(u0);
-  let fv = v - 0.5 - f32(v0);
-  let ua = wrap(u0, wms, size, l.minu, l.maxu);
-  let ub = wrap(u0 + 1, wms, size, l.minu, l.maxu);
-  let va = wrap(v0, wmt, height, l.minv, l.maxv);
-  let vb = wrap(v0 + 1, wmt, height, l.minv, l.maxv);
-  let c00 = texel(state, from_snap, version, l, ua, va);
-  let c10 = texel(state, from_snap, version, l, ub, va);
-  let c01 = texel(state, from_snap, version, l, ua, vb);
-  let c11 = texel(state, from_snap, version, l, ub, vb);
-  if (c00 == c10 && c00 == c01 && c00 == c11) { return c00; }
-  return bilinear(c00, c10, c01, c11, fu, fv);
-}
-
 fn level(state: u32, n: u32) -> Level {
   var l: Level;
   l.tbp = st(state, S_MIPTBP + n);
@@ -535,17 +550,48 @@ fn level(state: u32, n: u32) -> Level {
   return l;
 }
 
+// GsRaster._sampleLevel and _sample: level n at level 0 coordinates (u, v).
+// The texels are read in a loop, so that the texel read is compiled once.
 fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
     v: f32, linear: bool) -> u32 {
+  let l = level(state, n);
   let scale = 1.0 / f32(1u << n);
-  return sample(state, from_snap, version, level(state, n), u * scale,
-      v * scale, linear);
+  let su = u * scale;
+  let sv = v * scale;
+  let size = 1i << l.tw;
+  let height = 1i << l.th;
+  let wms = st(state, S_WMS);
+  let wmt = st(state, S_WMT);
+  var u0: i32;
+  var v0: i32;
+  var fu = 0.0;
+  var fv = 0.0;
+  var taps = 1u;
+  if (linear) {
+    u0 = i32(floor(su - 0.5));
+    v0 = i32(floor(sv - 0.5));
+    fu = su - 0.5 - f32(u0);
+    fv = sv - 0.5 - f32(v0);
+    taps = 4u;
+  } else {
+    u0 = i32(floor(su));
+    v0 = i32(floor(sv));
+  }
+  var c: array<u32, 4>;
+  for (var k = 0u; k < taps; k++) {
+    c[k] = texel(state, from_snap, version, l,
+        wrap(u0 + i32(k & 1u), wms, size, l.minu, l.maxu),
+        wrap(v0 + i32(k >> 1u), wmt, height, l.minv, l.maxv));
+  }
+  if (!linear || (c[0] == c[1] && c[0] == c[2] && c[0] == c[3])) {
+    return c[0];
+  }
+  return bilinear(c[0], c[1], c[2], c[3], fu, fv);
 }
 
 // GsRaster._texture without the texture function
 fn texture(state: u32, attrs: u32, from_snap: bool, version: u32,
     fr: Frag) -> u32 {
-  let l0 = level(state, 0u);
   var u: f32;
   var v: f32;
   let fst = (attrs & 0x100u) != 0u;
@@ -554,40 +600,46 @@ fn texture(state: u32, attrs: u32, from_snap: bool, version: u32,
     v = fr.v;
   } else {
     let q = select(fr.q, 1.0, fr.q == 0.0);
-    u = finite(fr.s / q * f32(1u << l0.tw));
-    v = finite(fr.t / q * f32(1u << l0.th));
+    u = finite(fr.s / q * f32(1u << st(state, S_MIPTW)));
+    v = finite(fr.t / q * f32(1u << st(state, S_MIPTH)));
   }
-  let linear = st(state, S_LINEAR) != 0u;
-  if (st(state, S_MIPMAP) == 0u) {
-    return sample(state, from_snap, version, l0, u, v, linear);
+  // the levels to sample (GsRaster._sampleMipmap), their filter and the
+  // weight of the second one
+  var n = 0u;
+  var levels = 1u;
+  var frac = 0.0;
+  var linear = st(state, S_LINEAR) != 0u;
+  if (st(state, S_MIPMAP) != 0u) {
+    let k = bitcast<f32>(st(state, S_K));
+    var lod: f32;
+    if (st(state, S_LCM) != 0u) {
+      lod = k;
+    } else {
+      let q = select(abs(fr.q), 1.0, fst);
+      lod = select(-log2(q) * f32(1u << st(state, S_L)) + k, k, q == 0.0);
+    }
+    if (lod > 0.0) {
+      let mmin = st(state, S_MMIN);
+      let mxl = st(state, S_MXL);
+      linear = mmin == 1u || mmin >= 4u;
+      if (mmin >= 2u && mxl != 0u) {
+        let top = select(lod, f32(mxl), lod > f32(mxl));
+        if (mmin == 3u || mmin == 5u) {
+          n = u32(floor(top));
+          frac = top - f32(n);
+          if (frac != 0.0 && n < mxl) { levels = 2u; }
+        } else {
+          n = u32(floor(top + 0.5));
+        }
+      }
+    }
   }
-  let k = bitcast<f32>(st(state, S_K));
-  var lod: f32;
-  if (st(state, S_LCM) != 0u) {
-    lod = k;
-  } else {
-    let q = select(abs(fr.q), 1.0, fst);
-    lod = select(-log2(q) * f32(1u << st(state, S_L)) + k, k, q == 0.0);
+  var c: array<u32, 2>;
+  for (var j = 0u; j < levels; j++) {
+    c[j] = sample_level(state, from_snap, version, n + j, u, v, linear);
   }
-  if (lod <= 0.0) { return sample(state, from_snap, version, l0, u, v, linear); }
-  let mmin = st(state, S_MMIN);
-  let mxl = st(state, S_MXL);
-  let min_linear = mmin == 1u || mmin >= 4u;
-  if (mmin < 2u || mxl == 0u) {
-    return sample(state, from_snap, version, l0, u, v, min_linear);
-  }
-  let blend = mmin == 3u || mmin == 5u;
-  let top = select(lod, f32(mxl), lod > f32(mxl));
-  if (!blend) {
-    return sample_level(state, from_snap, version, u32(floor(top + 0.5)), u, v,
-        min_linear);
-  }
-  let n = u32(floor(top));
-  let c0 = sample_level(state, from_snap, version, n, u, v, min_linear);
-  let frac = top - f32(n);
-  if (frac == 0.0 || n >= mxl) { return c0; }
-  let c1 = sample_level(state, from_snap, version, n + 1u, u, v, min_linear);
-  return bilinear(c0, c1, c0, c1, frac, 0.0);
+  if (levels == 1u) { return c[0]; }
+  return bilinear(c[0], c[1], c[0], c[1], frac, 0.0);
 }
 
 fn alpha_passes(atst: u32, a: i32, aref: i32) -> bool {
@@ -910,6 +962,93 @@ fn fragment(i: u32, x: u32, y: u32, fr: ptr<function, Frag>) -> bool {
   return true;
 }
 
+// the position of step k of line i along one axis: floor(a + (b - a) * k /
+// steps) in pixels, exactly
+fn line_at(a: i32, b: i32, k: i32, steps: i32) -> i32 {
+  return floor_div(a * steps + (b - a) * k, 16 * steps);
+}
+
+// GsRaster._lerp at step k of steps for the line from vertex a to b
+fn line_frag(attrs: u32, a: u32, b: u32, k: u32, steps: u32) -> Frag {
+  var fr: Frag;
+  let t = f32(k) / f32(steps);
+  let za = prims[a + 1u];
+  let zb = prims[b + 1u];
+  // the depth rounds half away from zero, as round() does
+  if (zb >= za) {
+    fr.z = za + div_round64(mul_wide(zb - za, k), steps);
+  } else {
+    fr.z = za - div_round64(mul_wide(za - zb, k), steps);
+  }
+  let ca = prims[a + 2u];
+  let cb = prims[b + 2u];
+  if ((attrs & 0x08u) != 0u) {
+    fr.r = round_up(f32(channel(ca, 0u)) + f32(channel(cb, 0u) - channel(ca, 0u)) * t);
+    fr.g = round_up(f32(channel(ca, 1u)) + f32(channel(cb, 1u) - channel(ca, 1u)) * t);
+    fr.b = round_up(f32(channel(ca, 2u)) + f32(channel(cb, 2u) - channel(ca, 2u)) * t);
+    fr.a = round_up(f32(channel(ca, 3u)) + f32(channel(cb, 3u) - channel(ca, 3u)) * t);
+  } else {
+    fr.r = channel(cb, 0u);
+    fr.g = channel(cb, 1u);
+    fr.b = channel(cb, 2u);
+    fr.a = channel(cb, 3u);
+  }
+  let fa = f32(prims[a + 3u]);
+  fr.f = round_up(fa + (f32(prims[b + 3u]) - fa) * t);
+  let sa = bitcast<f32>(prims[a + 5u]);
+  let ta = bitcast<f32>(prims[a + 6u]);
+  let qa = bitcast<f32>(prims[a + 7u]);
+  fr.s = sa + (bitcast<f32>(prims[b + 5u]) - sa) * t;
+  fr.t = ta + (bitcast<f32>(prims[b + 6u]) - ta) * t;
+  fr.q = qa + (bitcast<f32>(prims[b + 7u]) - qa) * t;
+  let ua = f32(prims[a + 4u] & 0xffffu);
+  let va = f32(prims[a + 4u] >> 16u);
+  fr.u = (ua + (f32(prims[b + 4u] & 0xffffu) - ua) * t) / 16.0;
+  fr.v = (va + (f32(prims[b + 4u] >> 16u) - va) * t) / 16.0;
+  return fr;
+}
+
+// draws the steps of line i that land on pixel (x, y), in order
+fn line_pixels(i: u32, x: u32, y: u32, fval: ptr<function, u32>,
+    zval: ptr<function, u32>, fdirty: ptr<function, bool>,
+    zdirty: ptr<function, bool>) {
+  let o = i * SETUP_WORDS;
+  let mn = setups[o];
+  let mx = setups[o + 1u];
+  if (x < (mn & 0xffffu) || x > (mx & 0xffffu) || y < (mn >> 16u) ||
+      y > (mx >> 16u)) {
+    return;
+  }
+  let ax = bitcast<i32>(setups[o + 2u]);
+  let ay = bitcast<i32>(setups[o + 3u]);
+  let bx = bitcast<i32>(setups[o + 4u]);
+  let by = bitcast<i32>(setups[o + 5u]);
+  let steps = i32(setups[o + 6u]);
+  // the steps near the pixel along the major axis
+  var a = ax;
+  var d = bx - ax;
+  var c = i32(x);
+  if (abs(by - ay) > abs(bx - ax)) {
+    a = ay;
+    d = by - ay;
+    c = i32(y);
+  }
+  let k0 = f32(c * 16 - a) * f32(steps) / f32(d);
+  let k1 = f32(c * 16 + 16 - a) * f32(steps) / f32(d);
+  let lo = max(i32(floor(min(k0, k1))) - 1, 0);
+  let hi = min(i32(ceil(max(k0, k1))) + 1, steps - 1);
+  let p = i * PRIM_WORDS;
+  let attrs = prims[p] >> 8u;
+  for (var k = lo; k <= hi; k++) {
+    if (line_at(ax, bx, k, steps) == i32(x) &&
+        line_at(ay, by, k, steps) == i32(y)) {
+      let fr = line_frag(attrs, p + 3u, p + 11u, u32(k), u32(steps));
+      pixel(prims[p + 1u], attrs, (prims[p] & 0x1000000u) != 0u, prims[p + 2u],
+          x, y, fr, fval, zval, fdirty, zdirty);
+    }
+  }
+}
+
 var<workgroup> scan: array<u32, 256>;
 var<workgroup> list: array<u32, 256>;
 
@@ -961,6 +1100,10 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
     let total = workgroupUniformLoad(&scan[255]);
     for (var k = 0u; k < total; k++) {
       let prim = list[k];
+      if ((prims[prim * PRIM_WORDS] & 0xffu) == KIND_LINE) {
+        line_pixels(prim, x, y, &fval, &zval, &fdirty, &zdirty);
+        continue;
+      }
       var fr: Frag;
       if (fragment(prim, x, y, &fr)) {
         let p = prim * PRIM_WORDS;
