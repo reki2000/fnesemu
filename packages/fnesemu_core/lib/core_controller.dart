@@ -5,12 +5,12 @@ import 'dart:typed_data';
 import 'core_factory.dart';
 import 'debugger.dart';
 import 'src/cdrom_drive.dart';
+import 'src/compute_sink.dart';
 import 'src/core.dart';
 import 'src/internal/frame_counter.dart';
 import 'src/internal/frame_pacer.dart';
 import 'src/pad_button.dart';
 import 'src/pad_source.dart';
-import 'src/render_frame.dart';
 import 'src/sram.dart';
 import 'src/types.dart';
 import 'src/util/debug.dart';
@@ -98,7 +98,7 @@ class CoreController {
     _core.dispose();
     _core = core
       ..input = _input
-      ..renderFrameSink = _renderFrameSink;
+      ..computeSink = _computeSink;
     _system = system;
     final metadata = CoreFactory.system(system);
     debugger.setCore(_core,
@@ -168,7 +168,7 @@ class CoreController {
           continue;
         }
 
-        final presentAfterPacing = _runFrame();
+        _runFrame();
         fpsCounter.count();
         final fps = fpsCounter.fps(DateTime.now());
         if (fps != null) {
@@ -187,7 +187,6 @@ class CoreController {
             minimumDeadlineUs: frameEndUs + frameYieldUs);
         await Future.delayed(Duration(
             milliseconds: (frameDeadlineUs - frameEndUs + 999) ~/ 1000));
-        if (presentAfterPacing) _renderAll();
 
         // keeps up to 1 frame behind
         final behind = targetClocks - _currentCpuClocks;
@@ -268,8 +267,8 @@ class CoreController {
     if (wasRunning) run();
   }
 
-  /// Executes one frame and reports whether presentation uses the pacing delay.
-  bool _runFrame() {
+  /// Executes one frame and shows its picture unless the emulation stops.
+  void _runFrame() {
     final core = _core;
     if (!debugger.needsInstructionLoop) {
       // the core runs the rest of the frame by itself
@@ -278,12 +277,12 @@ class CoreController {
       if (result.stopped) {
         _scanline = 0;
         _stopRequested = true;
-        return false;
+        return;
       }
     } else {
       while (_scanline < core.scanlinesInFrame) {
         if (!_runScanLine()) {
-          return false;
+          return;
         }
       }
     }
@@ -294,9 +293,7 @@ class CoreController {
       _stopRequested = true;
     }
 
-    if (!_stopRequested && core.prepareImage()) return true;
     _renderAll();
-    return false;
   }
 
   /// for debugger: executes emulation during 1 scanline
@@ -359,14 +356,14 @@ class CoreController {
     _core.input = source;
   }
 
-  RenderFrameSink? _renderFrameSink;
+  ComputeSink? _computeSink;
 
-  /// the loaded core and the cores loaded later leave their 3D renders to
-  /// this sink; null draws them in the cores
-  RenderFrameSink? get renderFrameSink => _renderFrameSink;
-  set renderFrameSink(RenderFrameSink? sink) {
-    _renderFrameSink = sink;
-    _core.renderFrameSink = sink;
+  /// the loaded core and the cores loaded later run their video chips on
+  /// this GPU; null draws in the cores
+  ComputeSink? get computeSink => _computeSink;
+  set computeSink(ComputeSink? sink) {
+    _computeSink = sink;
+    _core.computeSink = sink;
   }
 
   // returns a list of core's buttons

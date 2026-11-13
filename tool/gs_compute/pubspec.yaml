@@ -1,0 +1,14 @@
+name: gs_compute_check
+description: Checks the compute GS of the PS2 core against its software raster on GS frame traces.
+publish_to: none
+environment:
+  sdk: ^3.10.0
+dependencies:
+  archive: ^4.0.0
+  cdrom_image:
+    path: ../../packages/cdrom_image
+  fnesemu_core:
+    path: ../../packages/fnesemu_core
+  image: ^4.3.0
+  mp_compute:
+    path: ../../packages/mp_compute

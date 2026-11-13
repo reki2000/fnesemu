@@ -1,12 +1,9 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import '../../../ps2_render_frame.dart';
 import '../state.dart';
 import 'gs.dart';
 import 'gs_memory.dart';
-
-part 'gs_host_sprite.dart';
 
 /// Draws primitives into the GS local memory.
 ///
@@ -154,22 +151,18 @@ class GsRaster {
 
   /// Draws one primitive. [type] is a Gs.prim* value, [attrs] the PRIM
   /// attribute bits in effect.
+  /// A [Gs.residentSink] takes the primitive instead, with its vertices.
   void draw(Gs gs, int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
-    final hook = gsPrimitiveHook;
-    if (hook != null) {
-      hook(type, attrs, [a, if (type != Gs.primPoint) b]);
+    final resident = gs.residentSink;
+    if (resident != null) {
+      resident.primitive(type, attrs, switch (type) {
+        Gs.primPoint => [a],
+        Gs.primTriangle => [a, b, c],
+        _ => [a, b],
+      });
       return;
     }
     _setup((attrs >> 9) & 1, attrs);
-    if (gs.residentSink != null || gsDrawRecorder != null || gsReplayDraw != null) {
-      _recordDraw(type, attrs, [a, if (type != Gs.primPoint) b], null,
-          () => _drawPrimitive(type, attrs, a, b, c));
-      return;
-    }
-    _drawPrimitive(type, attrs, a, b, c);
-  }
-
-  void _drawPrimitive(int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
     switch (type) {
       case Gs.primPoint:
         _point(a, attrs);
@@ -798,6 +791,7 @@ class GsRaster {
   final _clutBuffer = Uint32List(512);
   int _cbp0 = 0, _cbp1 = 0;
   Uint32List get residentClut => Uint32List.fromList(_clutBuffer);
+  set residentClut(Uint32List entries) => _clutBuffer.setAll(0, entries);
 
   /// The CLUT buffer is the only state kept between primitives.
   void saveState(StateWriter w) {

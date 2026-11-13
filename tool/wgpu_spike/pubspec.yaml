@@ -1,9 +1,0 @@
-name: wgpu_spike
-description: A compute GS on wgpu-native through dart:ffi.
-publish_to: none
-environment:
-  sdk: ^3.9.0
-dependencies:
-  fnesemu_core:
-    path: ../../packages/fnesemu_core
-  image: ^4.3.0

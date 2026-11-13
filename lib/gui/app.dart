@@ -7,10 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/app_api.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
-import 'package:render_frame_gpu/render_frame_gpu.dart';
 
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
+import 'compute_sink/compute_sink.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
@@ -159,12 +159,55 @@ class MainPageState extends State<MainPage> {
 
   final _coreSetupKey = GlobalKey<PopupMenuButtonState>();
 
-  // draws the 3D renders of the cores when the GPU setting selects it; null
-  // until it is created, and when the platform has no Flutter GPU
-  GpuFrameSink? _gpu;
-  bool _gpuChecking = true;
   static const _gpuKey = "gpu";
-  bool get _gpuSelected => _gpu != null && _storage.setting(_gpuKey) == "gpu";
+
+  /// the description of the compute GPU; empty selects one automatically
+  static const _gpuAdapterKey = "gpuAdapter";
+
+  // runs the video chip of the cores that support it on the GPU; opened when
+  // the GPU setting first selects it, null if it cannot be
+  ComputeSink? _compute;
+  bool _computeOpened = false;
+
+  // the GPUs that wgpu-native found, listed when the GPU dialog first opens
+  List<String>? _adapters;
+
+  String get _adapter => _storage.setting(_gpuAdapterKey) ?? "";
+
+  ComputeSink? _openCompute() {
+    if (!_computeOpened) {
+      _computeOpened = true;
+      _compute = openComputeSink(
+          adapter: _adapter,
+          onError: (reason) {
+            _log.warn("compute GPU is not available: $reason");
+            AppSnackBar.show("compute GPU is not available");
+          });
+      if (_compute case final compute?) {
+        _log.info("compute GPU: ${compute.name}");
+      }
+    }
+    return _compute;
+  }
+
+  /// Closes the compute GPU, after the cores stopped using it, so that the
+  /// next [_openCompute] opens the GPU of the setting.
+  void _closeCompute() {
+    _controller.computeSink = null;
+    if (_compute case final compute?) closeComputeSink(compute);
+    _compute = null;
+    _computeOpened = false;
+  }
+
+  /// the renderer of the GPU setting that is available: "software" or
+  /// "compute"
+  String get _renderer =>
+      _storage.setting(_gpuKey) == "compute" && _openCompute() != null
+          ? "compute"
+          : "software";
+
+  String get _rendererName =>
+      _renderer == "compute" ? "Compute: ${_compute!.name}" : "Software";
 
   @override
   void initState() {
@@ -199,18 +242,10 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
-    // The sink checks the GPU, which takes up to two seconds.
-    final gpu = GpuFrameSink.create().then((sink) {
-      _log.infoc(() => "GPU frame drawing is "
-          "${sink == null ? 'not available' : 'available with ${sink.name} (${sink.readBack})'}");
-      _gpu = sink;
-      _gpuChecking = false;
+    // opening the compute GPU takes a moment, so it waits for the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       _applyGpu();
       if (mounted) setState(() {});
-    });
-    unawaited(gpu);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_gpuChecking) AppSnackBar.showUntil('Checking the GPU...', gpu);
     });
 
     _cdromWaitTimer = Timer.periodic(
@@ -453,28 +488,55 @@ class MainPageState extends State<MainPage> {
     return true;
   }
 
-  void _applyGpu() => _controller.renderFrameSink = _gpuSelected ? _gpu : null;
+  void _applyGpu() =>
+      _controller.computeSink = _renderer == "compute" ? _compute : null;
 
-  /// lets the user select the renderer of the 3D renders of the cores
+  /// lets the user select the renderer of the 3D renders of the cores: the
+  /// software renderer, or one of the GPUs that wgpu-native finds
   Future<void> _selectGpu() async {
-    final selected = await showDialog<bool>(
+    final adapters = _adapters ??= computeAdapters();
+    final current = _renderer;
+    final currentAdapter = current == "compute" ? _adapter : null;
+    final selected = await showDialog<(String, String)>(
         context: context,
         builder: (context) => SimpleDialog(title: const Text('GPU'), children: [
-              for (final (gpu, name) in [
-                (false, 'Software'),
-                if (_gpu case final gpu?) (true, gpu.name),
+              for (final (renderer, adapter, name, detail) in [
+                ("software", "", 'Software', null),
+                (
+                  "compute",
+                  "",
+                  'Compute: automatic',
+                  currentAdapter == "" ? _compute?.name : 'a discrete GPU first'
+                ),
+                for (final a in adapters) ("compute", a, 'Compute', a),
+                if (adapters.isEmpty)
+                  ("compute", "", 'Compute', 'wgpu-native found no GPU'),
               ])
                 SimpleDialogOption(
-                    onPressed: () => Navigator.of(context).pop(gpu),
+                    onPressed: () =>
+                        Navigator.of(context).pop((renderer, adapter)),
                     child: ListTile(
                         title: Text(name),
-                        trailing: gpu == _gpuSelected
+                        subtitle: detail == null ? null : Text(detail),
+                        trailing: renderer == current &&
+                                (renderer == "software" ||
+                                    adapter == currentAdapter)
                             ? const Icon(Icons.check)
                             : null)),
             ]));
     if (selected == null) return;
-    await _storage.setSetting(_gpuKey, selected ? "gpu" : "software");
+    final (renderer, adapter) = selected;
+    if (renderer == "compute" && adapter != _adapter) {
+      _closeCompute();
+      await _storage.setSetting(_gpuAdapterKey, adapter);
+    }
+    if (renderer == "compute" && _openCompute() == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+    await _storage.setSetting(_gpuKey, renderer);
     _applyGpu();
+    if (mounted) setState(() {});
   }
 
   /// lets the user select the BIOS files of [system] and saves them
@@ -961,11 +1023,7 @@ class MainPageState extends State<MainPage> {
                           value: _SetupAction.gpu,
                           child: ListTile(
                               title: const Text('GPU'),
-                              subtitle: Text(_gpuChecking
-                                  ? 'Checking...'
-                                  : _gpuSelected
-                                      ? _gpu!.name
-                                      : 'Software'),
+                              subtitle: Text(_rendererName),
                               trailing: const Icon(Icons.memory))),
                     ],
                   ),

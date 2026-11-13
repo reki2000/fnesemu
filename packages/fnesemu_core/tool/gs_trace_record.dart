@@ -1,12 +1,11 @@
-// Records the GS command stream of one PS2 frame, without the per-draw
-// packets of tool/gs_frame_check.dart, so that a frame with many draws stays
-// small.
+// Records the GS command stream of one PS2 frame for the checks in
+// tool/gs_compute of the repository.
 //
 // dart run tool/gs_trace_record.dart STATE FRAME OUTPUT MEDIA...
 //
 // The core loads STATE, runs up to the frame before FRAME, and records frame
 // FRAME. OUTPUT gets gs-start.bin and gs-end.bin (the GS state before and
-// after, in the format of tool/gs_frame_check.dart), gs-stream.bin (16 bytes
+// after, as Gs.saveState writes them), gs-stream.bin (16 bytes
 // per event: operation, register, value), reference.png (the core's picture)
 // and manifest.json.
 import 'dart:convert';
