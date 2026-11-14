@@ -309,7 +309,7 @@ class Ps2 extends Core {
 
   // ---- state ----
 
-  static const _stateVersion = 3;
+  static const _stateVersion = 4;
 
   /// The BIOS bytes and the disc TOC. The disc contents beyond the TOC are
   /// not compared, so a state only fits the disc it was saved with.

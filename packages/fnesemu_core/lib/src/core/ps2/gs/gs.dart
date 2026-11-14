@@ -257,6 +257,7 @@ class Gs {
     w.typed(mem.bytes);
     raster.saveState(w);
     _fields.saveState(w);
+    w.ints([_heldQ, ..._held.sublist(_heldNext, _heldEnd)]);
   }
 
   void loadState(StateReader s) {
@@ -325,6 +326,12 @@ class Gs {
     s.typed(mem.bytes);
     raster.loadState(s);
     _fields.loadState(s);
+    final held = s.ints();
+    _heldQ = held[0];
+    _heldNext = _heldEnd = 0;
+    for (var k = 1; k + 2 < held.length; k += 3) {
+      _hold(held[k], held[k + 1], held[k + 2]);
+    }
     _pending = null;
     _shown = null;
     // the GPU takes the loaded memory
@@ -342,6 +349,7 @@ class Gs {
     _vertexCount = 0;
     _trxLeft = 0;
     trxdir = 3;
+    _heldNext = _heldEnd = 0;
   }
 
   // ---- privileged registers ----
@@ -429,6 +437,7 @@ class Gs {
         if (value & 0x200 != 0) reset();
         csr &= ~(value & 0x1f);
         _pendingInterrupts &= ~(value & 0x1f);
+        if (_stopped && csr & csrSignal == 0) _resume();
       case 0x1010:
         imr = value;
         _signalInterrupt();
@@ -494,16 +503,88 @@ class Gs {
 
   /// the current Q as register bits, for the packed RGBAQ format
   int get qBits {
+    if (_stopped) return _heldQ;
     _convert.setFloat32(0, _q);
     return _convert.getUint32(0);
   }
 
   void setQ(int bits) {
+    if (_stopped) {
+      _hold(_heldSetQ, 0, bits);
+      _heldQ = bits & 0xffffffff;
+      return;
+    }
+    _setQ(bits);
+  }
+
+  void _setQ(int bits) {
     gsCommandRecorder?.call(5, 0, bits);
     _q = _float(bits);
   }
 
+  // ---- the stop at SIGNAL ----
+
+  /// The writes that wait while the GS is stopped, three values each: the
+  /// kind, the register and the data. The GS is stopped while writes from
+  /// [_heldNext] on are held.
+  ///
+  /// A SIGNAL write that comes while the SIGNAL flag of CSR is still set
+  /// stops the GS until the CPU clears the flag. The paths still deliver
+  /// their data here, which is held in order and applied when the flag is
+  /// cleared; the hardware instead stops taking data, which only changes
+  /// the timing of the transfers.
+  var _held = Int64List(3 * 256);
+  int _heldNext = 0, _heldEnd = 0;
+
+  bool get _stopped => _heldNext < _heldEnd;
+
+  /// the Q value for the packed RGBAQ of the paths while writes are held
+  int _heldQ = 0;
+
+  static const _heldRegister = 0, _heldSetQ = 1, _heldHostQuad = 2;
+
+  void _hold(int kind, int a, int b) {
+    var held = _held;
+    if (_heldEnd + 3 > held.length) {
+      _held = held = Int64List(held.length * 2)..setAll(0, held);
+    }
+    held[_heldEnd] = kind;
+    held[_heldEnd + 1] = a;
+    held[_heldEnd + 2] = b;
+    _heldEnd += 3;
+  }
+
+  /// applies the held writes up to the next stop
+  void _resume() {
+    final held = _held, end = _heldEnd;
+    var k = _heldNext;
+    for (; k < end; k += 3) {
+      final kind = held[k], a = held[k + 1], b = held[k + 2];
+      if (kind == _heldRegister && a == 0x60 && csr & csrSignal != 0) break;
+      switch (kind) {
+        case _heldRegister:
+          _writeRegister(a, b);
+        case _heldSetQ:
+          _setQ(b);
+        default:
+          _hostQuad(a, b);
+      }
+    }
+    _heldNext = k;
+    if (k == _heldEnd) _heldNext = _heldEnd = 0;
+  }
+
   void writeRegister(int reg, int data) {
+    if (_stopped || reg == 0x60 && csr & csrSignal != 0) {
+      if (!_stopped) _heldQ = qBits;
+      _hold(_heldRegister, reg, data);
+      if (reg == 0x01) _heldQ = data >>> 32;
+      return;
+    }
+    _writeRegister(reg, data);
+  }
+
+  void _writeRegister(int reg, int data) {
     if (reg != 0x54) gsCommandRecorder?.call(0, reg, data);
     switch (reg) {
       case 0x00:
@@ -792,6 +873,14 @@ class Gs {
   }
 
   void hostQuad(int low, int high) {
+    if (_stopped) {
+      _hold(_heldHostQuad, low, high);
+      return;
+    }
+    _hostQuad(low, high);
+  }
+
+  void _hostQuad(int low, int high) {
     hostWord(low);
     hostWord(low >>> 32);
     hostWord(high);
