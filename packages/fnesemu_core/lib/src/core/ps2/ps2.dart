@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../cdrom_drive.dart';
+import '../../compute_sink.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
-import '../../render_frame.dart';
 import '../../sram.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
@@ -85,6 +85,7 @@ class Ps2 extends Core {
 
   @override
   void dispose() {
+    _releaseCompute();
     jit?.dispose();
     iopJit?.dispose();
   }
@@ -159,7 +160,7 @@ class Ps2 extends Core {
       ..cpCond0 = () => io.dmac.cpCond0;
     io.iopRam = iopMemory.ram;
     io.intc.upcoming = _upcomingIntc;
-    io.gs.renderFrameSink = _renderFrameSink;
+    io.gs.computeSink = _computeSink;
     return io;
   }
 
@@ -201,19 +202,18 @@ class Ps2 extends Core {
   @override
   ImageBuffer imageBuffer() => io.gs.image();
 
-  RenderFrameSink? _renderFrameSink;
+  ComputeSink? _computeSink;
 
   @override
-  bool get rendersFrames => true;
-
-  @override
-  set renderFrameSink(RenderFrameSink? sink) {
-    _renderFrameSink = sink;
-    io.gs.renderFrameSink = sink;
+  set computeSink(ComputeSink? sink) {
+    _computeSink = sink;
+    io.gs.computeSink = sink;
   }
 
-  @override
-  bool prepareImage() => io.gs.prepareImage();
+  /// Releases the program of the GS on the sink, if it has one.
+  void _releaseCompute() {
+    if (_computeSink != null) io.gs.computeSink = null;
+  }
 
   late final _pad = Ps2Pad()..source = padPort;
 
@@ -261,6 +261,8 @@ class Ps2 extends Core {
     jit?.reset();
     iopJit?.reset();
     cpu.reset();
+    // the new GS takes the sink; the old one releases its program
+    _releaseCompute();
     io = _newIo();
     iop.reset();
     _pad.reset();

@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
 import 'cdrom_drive.dart';
+import 'compute_sink.dart';
 import 'core_debug.dart';
 import 'pad_button.dart';
 import 'pad_source.dart';
-import 'render_frame.dart';
 import 'sram.dart';
 import 'types.dart';
 import 'video_debug.dart';
@@ -64,17 +64,15 @@ class Core extends CoreDebug {
   /// set sram storage interface
   void setSram(Sram sram) {}
 
-  /// whether the core can leave its 3D renders to [renderFrameSink]
-  bool get rendersFrames => false;
+  /// runs the video chip on the host GPU in the cores that support it;
+  /// null draws in the core. other cores ignore it
+  set computeSink(ComputeSink? sink) {}
 
-  /// receives the 3D renders that the host draws in place of the core's
-  /// renderer; null draws them in the core. cores without [rendersFrames]
-  /// ignore it
-  set renderFrameSink(RenderFrameSink? sink) {}
-
-  /// Requests presentation after the existing frame pacing delay so a host
-  /// render can finish. The image can be read immediately at any time.
-  bool prepareImage() => false;
+  /// The work on the GPU that the core waits for, when the sink cannot wait
+  /// by itself ([ComputeSink.waits] is false); null when there is none. A
+  /// [runFrame] may then return with [ExecResult.linesLeft] scanlines not
+  /// run. The caller awaits this before it runs the rest or saves a state.
+  Future<void>? get computeWait => null;
 
   /// releases what the core holds outside the Dart heap; the core is not
   /// used afterwards

@@ -5,13 +5,12 @@ export 'core_controller.dart';
 export 'core_factory.dart' show CoreFactory;
 export 'debugger.dart';
 export 'src/cdrom_drive.dart';
+export 'src/compute_sink.dart';
 export 'src/core.dart';
 export 'src/core_debug.dart';
 export 'src/core_module.dart' show BiosFile, BiosSetup, BiosUpdates, CoreSystem;
 export 'src/pad_button.dart';
 export 'src/pad_source.dart';
-export 'src/ps2_render_frame.dart';
-export 'src/render_frame.dart';
 export 'src/sram.dart';
 export 'src/types.dart';
 export 'src/util/debug.dart'

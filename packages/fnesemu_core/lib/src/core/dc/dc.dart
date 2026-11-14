@@ -3,10 +3,10 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../cdrom_drive.dart';
+import '../../compute_sink.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../pad_source.dart';
-import '../../render_frame.dart';
 import '../../sram.dart';
 import '../../state.dart';
 import '../../types.dart';
@@ -18,6 +18,7 @@ import 'aica.dart';
 import 'arm7di_disasm.dart';
 import 'arm_jit.dart';
 import 'bus.dart';
+import 'dc_compute.dart';
 import 'disc.dart';
 import 'disc_bootstrap.dart';
 import 'fault.dart';
@@ -603,15 +604,37 @@ class Dc extends Core {
   void dispose() {
     _jit?.dispose();
     _armJit?.dispose();
+    computeSink = null;
+  }
+
+  /// Shades the tiles of the renderer on [sink], or on the CPU when null or
+  /// when the program cannot be made.
+  @override
+  set computeSink(ComputeSink? sink) {
+    final render = bus.gpu.render..settleTiles();
+    render.compute?.dispose();
+    render.compute = null;
+    if (sink == null) return;
+    try {
+      render.compute = DcCompute(sink, render.memory);
+    } on Object {
+      render.compute = null;
+    }
   }
 
   @override
   ExecResult runFrame(int scanlines) {
-    var elapsed = 0, flags = _executionSh4;
+    var elapsed = 0, flags = _executionSh4, linesLeft = 0;
     cpu.cacheInterrupts = true;
     bus.deviceEpoch++;
     try {
       while (scanlines > 0) {
+        // Stop where no CPU step or device batch is under way, before the
+        // next may read the tiles of a render whose results have not come.
+        if (bus.gpu.render.deferred && bus.gpu.render.waitsForCompute) {
+          linesLeft = scanlines;
+          break;
+        }
         final epoch = _bootstrapEpoch;
         final previousLines = bus.gpu.spg.completedLines;
         final wasVideoRunning = bus.gpu.spg.running;
@@ -628,8 +651,11 @@ class Dc extends Core {
     } finally {
       cpu.cacheInterrupts = false;
     }
-    return _executionResult(elapsed, flags);
+    return _executionResult(elapsed, flags)..linesLeft = linesLeft;
   }
+
+  @override
+  Future<void>? get computeWait => bus.gpu.render.computeWait;
 
   /// Controllers attached before the input is connected read through
   /// [padPort] from here; the bus hands it to controllers attached
@@ -641,12 +667,6 @@ class Dc extends Core {
       controller?.source = padPort;
     }
   }
-
-  @override
-  bool get rendersFrames => true;
-
-  @override
-  set renderFrameSink(RenderFrameSink? sink) => bus.gpu.render.hostSink = sink;
 
   @override
   List<PadButton> get buttons => DcMapleController.buttons;

@@ -17,4 +17,7 @@ bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime"
 (cd packages/mp_jit_recompiler && dart pub get && bash "$MP_BUILD_SCRIPTS/test.sh" dart "$runtime")
 (cd packages/fnesemu_core && dart pub get && bash "$MP_BUILD_SCRIPTS/test.sh" dart "$runtime")
 (cd packages/mp_pixel_image && flutter pub get && bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime")
-(cd packages/mp_gpu && flutter pub get && bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime")
+# dart:ffi programs on the GPU; the test skips on hosts without an adapter
+if [[ "$runtime" == vm ]]; then
+  (cd packages/mp_compute && dart pub get && bash "$MP_BUILD_SCRIPTS/test.sh" dart "$runtime")
+fi

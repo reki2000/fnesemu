@@ -1,30 +1,47 @@
-import 'dart:async';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../../compute_sink.dart';
 import '../../../field_output.dart';
-import '../../../ps2_render_frame.dart';
-import '../../../render_frame.dart';
 import '../../../types.dart';
+import '../../../util/debug.dart';
 import '../state.dart';
+import 'gs_compute.dart';
 import 'gs_memory.dart';
 import 'gs_raster.dart';
 
-part 'gs_host.dart';
-
 void Function(int operation, int register, int value)? gsCommandRecorder;
-Stopwatch? gsDrawStopwatch;
 
-/// An ordered GS command consumer that owns local video memory while attached.
+/// Takes the work of a Gs in order while attached as [Gs.residentSink]: the
+/// primitives, the transfers and the CLUT loads. The Gs keeps its registers,
+/// and the sink brings [Gs.mem] up to date at each vblank and before a local
+/// to host transfer.
 abstract interface class GsResidentSink {
-  ImageBuffer? get completedImage;
-  void draw(GsHostDraw? draw, String unsupported);
   void beginUpload(int psm, int base, int bufferWidth, int x, int y,
       int width, int height);
+
   /// Returns true after the last word of the transfer.
   bool uploadWord(int word);
   void loadClut(int entry, int psm, int index);
+
+  /// Copies the rectangle of a local to local transfer, with the fields of
+  /// BITBLTBUF, TRXPOS and TRXREG, in the order of DIR of TRXPOS.
+  void copyLocal(int bitbltbuf, int trxpos, int trxreg);
+
+  /// Brings the rectangle of a local to host transfer up to date in
+  /// [Gs.mem], from which the core then reads it.
+  void beginDownload(int psm, int base, int bufferWidth, int x, int y,
+      int width, int height);
+
+  /// Called at the start of each vertical blank with the field that ends.
+  void vblank(int field);
+
+  /// Takes a primitive instead of the raster. [type] is a Gs.prim* value,
+  /// [attrs] the PRIM attribute bits in effect, and [vertices] one for a
+  /// point, two for a line or a sprite and three for a triangle.
+  void primitive(int type, int attrs, List<GsVertex> vertices);
 }
+
+final _log = DebugLog('ps2 gs');
 
 /// A vertex of the primitive being assembled.
 class GsVertex {
@@ -123,35 +140,32 @@ class Gs {
   final _mem = GsMemory();
   late final GsRaster raster = GsRaster(this);
 
-  /// The attached renderer owns VRAM and receives draws in emulated order.
-  /// Attach after loading a checkpoint. Discard the core after detaching
-  /// unless the renderer has synchronized local memory back to the core.
+  /// the sink that takes the work of the Gs; null draws in [raster]
   GsResidentSink? residentSink;
 
-  Ps2RenderFrameSink? _hostSink;
-  GsHostDraw? _hostBatch;
-  GsHostDraw? _submittedBatch;
+  /// the GS on the GPU of [_computeSink], attached while the app gives one
+  GsCompute? _compute;
+  ComputeSink? _computeSink;
 
-  /// Local memory observers see all preceding draws in emulated order.
-  GsMemory get mem {
-    _capturePendingField();
-    _flushHostBatch();
-    return _mem;
-  }
+  /// the GS on the GPU while it is attached, for tools
+  GsCompute? get compute => _compute;
 
-  set renderFrameSink(RenderFrameSink? sink) {
-    final next = sink is Ps2RenderFrameSink ? sink : null;
-    if (identical(next, _hostSink)) return;
-    _capturePendingField();
-    _flushHostBatch();
-    _submittedBatch = null;
-    _hostSink = next;
-  }
+  GsMemory get mem => _mem;
 
-  bool prepareImage() {
-    final resident = residentSink;
-    if (resident != null) return resident.completedImage != null;
-    return smode2 & 1 == 0 ? _submitHostBatch() : _pendingField != null;
+  /// Moves the work of the Gs to [sink], or back to [raster] when null.
+  set computeSink(ComputeSink? sink) {
+    if (identical(sink, _computeSink)) return;
+    _compute?.detach();
+    _compute = null;
+    _computeSink = sink;
+    if (sink == null) return;
+    try {
+      _compute = GsCompute(this, sink)..attach();
+      _log.info('drawing on ${sink.name}');
+    } catch (e) {
+      // without the program, the Gs draws by itself
+      _log.warn('no compute GS on ${sink.name}: $e');
+    }
   }
 
   /// raised when an unmasked event sets a CSR flag
@@ -164,7 +178,6 @@ class Gs {
   int extbuf = 0, extdata = 0, extwrite = 0, bgcolor = 0;
   int csr = 0, imr = 0xff00, busdir = 0, siglblid = 0;
   int _field = 0;
-  int? _pendingField;
   final _fields = FieldOutput();
   int _pendingInterrupts = 0;
 
@@ -204,6 +217,7 @@ class Gs {
     for (final v in [...vertices, _incoming]) {
       v.saveState(w);
     }
+    _compute?.sync();
     w.typed(mem.bytes);
     raster.saveState(w);
     _fields.saveState(w);
@@ -212,7 +226,6 @@ class Gs {
   void loadState(StateReader s) {
     s.section('gs');
     final v = s.fields(49, 'gs');
-    _capturePendingField();
     var k = 0;
     pmode = v[k++];
     smode1 = v[k++];
@@ -276,11 +289,11 @@ class Gs {
     s.typed(mem.bytes);
     raster.loadState(s);
     _fields.loadState(s);
+    // the GPU takes the loaded memory
+    _compute?.attach();
   }
 
   void reset() {
-    _pendingField = null;
-    _flushHostBatch();
     _field = 0;
     _fields.reset();
     csr = 0;
@@ -340,12 +353,6 @@ class Gs {
   void writePrivileged(int address, int value) {
     gsCommandRecorder?.call(1, address, value);
     final reg = address & 0x1fff;
-    if (_pendingField != null) {
-      switch (reg) {
-        case 0x0000 || 0x0020 || 0x0070 || 0x0080 || 0x0090 || 0x00a0:
-          if (readPrivileged(reg) != value) _capturePendingField();
-      }
-    }
     switch (reg) {
       case 0x0000:
         pmode = value;
@@ -407,14 +414,8 @@ class Gs {
   /// called at the start of the vertical blank
   void vblank() {
     gsCommandRecorder?.call(4, 0, 0);
-    if (residentSink == null && smode2 & 1 != 0) {
-      _capturePendingField();
-      if (_submitHostBatch()) {
-        _pendingField = _field;
-      } else {
-        _readImage(_field);
-      }
-    }
+    residentSink?.vblank(_field);
+    if (smode2 & 1 != 0) _readImage(_field);
     _field ^= 1;
     _event(csrVsint);
   }
@@ -593,8 +594,6 @@ class Gs {
       return;
     }
     final attrs = prmodecont != 0 ? prim : prmode;
-    final drawClock = gsDrawStopwatch;
-    drawClock?.start();
     switch (type) {
       case primPoint:
         raster.draw(this, type, attrs, vertices[2], vertices[2], vertices[2]);
@@ -611,31 +610,26 @@ class Gs {
         }
       case primTriangle:
         if (_vertexCount >= 3) {
-          _hostBatch = raster.drawTriangle(attrs, vertices[0], vertices[1], vertices[2],
-              allowHost: _hostSink != null);
+          raster.draw(this, type, attrs, vertices[0], vertices[1], vertices[2]);
           _vertexCount = 0;
         }
       case primTriangleStrip:
         if (_vertexCount >= 3) {
-          _hostBatch = raster.drawTriangle(attrs, vertices[0], vertices[1], vertices[2],
-              allowHost: _hostSink != null);
+          raster.draw(
+              this, primTriangle, attrs, vertices[0], vertices[1], vertices[2]);
           _vertexCount = 2;
         }
       case primTriangleFan:
         if (_vertexCount >= 3) {
-          _hostBatch = raster.drawTriangle(attrs, vertices[0], vertices[1], vertices[2],
-              allowHost: _hostSink != null);
+          raster.draw(
+              this, primTriangle, attrs, vertices[0], vertices[1], vertices[2]);
         }
       case primSprite:
         if (_vertexCount >= 2) {
-          if (residentSink != null || !_queueHostSprite(attrs, vertices[1], vertices[2])) {
-            _hostBatch = raster.drawSprite(attrs, vertices[1], vertices[2],
-                allowHost: _hostSink != null);
-          }
+          raster.draw(this, type, attrs, vertices[1], vertices[2], vertices[2]);
           _vertexCount = 0;
         }
     }
-    drawClock?.stop();
   }
 
   // ---- transfers ----
@@ -665,7 +659,15 @@ class Gs {
             (trxpos >> 48) & 0x7ff, w, h);
         return;
       }
-      if (direction != 3) throw UnsupportedError('resident GS transfer $direction');
+      if (direction == 2) {
+        resident.copyLocal(bitbltbuf, trxpos, trxreg);
+        _trxLeft = 0;
+        return;
+      }
+      if (direction == 1) {
+        resident.beginDownload(_spsm, _sbp, _sbw, trxpos & 0x7ff,
+            (trxpos >> 16) & 0x7ff, w, h);
+      }
     }
     if (direction == 2) {
       _localToLocal();
@@ -774,22 +776,9 @@ class Gs {
   /// before 1) at the size of its display rectangle. Completed interlaced
   /// fields retain the other parity; merge circuits remain unimplemented.
   ImageBuffer image() {
-    final resident = residentSink;
-    if (resident != null) {
-      return resident.completedImage ?? _fields.image ?? ImageBuffer.empty();
-    }
-    final pending = _capturePendingField();
-    if (pending != null) return pending;
     return smode2 & 1 != 0 && _fields.image != null
         ? _fields.image!
         : _readImage(_field);
-  }
-
-  ImageBuffer? _capturePendingField() {
-    final parity = _pendingField;
-    if (parity == null) return null;
-    _pendingField = null;
-    return _readImage(parity);
   }
 
   ImageBuffer _readImage(int parity) {

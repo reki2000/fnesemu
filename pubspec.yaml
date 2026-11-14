@@ -24,10 +24,10 @@ dependencies:
     path: packages/fnesemu_core
   cdrom_image:
     path: packages/cdrom_image
+  mp_compute:
+    path: packages/mp_compute
   mp_pixel_image:
     path: packages/mp_pixel_image
-  render_frame_gpu:
-    path: packages/render_frame_gpu
 
 dev_dependencies:
   flutter_test:
