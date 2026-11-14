@@ -81,6 +81,7 @@ class DcGpu {
   }
 
   void saveState(StateWriter writer) {
+    render.flushTiles();
     writer.section('dc.gpu');
     writer.bytes(vram);
     writer.bytes(_linearModes);
@@ -331,6 +332,12 @@ class DcGpu {
 
   Uint8List readMemory(int address, int size, {bool peek = false}) {
     if (!peek) validateTransfer(size);
+    if (render.deferred) {
+      for (var i = 0; i < size; i++) {
+        final offset = vramOffset(address + i)!;
+        render.touch(offset, offset + 1);
+      }
+    }
     return Uint8List.fromList(
         [for (var i = 0; i < size; i++) vram[vramOffset(address + i)!]]);
   }
@@ -565,6 +572,14 @@ class DcGpu {
         delta < 0 ||
         sourceRow >= sourceHeight;
     final blankStart = spg.hblank & 1023, blankEnd = (spg.hblank >> 16) & 1023;
+    if (!blank && render.deferred) {
+      if (stripLines == 0) {
+        final first = start & (vramSize - 1);
+        render.touch(first, first + sourceWidth * bytesPerPixel);
+      } else {
+        render.flushTiles();
+      }
+    }
     if (!blank && stripLines != 0 && !render.stripReady(sourceRow)) {
       render.stripHazard();
       onError?.call(1 << 1);

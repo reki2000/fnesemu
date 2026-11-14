@@ -22,6 +22,9 @@ class WgpuComputeSink implements core.ComputeSink {
   String get name => device.name;
 
   @override
+  bool get waits => device.waits;
+
+  @override
   core.ComputeProgram program(
     String wgsl,
     List<String> entryPoints,
@@ -63,6 +66,13 @@ class _Program implements core.ComputeProgram {
     Uint32List params, {
     bool wait = true,
   }) => program.run(dispatches, count, params, wait: wait);
+
+  @override
+  void prefetch(int binding, int byteOffset, int bytes) =>
+      program.prefetch(binding, byteOffset, bytes);
+
+  @override
+  Future<void>? get fetching => program.fetching;
 
   @override
   void read(int binding, int byteOffset, Uint32List target) =>

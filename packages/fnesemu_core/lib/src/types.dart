@@ -35,6 +35,10 @@ class ExecResult {
   bool stopped;
   bool scanlineRendered;
 
+  /// The scanlines of a [Core.runFrame] that the core has not run, because
+  /// it waits for [Core.computeWait].
+  int linesLeft = 0;
+
   bool executed0 = true;
   bool executed1 = false;
   bool executed2 = false;

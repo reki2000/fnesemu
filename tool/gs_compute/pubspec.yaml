@@ -12,3 +12,6 @@ dependencies:
   image: ^4.3.0
   mp_compute:
     path: ../../packages/mp_compute
+
+dev_dependencies:
+  test: ^1.25.0

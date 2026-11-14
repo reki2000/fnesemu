@@ -37,8 +37,18 @@ abstract interface class ComputeProgram {
   void run(Uint32List dispatches, int count, Uint32List params,
       {bool wait = true});
 
+  /// Copies [bytes] at [byteOffset] of [binding] after the runs so far
+  /// without waiting, so that a following [read] of the same range waits
+  /// less.
+  void prefetch(int binding, int byteOffset, int bytes);
+
+  /// The range of the last [prefetch] while it is not on the host, when
+  /// [ComputeSink.waits] is false; null when [read] can take it.
+  Future<void>? get fetching;
+
   /// Waits for the program and reads [target].length words at [byteOffset]
-  /// of [binding].
+  /// of [binding]. When [ComputeSink.waits] is false, it reads only from
+  /// the range of the last [prefetch], after [fetching] has completed.
   void read(int binding, int byteOffset, Uint32List target);
 
   void dispose();
@@ -49,6 +59,11 @@ abstract interface class ComputeProgram {
 abstract interface class ComputeSink {
   /// the GPU, for the GUI
   String get name;
+
+  /// Whether a read and a run with `wait` wait for the GPU. False on the
+  /// Web, where a core stops at a point where it can and awaits
+  /// [ComputeProgram.fetching] instead.
+  bool get waits;
 
   /// Compiles the [entryPoints] of [wgsl] with [bindings]. The parameter
   /// blocks of a run are [paramStride] bytes apart, for up to

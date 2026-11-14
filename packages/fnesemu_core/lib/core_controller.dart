@@ -168,7 +168,12 @@ class CoreController {
           continue;
         }
 
-        _runFrame();
+        if (_runFrame() case final wait?) {
+          // the core stopped in the frame for the GPU; the rest of the frame
+          // runs when the results have come
+          await wait.catchError((Object _) {});
+          continue;
+        }
         fpsCounter.count();
         final fps = fpsCounter.fps(DateTime.now());
         if (fps != null) {
@@ -228,6 +233,9 @@ class CoreController {
     final wasRunning = _state.running;
     await stop();
     try {
+      if (_core.computeWait case final wait?) {
+        await wait.catchError((Object _) {});
+      }
       return _core.saveState();
     } finally {
       if (wasRunning) run();
@@ -268,7 +276,9 @@ class CoreController {
   }
 
   /// Executes one frame and shows its picture unless the emulation stops.
-  void _runFrame() {
+  /// Returns what to await before the rest of the frame when the core stops
+  /// in it for the GPU.
+  Future<void>? _runFrame() {
     final core = _core;
     if (!debugger.needsInstructionLoop) {
       // the core runs the rest of the frame by itself
@@ -277,12 +287,16 @@ class CoreController {
       if (result.stopped) {
         _scanline = 0;
         _stopRequested = true;
-        return;
+        return null;
+      }
+      if (result.linesLeft > 0) {
+        _scanline = core.scanlinesInFrame - result.linesLeft;
+        return core.computeWait ?? Future.value();
       }
     } else {
       while (_scanline < core.scanlinesInFrame) {
         if (!_runScanLine()) {
-          return;
+          return null;
         }
       }
     }
@@ -294,6 +308,7 @@ class CoreController {
     }
 
     _renderAll();
+    return null;
   }
 
   /// for debugger: executes emulation during 1 scanline
