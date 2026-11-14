@@ -544,6 +544,17 @@ void main() {
     expect(_getVf(vu, 3), [2, 3, 4, 1]);
   });
 
+  aggCase('MR32 onto its source rotates the lanes it read', () {
+    final vu = _vu([
+      (_loSpecial(0xc, 1, dest: _xyzw, it: 1, fs: 1), _upperNop), // MR32
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [1, 2, 3, 4]);
+    vu.start(0);
+    expect(_getVf(vu, 1), [2, 3, 4, 1]);
+  });
+
   aggCase('MTIR, MFIR and the flag instructions', () {
     final vu = _vu([
       (_loSpecial(0xf, 0, it: 1, fs: 2, fsf: 1), _upperNop), // MTIR vi1 = vf2.y

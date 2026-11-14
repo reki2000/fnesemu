@@ -1,8 +1,16 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'jit/vu_context.dart';
 import 'r5900/fpu.dart';
 import 'state.dart';
+
+/// Runs the micro programs of a [Vu] in place of its interpreter.
+abstract interface class VuCompiler {
+  /// Runs [vu] from its pc while it is running, for at most [maxPairs]
+  /// pairs, with [Vu.step] for the pairs it does not compile.
+  void run(Vu vu, int maxPairs);
+}
 
 /// A vector unit (VU0 or VU1): 32 four-lane float registers, 16 integer
 /// registers, micro memory of 64-bit instruction pairs and data memory of
@@ -35,9 +43,12 @@ class Vu {
 
   final Uint32List micro;
   final Uint32List data;
-  final Uint32List vf = Uint32List(128);
-  final Uint16List vi = Uint16List(16);
-  final Uint32List acc = Uint32List(4);
+  final Uint32List vf;
+  final Uint16List vi;
+  final Uint32List acc;
+
+  /// runs the micro programs instead of [step], or null
+  VuCompiler? compiler;
 
   int i = 0, q = 0x3f800000, r = 0x3f800000, p = 0;
   int mac = 0, status = 0, clip = 0;
@@ -77,7 +88,7 @@ class Vu {
 
   /// the cycle at which each field of a VF register holds its newest value,
   /// indexed by register * 4 + field
-  final _vfReady = Int64List(128);
+  final Int64List _vfReady;
   // the latest cycle in [_vfReady] of each register, at least, so that a
   // register whose fields are all ready is passed without its fields
   final _vfRegReady = Int64List(32);
@@ -93,11 +104,23 @@ class Vu {
   final _flagClip = Int32List(_flagSlots);
   int _flagHead = 0, _flagCount = 0;
 
-  Vu(this.index)
+  /// A VU whose memories and registers are the given buffers when the
+  /// recompiler shares them (see [VuCtx]), or its own.
+  Vu(this.index,
+      {Uint32List? micro,
+      Uint32List? data,
+      Uint32List? vf,
+      Uint16List? vi,
+      Uint32List? acc,
+      Int64List? vfReady})
       : microWords = index == 0 ? 1024 : 4096,
         dataQuads = index == 0 ? 256 : 1024,
-        micro = Uint32List(index == 0 ? 1024 : 4096),
-        data = Uint32List((index == 0 ? 256 : 1024) * 4) {
+        micro = micro ?? Uint32List(index == 0 ? 1024 : 4096),
+        data = data ?? Uint32List((index == 0 ? 256 : 1024) * 4),
+        vf = vf ?? Uint32List(128),
+        vi = vi ?? Uint16List(16),
+        acc = acc ?? Uint32List(4),
+        _vfReady = vfReady ?? Int64List(128) {
     reset();
   }
 
@@ -183,6 +206,107 @@ class Vu {
     }
   }
 
+  /// Whether compiled code can take over at the next pair: no branch,
+  /// end or XGKICK of the previous pair is still pending.
+  bool get atPairBoundary => _pending < 0 && !_ending && _kick < 0;
+
+  /// Writes the pipeline state that compiled code keeps in [ctx], in the
+  /// layout of [VuCtx], before compiled code runs from [pc].
+  void exportPipeline(Uint32List ctx) {
+    _put64(ctx, VuCtx.cycles, cycles);
+    _put64(ctx, VuCtx.qReady, _qReady);
+    ctx[VuCtx.q] = q;
+    ctx[VuCtx.qValue] = _qValue;
+    ctx[VuCtx.qBusy] = _qBusy ? 1 : 0;
+    _put64(ctx, VuCtx.pReady, _pReady);
+    ctx[VuCtx.p] = p;
+    ctx[VuCtx.pValue] = _pValue;
+    ctx[VuCtx.pBusy] = _pBusy ? 1 : 0;
+    ctx[VuCtx.r] = r;
+    ctx[VuCtx.i] = i;
+    ctx[VuCtx.kick] = -1;
+    // The results visible by the next pair are applied now, which the
+    // next pair would do first; the others go to the slot of their age.
+    _commitFlags(cycles);
+    ctx[VuCtx.mac] = mac;
+    ctx[VuCtx.status] = status;
+    ctx[VuCtx.macOr] = 0;
+    ctx[VuCtx.statusDirty] = 0;
+    for (var k = 0; k < VuCtx.flagSlots; k++) {
+      _put64(ctx, VuCtx.flagReady + 2 * k, VuCtx.flagNone);
+      ctx[VuCtx.flagMac + k] = -1;
+      ctx[VuCtx.flagClip + k] = -1;
+    }
+    for (var n = 0; n < _flagCount; n++) {
+      final e = (_flagHead + n) & (_flagSlots - 1);
+      final k = cycles + 3 - _flagReady[e];
+      _put64(ctx, VuCtx.flagReady + 2 * k, _flagReady[e]);
+      ctx[VuCtx.flagMac + k] = _flagMac[e];
+      ctx[VuCtx.flagClip + k] = _flagClip[e];
+    }
+    ctx[VuCtx.clip] = clip;
+  }
+
+  /// Reads back the state of [exportPipeline] after compiled code ran up
+  /// to pair [pc].
+  void importPipeline(Uint32List ctx, int pc) {
+    this.pc = pc;
+    cycles = _get64(ctx, VuCtx.cycles);
+    _qReady = _get64(ctx, VuCtx.qReady);
+    q = ctx[VuCtx.q];
+    _qValue = ctx[VuCtx.qValue];
+    _qBusy = ctx[VuCtx.qBusy] != 0;
+    _pReady = _get64(ctx, VuCtx.pReady);
+    p = ctx[VuCtx.p];
+    _pValue = ctx[VuCtx.pValue];
+    _pBusy = ctx[VuCtx.pBusy] != 0;
+    r = ctx[VuCtx.r];
+    i = ctx[VuCtx.i];
+    mac = ctx[VuCtx.mac];
+    status = ctx[VuCtx.status];
+    if (ctx[VuCtx.statusDirty] != 0) {
+      status = statusOf(status, mac, ctx[VuCtx.macOr]);
+    }
+    clip = ctx[VuCtx.clip];
+    _flagHead = _flagCount = 0;
+    for (var k = VuCtx.flagSlots - 1; k >= 0; k--) {
+      final ready = _get64(ctx, VuCtx.flagReady + 2 * k);
+      if (ready == VuCtx.flagNone) continue;
+      _flagReady[_flagCount] = ready;
+      _flagMac[_flagCount] = ctx[VuCtx.flagMac + k].toSigned(32);
+      _flagClip[_flagCount] = ctx[VuCtx.flagClip + k].toSigned(32);
+      _flagCount++;
+    }
+    _kick = ctx[VuCtx.kick].toSigned(32);
+    _pending = -1;
+    _ending = false;
+    // compiled code writes no field later than four cycles ahead
+    _vfRegReady.fillRange(0, 32, cycles + _fmacLatency);
+  }
+
+  static void _put64(Uint32List ctx, int word, int value) {
+    ctx[word] = value;
+    ctx[word + 1] = value >> 32;
+  }
+
+  static int _get64(Uint32List ctx, int word) =>
+      ctx[word] | ctx[word + 1] << 32;
+
+  /// the status flag [status] after MAC results whose last one is [mac] and
+  /// whose OR is [macOr]
+  static int statusOf(int status, int mac, int macOr) {
+    var st = status & 0xff0;
+    if (mac & 0x000f != 0) st |= 1;
+    if (mac & 0x00f0 != 0) st |= 2;
+    if (mac & 0x0f00 != 0) st |= 4;
+    if (mac & 0xf000 != 0) st |= 8;
+    if (macOr & 0x000f != 0) st |= 0x40;
+    if (macOr & 0x00f0 != 0) st |= 0x80;
+    if (macOr & 0x0f00 != 0) st |= 0x100;
+    if (macOr & 0xf000 != 0) st |= 0x200;
+    return st;
+  }
+
   /// starts the program at pair [address] and runs it to its end
   void start(int address, {int maxPairs = 1 << 20}) {
     pc = address & (microWords ~/ 2 - 1);
@@ -190,17 +314,28 @@ class Vu {
     _pending = -1;
     _ending = false;
     _micro = true;
-    var n = 0;
-    while (running && n++ < maxPairs) {
-      step();
+    final compiler = this.compiler;
+    if (compiler != null) {
+      compiler.run(this, maxPairs);
+    } else {
+      var n = 0;
+      while (running && n++ < maxPairs) {
+        step();
+      }
     }
     if (running) running = false;
+    settlePipeline();
+    onEnd?.call();
+  }
+
+  /// Ends a program: sends a pending XGKICK and applies the pending
+  /// results, as at the end of [start].
+  void settlePipeline() {
     _sendKick();
     _micro = false;
     _commitFlags(_allCycles);
     _finishDivision();
     _finishEfu();
-    onEnd?.call();
   }
 
   // ---- macro mode (VU0 instructions issued by the CPU through COP2) ----
@@ -388,30 +523,30 @@ class Vu {
     final key = upper << 32 | lower;
     var d = _stallReads[pc];
     if (_stallKeys[pc] != key || d == 0) {
-      d = _stallReads[pc] = _decodeStall(upper, lower);
+      d = _stallReads[pc] = decodeStall(upper, lower);
       _stallKeys[pc] = key;
     }
     var t = cycles;
-    for (var g = d & _stallGroups; g != 0; g >>= 9) {
+    for (var g = d & stallGroups; g != 0; g >>= 9) {
       final fields = (g >> 5) & 15;
       if (fields != 0) t = _readyAt(g & 31, fields, t);
     }
-    if (d & _stallQ != 0 && _qBusy && _qReady > t) t = _qReady;
-    if (d & _stallP != 0 && _pBusy && _pReady > t) t = _pReady;
+    if (d & stallQ != 0 && _qBusy && _qReady > t) t = _qReady;
+    if (d & stallP != 0 && _pBusy && _pReady > t) t = _pReady;
     cycles = t;
   }
 
-  // What each pair waits for, decoded once per pair by [_decodeStall] and
+  // What each pair waits for, decoded once per pair by [decodeStall] and
   // kept with the words it came from ([_stallKeys], upper word above the
   // lower one): up to four groups of nine bits, each a VF register in bits
-  // 0 to 4 and the fields it reads in bits 5 to 8, [_stallQ], [_stallP],
+  // 0 to 4 and the fields it reads in bits 5 to 8, [stallQ], [stallP],
   // and [_stallDecoded], so that zero marks a pair not decoded yet.
   late final _stallReads = Int64List(microWords ~/ 2);
   late final _stallKeys = Int64List(microWords ~/ 2);
-  static const _stallGroups = (1 << 36) - 1;
-  static const _stallQ = 1 << 36, _stallP = 1 << 37, _stallDecoded = 1 << 38;
+  static const stallGroups = (1 << 36) - 1;
+  static const stallQ = 1 << 36, stallP = 1 << 37, _stallDecoded = 1 << 38;
 
-  int _decodeStall(int upper, int lower) {
+  static int decodeStall(int upper, int lower) {
     if (upper >>> 31 != 0) lower = 0; // the lower word is I
     var d = _stallDecoded, n = 0;
     void reads(int reg, int fields) {
@@ -419,9 +554,9 @@ class Vu {
       d |= (reg | fields << 5) << (9 * n++);
     }
 
-    _upperReads(upper);
-    reads((upper >> 11) & 31, _readFsFields);
-    reads((upper >> 16) & 31, _readFtFields);
+    final fields = _upperReadFields(upper);
+    reads((upper >> 11) & 31, fields & 15);
+    reads((upper >> 16) & 31, fields >> 4);
     final op = lower >>> 25;
     final mask = (lower >> 21) & 15;
     final fs = (lower >> 11) & 31, ft = (lower >> 16) & 31;
@@ -448,17 +583,17 @@ class Vu {
         case const (0x0e << 2 | 0) || const (0x0e << 2 | 2):
           reads(fs, fsf);
           reads(ft, ftf);
-          d |= _stallQ;
+          d |= stallQ;
         // SQRT
         case const (0x0e << 2 | 1):
           reads(ft, ftf);
-          d |= _stallQ;
+          d |= stallQ;
         // WAITQ
         case const (0x0e << 2 | 3):
-          d |= _stallQ;
+          d |= stallQ;
         // WAITP
         case const (0x1e << 2 | 3):
-          d |= _stallP;
+          d |= stallP;
         // ESADD, ERSADD, ELENG, ERLENG, EATANxy, EATANxz
         case >= 0x70 && < 0x76:
           reads(fs, 14);
@@ -473,76 +608,52 @@ class Vu {
     return d;
   }
 
-  /// the fields of fs and ft that the upper instruction reads, left in
-  /// [_readFsFields] and [_readFtFields] by [_upperReads] (fields, not a
-  /// returned record, so that a pair allocates nothing)
-  int _readFsFields = 0, _readFtFields = 0;
+  static int _fields(int fs, int ft) => fs | ft << 4;
 
-  void _upperReads(int ir) {
+  /// the fields of fs (bits 0 to 3) and ft (bits 4 to 7) that the upper
+  /// instruction [ir] reads
+  static int _upperReadFields(int ir) {
     final op = ir & 63;
     final mask = (ir >> 21) & 15;
     if (op < 0x1c) {
       // broadcast
-      _readFsFields = mask;
-      _readFtFields = 8 >> (op & 3);
-      return;
+      return _fields(mask, 8 >> (op & 3));
     }
     if (op < 0x28) {
       // Q or I
-      _readFsFields = mask;
-      _readFtFields = 0;
-      return;
+      return _fields(mask, 0);
     }
     if (op == 0x2e) {
       // OPMSUB
-      _readFsFields = 14;
-      _readFtFields = 14;
-      return;
+      return _fields(14, 14);
     }
     if (op < 0x30) {
-      _readFsFields = mask;
-      _readFtFields = mask;
-      return;
+      return _fields(mask, mask);
     }
     if (op < 0x3c) {
-      _readFsFields = 0;
-      _readFtFields = 0;
-      return;
+      return _fields(0, 0);
     }
     final sub = (ir >> 6) & 31, col = op & 3;
     switch (sub) {
       case < 4 || 6: // the accumulator forms with a broadcast lane
-        _readFsFields = mask;
-        _readFtFields = 8 >> col;
-        return;
+        return _fields(mask, 8 >> col);
       case 4 || 5 || 8 || 9: // ITOF, FTOI, and the Q and I forms
-        _readFsFields = mask;
-        _readFtFields = 0;
-        return;
+        return _fields(mask, 0);
       case 7: // CLIP reads ft.w
-        _readFsFields = col == 3 ? 14 : mask;
-        _readFtFields = col == 3 ? 1 : 0;
-        return;
+        return _fields(col == 3 ? 14 : mask, col == 3 ? 1 : 0);
       case 10:
-        _readFsFields = mask;
-        _readFtFields = col == 3 ? 0 : mask;
-        return;
+        return _fields(mask, col == 3 ? 0 : mask);
       case 11:
         switch (col) {
           case 2:
-            _readFsFields = 14;
-            _readFtFields = 14;
+            return _fields(14, 14);
           case 3:
-            _readFsFields = 0;
-            _readFtFields = 0;
+            return _fields(0, 0);
           default:
-            _readFsFields = mask;
-            _readFtFields = mask;
+            return _fields(mask, mask);
         }
-        return;
     }
-    _readFsFields = 0;
-    _readFtFields = 0;
+    return _fields(0, 0);
   }
 
   /// the fields [mask] of a VF register written by a lower instruction
@@ -1033,9 +1144,11 @@ class Vu {
         vi[it & 15] = _lane(fs, fsf) & 0xffff;
       case const (0x0c << 2 | 1): // MR32
         _loweredVf(it, mask);
+        // x is read before it is written when it is fs
+        final x = vf[fs * 4];
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) {
-            vf[it * 4 + c] = vf[fs * 4 + (c + 1) % 4];
+            vf[it * 4 + c] = c == 3 ? x : vf[fs * 4 + c + 1];
           }
         }
       case const (0x0d << 2 | 1): // SQI

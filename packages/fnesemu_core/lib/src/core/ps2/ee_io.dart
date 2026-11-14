@@ -23,11 +23,15 @@ class EeIo implements IoPort {
   final Ipu ipu = Ipu();
   late final Gif gif = Gif(gs);
   final Sif sif = Sif();
-  final Vu vu0 = Vu(0), vu1 = Vu(1);
+  final Vu vu0 = Vu(0);
+  final Vu vu1;
   late final Vif vif0 = Vif(0, vu0);
   late final Vif vif1 = Vif(1, vu1, path2: gif.path2, gs: gs);
 
-  EeIo(Ps2Bus bus) : dmac = Dmac(bus) {
+  /// [vu1] is the VU1 of a recompiler, or a new one.
+  EeIo(Ps2Bus bus, {Vu? vu1})
+      : dmac = Dmac(bus),
+        vu1 = vu1 ?? Vu(1) {
     gs.onInterrupt = () => intc.raise(Intc.gs);
     dmac.endpoints[Dmac.gif] = gif.path3;
     dmac.endpoints[Dmac.vif0] = vif0;
@@ -56,8 +60,8 @@ class EeIo implements IoPort {
       ..onDma = dmac.serviceIpu;
     dmac.endpoints[Dmac.toIpu] = ipu.toIpu;
     dmac.endpoints[Dmac.fromIpu] = ipu.fromIpu;
-    vu1.onXgkick = _xgkick;
-    vu0.onCmsar1 = vu1.start;
+    this.vu1.onXgkick = _xgkick;
+    vu0.onCmsar1 = this.vu1.start;
   }
 
   /// Saves the EE devices. The CDVD and the IOP RAM belong to the IOP side.
