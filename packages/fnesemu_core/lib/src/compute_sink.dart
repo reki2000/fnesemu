@@ -42,13 +42,14 @@ abstract interface class ComputeProgram {
   /// less.
   void prefetch(int binding, int byteOffset, int bytes);
 
-  /// The range of the last [prefetch] while it is not on the host, when
-  /// [ComputeSink.waits] is false; null when [read] can take it.
+  /// The ranges of the prefetches while they are not on the host, when
+  /// [ComputeSink.waits] is false; null when [read] can take them.
   Future<void>? get fetching;
 
   /// Waits for the program and reads [target].length words at [byteOffset]
   /// of [binding]. When [ComputeSink.waits] is false, it reads only from
-  /// the range of the last [prefetch], after [fetching] has completed.
+  /// the range of the last [prefetch] of [binding], after [fetching] has
+  /// completed.
   void read(int binding, int byteOffset, Uint32List target);
 
   void dispose();

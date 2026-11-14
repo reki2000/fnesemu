@@ -422,7 +422,16 @@ class Ps2 extends Core {
   ExecResult runFrame(int scanlines) {
     final cpu = this.cpu;
     var rendered = 0;
+    final gs = io.gs;
     while (rendered < scanlines) {
+      // A GPU that does not wait brings the memory of the Gs before the
+      // core reads a local to host transfer, and before the vblank.
+      if (gs.syncRequested) {
+        if (gs.computeWait() != null) {
+          return _waitForCompute(scanlines - rendered);
+        }
+        gs.syncCompute();
+      }
       final limit = _nextScanlineClock < _nextDeviceClock
           ? _nextScanlineClock
           : _nextDeviceClock;
@@ -432,19 +441,25 @@ class Ps2 extends Core {
         if (jit != null && jit.run(limit - before)) {
           _result.elapsedClocks = cpu.clocks - before;
           if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+          if (gs.syncRequested) break;
           continue;
         }
         if (!cpu.step()) {
           _result
             ..stopped = true
             ..elapsedClocks = 0
-            ..scanlineRendered = false;
+            ..scanlineRendered = false
+            ..linesLeft = 0;
           return _result;
         }
         _result.elapsedClocks = cpu.clocks - before;
         if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+        if (gs.syncRequested) break;
       }
       if (cpu.clocks >= _nextScanlineClock) {
+        if (_line + 1 == _vblankLine && gs.computeWait() != null) {
+          return _waitForCompute(scanlines - rendered);
+        }
         _nextScanlineClock += clocksInScanline;
         _endOfScanline();
         rendered++;
@@ -454,9 +469,18 @@ class Ps2 extends Core {
     }
     _result
       ..stopped = false
-      ..scanlineRendered = true;
+      ..scanlineRendered = true
+      ..linesLeft = 0;
     return _result;
   }
+
+  ExecResult _waitForCompute(int linesLeft) => _result
+    ..stopped = false
+    ..scanlineRendered = false
+    ..linesLeft = linesLeft;
+
+  @override
+  Future<void>? computeWait() => io.gs.computeWait();
 
   void _updateInterruptLines() {
     io.intc.dirty = io.dmac.dirty = false;

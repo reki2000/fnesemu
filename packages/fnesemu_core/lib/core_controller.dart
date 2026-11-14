@@ -233,7 +233,7 @@ class CoreController {
     final wasRunning = _state.running;
     await stop();
     try {
-      if (_core.computeWait case final wait?) {
+      if (_core.computeWait() case final wait?) {
         await wait.catchError((Object _) {});
       }
       return _core.saveState();
@@ -291,7 +291,7 @@ class CoreController {
       }
       if (result.linesLeft > 0) {
         _scanline = core.scanlinesInFrame - result.linesLeft;
-        return core.computeWait ?? Future.value();
+        return core.computeWait() ?? Future.value();
       }
     } else {
       while (_scanline < core.scanlinesInFrame) {

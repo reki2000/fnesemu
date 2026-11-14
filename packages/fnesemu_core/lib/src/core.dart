@@ -68,11 +68,14 @@ class Core extends CoreDebug {
   /// null draws in the core. other cores ignore it
   set computeSink(ComputeSink? sink) {}
 
-  /// The work on the GPU that the core waits for, when the sink cannot wait
-  /// by itself ([ComputeSink.waits] is false); null when there is none. A
-  /// [runFrame] may then return with [ExecResult.linesLeft] scanlines not
-  /// run. The caller awaits this before it runs the rest or saves a state.
-  Future<void>? get computeWait => null;
+  /// Asks for the results on the GPU that the core needs before it runs on
+  /// or saves a state, when the sink cannot wait by itself
+  /// ([ComputeSink.waits] is false), and returns the future that completes
+  /// when they are on the host; null when there are none. A [runFrame] may
+  /// return with [ExecResult.linesLeft] scanlines not run; the caller then
+  /// awaits this before it runs the rest. The caller also awaits it before
+  /// [saveState].
+  Future<void>? computeWait() => null;
 
   /// releases what the core holds outside the Dart heap; the core is not
   /// used afterwards

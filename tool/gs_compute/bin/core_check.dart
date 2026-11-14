@@ -4,12 +4,14 @@
 //
 // dart run bin/core_check.dart STATE FRAMES OUT MEDIA... [--core NAME]
 //     [--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N]
+//     [--warmup N]
 //
 // --core is ps2 (the default) or dc. MEDIA are the BIOS and the disc, or
 // for dc the boot ROM and the disc, with the flash as --bios. Writes the last pictures as software.png
 // and compute.png to OUT, and prints the time per frame of both runs. Exits
 // with 1 when a picture has more than --max-over8 (16) pixels that differ by
 // more than 8 in a channel, as the compute GS interpolates in 32-bit floats.
+// --warmup runs N frames before the FRAMES that are timed and compared.
 //
 // The headless session is imported from its directory, as it is not in a
 // library of fnesemu_core.
@@ -29,8 +31,9 @@ Future<(List<Uint32List>, ImageBuffer, double)> run(
   String state,
   int frames,
   List<String> media,
-  ComputeSink? sink,
-) async {
+  ComputeSink? sink, {
+  int warmup = 0,
+}) async {
   final session = await Session.open(
     core,
     media,
@@ -45,6 +48,9 @@ Future<(List<Uint32List>, ImageBuffer, double)> run(
   session.core.computeSink = sink;
   final pictures = <Uint32List>[];
   late ImageBuffer last;
+  for (var i = 0; i < warmup; i++) {
+    if (!await session.stepFrame()) throw StateError('core stopped');
+  }
   final clock = Stopwatch()..start();
   for (var i = 0; i < frames; i++) {
     if (!await session.stepFrame()) throw StateError('core stopped');
@@ -74,7 +80,8 @@ Future<void> main(List<String> args) async {
   }
   if (positional.length < 4) {
     stderr.writeln('usage: STATE FRAMES OUT MEDIA... [--core NAME] '
-        '[--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N]');
+        '[--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N] '
+        '[--warmup N]');
     exit(64);
   }
   final [state, frameText, out, ...media] = positional;
@@ -85,6 +92,7 @@ Future<void> main(List<String> args) async {
       if (args.contains(name)) ...[name, option(name, '')],
   ];
   final maxOver8 = int.parse(option('--max-over8', '16'));
+  final warmup = int.parse(option('--warmup', '0'));
 
   final gpu = WgpuComputeSink.open(adapter: option('--adapter', ''));
   if (gpu == null) exit(2);
@@ -97,6 +105,7 @@ Future<void> main(List<String> args) async {
     frames,
     media,
     null,
+    warmup: warmup,
   );
   final (compute, computeLast, computeMs) = await run(
     core,
@@ -105,6 +114,7 @@ Future<void> main(List<String> args) async {
     frames,
     media,
     gpu,
+    warmup: warmup,
   );
 
   var worst = 0;
