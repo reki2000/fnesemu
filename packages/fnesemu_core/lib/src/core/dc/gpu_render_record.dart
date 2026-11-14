@@ -132,7 +132,7 @@ extension on DcGpuRender {
       int isp,
       int tsp,
       DcGpuTexture? texture,
-      List<double>? mipNumerators,
+      Float64List? mipNumerators,
       int order,
       bool plane,
       double? backgroundDepth,

@@ -131,7 +131,7 @@ final class _WasmRuntime extends JitRuntime
     with CompiledRuntimeHelpers
     implements WasmEnv {
   static const _maxSlots = 1 << 19;
-  static const _maxBlocks = 4096;
+  static const _maxBlocks = 32768;
 
   final _Table _table = _Table({
     'element': 'anyfunc',

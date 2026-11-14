@@ -724,7 +724,13 @@ class DcGpuTexture {
       final last = 0.0 + (size - 1);
       return value < 0 ? 0.0 : (value > last ? last : value);
     }
-    return value % (0.0 + (flip ? size * 2 : size));
+    final period = flip ? size * 2 : size;
+    if (period & (period - 1) == 0) {
+      // Division and multiplication by a power of two are exact, so this
+      // equals the modulo below without its call.
+      return value - (value / period).floorToDouble() * period;
+    }
+    return value % (0.0 + period);
   }
 
   /// System Architecture sections 3.4.7.3.1 and 3.6.1.3, with host-double trig/rounding.

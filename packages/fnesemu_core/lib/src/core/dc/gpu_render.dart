@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import '../../state.dart';
 import '../../util/uint32list.dart';
-import '../../util/uint8list.dart';
 import 'dc_compute.dart';
 import 'fault.dart';
 import 'gpu_fog.dart';
@@ -103,7 +102,6 @@ class DcGpuRender {
   final _registers = <int, int>{};
   // [_registers] below 0x800 by word, for reads during rendering.
   final _registerWords = Uint32List(0x200);
-  final _float = ByteData(4);
   final _colors = Uint32List(1024);
   final _secondary = Uint32List(1024);
   final _secondaryValid = Uint8List(1024);
@@ -127,6 +125,17 @@ class DcGpuRender {
   // tile of a render samples that, and the others follow the sample.
   int _tileCount = 0, _hiddenFragments = 0, _shownFragments = 0;
   final _savedDepth = Float64List(1024);
+  // The vertices of the strip in [_drawMaterial] and the three of a triangle.
+  final _stripVertices = List<_Vertex?>.filled(8, null);
+  final _stripCorners = List<_Vertex>.filled(3, const _Vertex(0, 0, 0, 0));
+  // The tile buffers kept over the depth pass of an opaque modifier.
+  final _keptColors = Uint32List(1024), _keptSecondary = Uint32List(1024);
+  final _keptDepth = Float64List(1024);
+  final _keptValid = Uint8List(1024);
+  // The sorted fragment range and layer of each pixel in [_sortModified].
+  final _layerStart = Int32List(1024), _layerEnd = Int32List(1024);
+  final _layerDepth = Float64List(1024);
+  final _layerActive = Uint8List(1024);
   final _candidates = List<_Fragment?>.filled(1024, null);
 
   /// Whether a [_candidates] entry may be set; when false all are null.
@@ -557,15 +566,30 @@ class DcGpuRender {
     if (address < 0 || address + 4 > memory.length || address & 3 != 0) {
       throw const DcUnsupported('CORE display-list read outside retail VRAM');
     }
-    return memory.getUint32LE(address);
+    final m = memory;
+    return m[address] |
+        (m[address + 1] << 8) |
+        (m[address + 2] << 16) |
+        (m[address + 3] << 24);
   }
 
   double _value(int bits) {
-    _float.setUint32(0, bits, Endian.little);
-    final result = _float.getFloat32(0, Endian.little);
-    if (!result.isFinite) throw const DcUnsupported('CORE nonfinite parameter');
-    return result;
+    // The mantissa times a power of two is exact for every finite single,
+    // so this equals the single read as a double.
+    final exponent = (bits >> 23) & 0xff;
+    if (exponent == 0xff) {
+      throw const DcUnsupported('CORE nonfinite parameter');
+    }
+    final mantissa = bits & 0x7fffff;
+    final magnitude = exponent == 0
+        ? mantissa * _powersOfTwo[1]
+        : (mantissa | 0x800000) * _powersOfTwo[exponent];
+    return bits & 0x80000000 != 0 ? -magnitude : magnitude;
   }
+
+  /// 2^(e - 150) at index e, the scale of a single's 24-bit mantissa.
+  static final _powersOfTwo = Float64List.fromList(
+      [for (var e = 0; e < 256; e++) math.pow(2.0, e - 150).toDouble()]);
 
   double _number(int address) => _value(_word(address));
 
@@ -716,10 +740,10 @@ class DcGpuRender {
       if (drawsBackground) _background(x * 32, y * 32);
       // Resolve visible surface depths first, then shade the same tile with its area mask.
       // This replay is a functional implementation, not the hardware ISP/TSP scheduling.
-      final colors = Uint32List.fromList(_colors),
-          depths = Float64List.fromList(_depth);
-      final secondary = Uint32List.fromList(_secondary);
-      final valid = Uint8List.fromList(_secondaryValid);
+      final colors = _keptColors..setAll(0, _colors),
+          depths = _keptDepth..setAll(0, _depth);
+      final secondary = _keptSecondary..setAll(0, _secondary);
+      final valid = _keptValid..setAll(0, _secondaryValid);
       Uint8List mask;
       Uint8List? backgroundMask;
       try {
@@ -916,7 +940,7 @@ class DcGpuRender {
     final sorted = _fragmentSorted, depth = _fragmentDepth;
     final order = _fragmentOrder;
     // The sorted fragments of pixel i run from start[i] to end[i].
-    final start = Int32List(1024), end = Int32List(1024);
+    final start = _layerStart, end = _layerEnd;
     var next = 0;
     for (var i = 0; i < 1024; i++) {
       final first = start[i] = next;
@@ -933,7 +957,7 @@ class DcGpuRender {
       }
       end[i] = next;
     }
-    final surfaces = Float64List(1024), active = Uint8List(1024);
+    final surfaces = _layerDepth, active = _layerActive;
     final sampleOffset = read(0x80) & 1 != 0 ? 0.5 : 0.0;
     for (;;) {
       var any = false;
@@ -1195,32 +1219,44 @@ class DcGpuRender {
     if (_sortMode == 2 && texture?.trilinear == true) {
       throw const DcUnsupported('CORE trilinear punch-through is prohibited');
     }
-    List<_Vertex> vertices(int first, int count) => [
-          for (var i = 0; i < count; i++)
-            _vertex(parameter + header * 4 + (first + i) * stride * 4, isp,
-                attributeOffset: slot * attributes * 4,
-                ignoreShading: sourceSecondary)
-        ];
-    if (kind == 4) {
-      _triangle(vertices(0, 3), isp, tsp, texture, x, y);
-    } else if (kind == 5) {
-      final first = vertices(0, 3),
-          fourth = parameter + header * 4 + 3 * stride * 4;
+    final first = parameter + header * 4, step = stride * 4;
+    final attributeOffset = slot * attributes * 4;
+    if (kind == 4 || kind == 5) {
+      final corners = [
+        _vertex(first, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary),
+        _vertex(first + step, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary),
+        _vertex(first + 2 * step, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary)
+      ];
+      if (kind == 4) {
+        _triangle(corners, isp, tsp, texture, x, y);
+        return;
+      }
+      final fourth = first + 3 * step;
       // Only X/Y of D are defined; both materials derive their attributes from ABC.
       final d = _Vertex(_number(fourth), _number(fourth + 4), 0, 0);
-      _quad([...first, d], isp, tsp, texture, x, y);
-    } else {
-      final mask = (pointer >> 25) & 63;
-      for (var triangle = 0; triangle < 6; triangle++) {
-        if (mask & (1 << (5 - triangle)) == 0) continue;
-        final strip = vertices(triangle, 3);
-        if (triangle.isOdd) {
-          final first = strip[0];
-          strip[0] = strip[1];
-          strip[1] = first;
-        }
-        _triangle(strip, isp, tsp, texture, x, y);
+      _quad([...corners, d], isp, tsp, texture, x, y);
+      return;
+    }
+    // Each vertex of the strip is read once, when a triangle first needs it.
+    final strip = _stripVertices..fillRange(0, 8, null);
+    final mask = (pointer >> 25) & 63;
+    for (var triangle = 0; triangle < 6; triangle++) {
+      if (mask & (1 << (5 - triangle)) == 0) continue;
+      final corners = _stripCorners;
+      for (var i = 0; i < 3; i++) {
+        final k = triangle + i;
+        corners[i] = strip[k] ??= _vertex(first + k * step, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary);
       }
+      if (triangle.isOdd) {
+        final a = corners[0];
+        corners[0] = corners[1];
+        corners[1] = a;
+      }
+      _triangle(corners, isp, tsp, texture, x, y);
     }
   }
 
@@ -1404,6 +1440,16 @@ class DcGpuRender {
   static int _tileCeiling(double value) =>
       value < 0 ? 0 : (value >= 31 ? 32 : value.ceil() + 1);
 
+  /// The sum of `w * z` over the three vertices, in vertex order.
+  static double _dot(
+          double w0, double w1, double w2, double z0, double z1, double z2) =>
+      0.0 + w0 * z0 + w1 * z1 + w2 * z2;
+
+  /// The sum of `w * z * q` over the three vertices, in vertex order.
+  static double _dotOf(double w0, double w1, double w2, double z0, double z1,
+          double z2, double q0, double q1, double q2) =>
+      0.0 + w0 * z0 * q0 + w1 * z1 * q1 + w2 * z2 * q2;
+
   @pragma('vm:unsafe:no-bounds-checks')
   void _triangle(List<_Vertex> vertices, int isp, int tsp,
       DcGpuTexture? texture, int originX, int originY,
@@ -1427,51 +1473,37 @@ class DcGpuRender {
     }
     final sa = plane?[0] ?? a, sb = plane?[1] ?? b, sc = plane?[2] ?? c;
     final shadeArea = plane == null ? area : _edge(sa, sb, sc.x, sc.y);
-    List<double>? mipNumerators;
+    Float64List? mipNumerators;
     if (texture?.mipMapped == true) {
-      final values = [sa, sb, sc];
-      final dx = [
-        (sb.y - sc.y) / shadeArea,
-        (sc.y - sa.y) / shadeArea,
-        (sa.y - sb.y) / shadeArea
-      ];
-      final dy = [
-        (sc.x - sb.x) / shadeArea,
-        (sa.x - sc.x) / shadeArea,
-        (sb.x - sa.x) / shadeArea
-      ];
-      final origin = [
-        _edge(sb, sc, 0, 0) / shadeArea,
-        _edge(sc, sa, 0, 0) / shadeArea,
-        _edge(sa, sb, 0, 0) / shadeArea
-      ];
-      double dot(List<double> weights, int component) {
-        var result = 0.0;
-        for (var i = 0; i < 3; i++) {
-          final vertex = values[i];
-          result += weights[i] *
-              vertex.z *
-              (component == 0
-                  ? vertex.u
-                  : component == 1
-                      ? vertex.v
-                      : 1);
-        }
-        return result;
-      }
-
+      final dx0 = (sb.y - sc.y) / shadeArea,
+          dx1 = (sc.y - sa.y) / shadeArea,
+          dx2 = (sa.y - sb.y) / shadeArea;
+      final dy0 = (sc.x - sb.x) / shadeArea,
+          dy1 = (sa.x - sc.x) / shadeArea,
+          dy2 = (sb.x - sa.x) / shadeArea;
+      final o0 = _edge(sb, sc, 0, 0) / shadeArea,
+          o1 = _edge(sc, sa, 0, 0) / shadeArea,
+          o2 = _edge(sa, sb, 0, 0) / shadeArea;
+      final za = sa.z, zb = sb.z, zc = sc.z;
+      final ua = sa.u, ub = sb.u, uc = sc.u;
+      final va = sa.v, vb = sb.v, vc = sc.v;
       final reference = plane?[0] ?? vertices[0];
       final precise = isp & 0x100000 != 0;
-      final rz = precise ? reference.z : dot(origin, 2);
-      final ru = precise ? reference.u * reference.z : dot(origin, 0);
-      final rv = precise ? reference.v * reference.z : dot(origin, 1);
+      final rz = precise ? reference.z : _dot(o0, o1, o2, za, zb, zc);
+      final ru = precise
+          ? reference.u * reference.z
+          : _dotOf(o0, o1, o2, za, zb, zc, ua, ub, uc);
+      final rv = precise
+          ? reference.v * reference.z
+          : _dotOf(o0, o1, o2, za, zb, zc, va, vb, vc);
+      final dxz = _dot(dx0, dx1, dx2, za, zb, zc),
+          dyz = _dot(dy0, dy1, dy2, za, zb, zc);
       // Dcalc=0 uses constants at the screen origin; Dcalc=1 uses the original first vertex.
-      mipNumerators = [
-        dot(dx, 0) * rz - dot(dx, 2) * ru,
-        dot(dx, 1) * rz - dot(dx, 2) * rv,
-        dot(dy, 0) * rz - dot(dy, 2) * ru,
-        dot(dy, 1) * rz - dot(dy, 2) * rv
-      ];
+      mipNumerators = Float64List(4)
+        ..[0] = _dotOf(dx0, dx1, dx2, za, zb, zc, ua, ub, uc) * rz - dxz * ru
+        ..[1] = _dotOf(dx0, dx1, dx2, za, zb, zc, va, vb, vc) * rz - dxz * rv
+        ..[2] = _dotOf(dy0, dy1, dy2, za, zb, zc, ua, ub, uc) * rz - dyz * ru
+        ..[3] = _dotOf(dy0, dy1, dy2, za, zb, zc, va, vb, vc) * rz - dyz * rv;
     }
     final recording = _recording;
     if (recording != null) {
@@ -2745,7 +2777,7 @@ class DcGpuRender {
       _Vertex sb,
       _Vertex sc,
       int opaqueAlpha,
-      List<double>? mipNumerators,
+      Float64List? mipNumerators,
       bool pointRows,
       int tsp,
       bool fogOffset,
