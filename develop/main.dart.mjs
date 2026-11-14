@@ -373,7 +373,11 @@ class CompiledApp {
       TH: () => 1000 * performance.now(),
       TI: (a, s, e) => a.slice(s, e),
       TJ: (x0,x1) => { x0.height = x1 },
-      TK: (x0,x1) => x0.push(x1),
+      TK: (o) => {
+        const typeofValue = typeof o;
+        return (typeofValue === 'object') ||
+            typeofValue === 'function';
+      },
       TL: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       U: (x0,x1,x2) => x0.call(x1,x2),
       UB: (b, o, l) => new DataView(b, o, l),
@@ -412,11 +416,7 @@ class CompiledApp {
       UH: x0 => new Uint8Array(x0),
       UI: () => globalThis.AudioStream,
       UJ: (x0,x1) => { x0.width = x1 },
-      UK: (o) => {
-        const typeofValue = typeof o;
-        return (typeofValue === 'object') ||
-            typeofValue === 'function';
-      },
+      UK: (x0,x1) => x0.push(x1),
       UL: (x0,x1) => x0.append(x1),
       V: (constructor, args) => {
         const factoryFunction = constructor.bind.apply(
