@@ -55,6 +55,11 @@ typedef struct MpcProgram {
   WGPUBindGroup group;
   WGPUBuffer readback;
   uint64_t readbackSize;
+  // A copy into [readback] that mpc_prefetch submitted and whose mapping
+  // [mapped] reports, for the next mpc_read of the same range.
+  int prefetched, mapped;
+  uint32_t prefetchBinding;
+  uint64_t prefetchOffset, prefetchBytes;
   WGPUQuerySet queries;
   WGPUBuffer resolved, profileRead;
 } MpcProgram;
@@ -545,23 +550,19 @@ EXPORT int32_t mpc_run(MpcProgram *p, const uint32_t *dispatches,
   return d->error[0] ? 2 : 0;
 }
 
-// Waits for the work of the program and copies [bytes] bytes at [offset] of
-// binding [binding] to [target].
-EXPORT int32_t mpc_read(MpcProgram *p, uint32_t binding, uint64_t offset,
-                        void *target, uint64_t bytes) {
+// Makes [readback] hold at least [bytes] bytes.
+static void reserve_readback(MpcProgram *p, uint64_t bytes) {
+  if (p->readbackSize >= bytes) return;
+  if (p->readback) wgpuBufferRelease(p->readback);
+  p->readback =
+      buffer(p->d, bytes, WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
+  p->readbackSize = bytes;
+}
+
+// Submits a copy of [bytes] bytes at [offset] of [binding] into [readback].
+static void copy_to_readback(MpcProgram *p, uint32_t binding, uint64_t offset,
+                             uint64_t bytes) {
   MpcDevice *d = p->d;
-  if (binding >= p->bindingCount || offset + bytes > p->sizes[binding] ||
-      (offset | bytes) & 3) {
-    snprintf(d->error, sizeof d->error, "bad read");
-    return 1;
-  }
-  if (!bytes) return 0;
-  if (p->readbackSize < bytes) {
-    if (p->readback) wgpuBufferRelease(p->readback);
-    p->readback =
-        buffer(d, bytes, WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
-    p->readbackSize = bytes;
-  }
   WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(d->device, NULL);
   wgpuCommandEncoderCopyBufferToBuffer(enc, p->buffers[binding], offset,
                                        p->readback, 0, bytes);
@@ -569,6 +570,80 @@ EXPORT int32_t mpc_read(MpcProgram *p, uint32_t binding, uint64_t offset,
   wgpuQueueSubmit(d->queue, 1, &cmd);
   wgpuCommandBufferRelease(cmd);
   wgpuCommandEncoderRelease(enc);
+}
+
+// Waits for the mapping of a prefetch. Returns its range in [readback] to
+// mpc_read, or unmaps it.
+static int settle_prefetch(MpcProgram *p) {
+  MpcDevice *d = p->d;
+  while (!p->mapped) {
+    wgpuDevicePoll(d->device, 1, NULL);
+    wgpuInstanceProcessEvents(d->instance);
+  }
+  p->prefetched = 0;
+  return d->error[0] ? 2 : 0;
+}
+
+static int check_range(MpcProgram *p, uint32_t binding, uint64_t offset,
+                       uint64_t bytes) {
+  if (binding >= p->bindingCount || offset + bytes > p->sizes[binding] ||
+      (offset | bytes) & 3) {
+    snprintf(p->d->error, sizeof p->d->error, "bad read");
+    return 1;
+  }
+  return 0;
+}
+
+// Copies [bytes] bytes at [offset] of [binding] after the work submitted so
+// far and starts to map them, without waiting. A following mpc_read of the
+// same range then only waits for the mapping.
+EXPORT int32_t mpc_prefetch(MpcProgram *p, uint32_t binding, uint64_t offset,
+                            uint64_t bytes) {
+  MpcDevice *d = p->d;
+  if (check_range(p, binding, offset, bytes)) return 1;
+  if (p->prefetched) {
+    if (settle_prefetch(p)) return 2;
+    wgpuBufferUnmap(p->readback);
+  }
+  if (!bytes) return 0;
+  reserve_readback(p, bytes);
+  copy_to_readback(p, binding, offset, bytes);
+  p->prefetched = 1;
+  p->mapped = 0;
+  p->prefetchBinding = binding;
+  p->prefetchOffset = offset;
+  p->prefetchBytes = bytes;
+  WGPUBufferMapCallbackInfo cb = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+  cb.mode = WGPUCallbackMode_AllowProcessEvents;
+  cb.callback = on_mapped;
+  cb.userdata1 = &p->mapped;
+  cb.userdata2 = d;
+  wgpuBufferMapAsync(p->readback, WGPUMapMode_Read, 0, bytes, cb);
+  wgpuDevicePoll(d->device, 0, NULL);
+  return d->error[0] ? 2 : 0;
+}
+
+// Waits for the work of the program and copies [bytes] bytes at [offset] of
+// binding [binding] to [target].
+EXPORT int32_t mpc_read(MpcProgram *p, uint32_t binding, uint64_t offset,
+                        void *target, uint64_t bytes) {
+  MpcDevice *d = p->d;
+  if (check_range(p, binding, offset, bytes)) return 1;
+  if (p->prefetched) {
+    const int same = p->prefetchBinding == binding &&
+                     p->prefetchOffset == offset && p->prefetchBytes == bytes;
+    if (settle_prefetch(p)) return 2;
+    if (same) {
+      memcpy(target, wgpuBufferGetConstMappedRange(p->readback, 0, bytes),
+             bytes);
+      wgpuBufferUnmap(p->readback);
+      return 0;
+    }
+    wgpuBufferUnmap(p->readback);
+  }
+  if (!bytes) return 0;
+  reserve_readback(p, bytes);
+  copy_to_readback(p, binding, offset, bytes);
   if (map_read(d, p->readback, bytes)) return 2;
   memcpy(target, wgpuBufferGetConstMappedRange(p->readback, 0, bytes), bytes);
   wgpuBufferUnmap(p->readback);
@@ -577,6 +652,7 @@ EXPORT int32_t mpc_read(MpcProgram *p, uint32_t binding, uint64_t offset,
 
 EXPORT void mpc_program_destroy(MpcProgram *p) {
   if (!p) return;
+  if (p->prefetched && !settle_prefetch(p)) wgpuBufferUnmap(p->readback);
   wgpuDevicePoll(p->d->device, 1, NULL);
   for (uint32_t i = 0; i < p->entryCount; i++) {
     if (p->pipes[i]) wgpuComputePipelineRelease(p->pipes[i]);

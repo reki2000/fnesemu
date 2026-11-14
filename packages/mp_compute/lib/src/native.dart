@@ -87,6 +87,16 @@ external int mpc_read(
   int bytes,
 );
 
+@Native<Int32 Function(Pointer<MpcProgram>, Uint32, Uint64, Uint64)>(
+  isLeaf: true,
+)
+external int mpc_prefetch(
+  Pointer<MpcProgram> program,
+  int binding,
+  int offset,
+  int bytes,
+);
+
 @Native<Void Function(Pointer<MpcProgram>)>()
 external void mpc_program_destroy(Pointer<MpcProgram> program);
 

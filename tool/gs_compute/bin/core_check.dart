@@ -1,11 +1,12 @@
-// Runs the whole PS2 core from a state twice, once with the software GS and
-// once with the compute GS attached as the app attaches it (the
-// computeSink of the core), and compares the pictures of each frame.
+// Runs the whole core from a state twice, once on the CPU and once with the
+// compute program attached as the app attaches it (the computeSink of the
+// core), and compares the pictures of each frame.
 //
-// dart run bin/core_check.dart STATE FRAMES OUT MEDIA... [--adapter NAME]
-//     [--max-over8 N]
+// dart run bin/core_check.dart STATE FRAMES OUT MEDIA... [--core NAME]
+//     [--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N]
 //
-// MEDIA are the BIOS and the disc. Writes the last pictures as software.png
+// --core is ps2 (the default) or dc. MEDIA are the BIOS and the disc, or
+// for dc the boot ROM and the disc, with the flash as --bios. Writes the last pictures as software.png
 // and compute.png to OUT, and prints the time per frame of both runs. Exits
 // with 1 when a picture has more than --max-over8 (16) pixels that differ by
 // more than 8 in a channel, as the compute GS interpolates in 32-bit floats.
@@ -23,15 +24,21 @@ import '../../../packages/fnesemu_core/tool/headless/options.dart';
 import '../../../packages/fnesemu_core/tool/headless/session.dart';
 
 Future<(List<Uint32List>, ImageBuffer, double)> run(
+  String core,
+  List<String> options,
   String state,
   int frames,
   List<String> media,
   ComputeSink? sink,
 ) async {
   final session = await Session.open(
-    'ps2',
+    core,
     media,
-    Options.parse(['--frame-runner'], flags: mediaFlags, valued: mediaValued),
+    Options.parse(
+      ['--frame-runner', ...options],
+      flags: mediaFlags,
+      valued: mediaValued,
+    ),
     recordAudio: false,
   );
   session.loadState(state);
@@ -66,12 +73,17 @@ Future<void> main(List<String> args) async {
     }
   }
   if (positional.length < 4) {
-    stderr.writeln('usage: STATE FRAMES OUT MEDIA... [--adapter NAME] '
-        '[--max-over8 N]');
+    stderr.writeln('usage: STATE FRAMES OUT MEDIA... [--core NAME] '
+        '[--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N]');
     exit(64);
   }
   final [state, frameText, out, ...media] = positional;
   final frames = int.parse(frameText);
+  final core = option('--core', 'ps2');
+  final options = [
+    for (final name in ['--bios', '--jit'])
+      if (args.contains(name)) ...[name, option(name, '')],
+  ];
   final maxOver8 = int.parse(option('--max-over8', '16'));
 
   final gpu = WgpuComputeSink.open(adapter: option('--adapter', ''));
@@ -79,12 +91,16 @@ Future<void> main(List<String> args) async {
   stdout.writeln('compute on ${gpu.name}');
 
   final (software, softwareLast, softwareMs) = await run(
+    core,
+    options,
     state,
     frames,
     media,
     null,
   );
   final (compute, computeLast, computeMs) = await run(
+    core,
+    options,
     state,
     frames,
     media,

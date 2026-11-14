@@ -23,6 +23,33 @@ class DcGpuModifier {
       int originY, Float64List depth, double sampleOffset,
       {Uint8List? active}) {
     final area = Uint8List(1024), parity = Uint8List(1024);
+    walk(objectList, parameterBase, (triangle, plane) {
+      _triangle(triangle, plane, parity, depth, originX, originY,
+          sampleOffset, active);
+    }, (instruction) {
+      for (var pixel = 0; pixel < 1024; pixel++) {
+        // Outside Last retains the previous area only outside this volume.
+        area[pixel] = instruction == 1
+            ? area[pixel] | parity[pixel]
+            : area[pixel] & (parity[pixel] ^ 1);
+      }
+      parity.fillRange(0, 1024, 0);
+    });
+    return area;
+  }
+
+  /// Walks the volumes of [objectList] with their checks. [triangle] takes
+  /// each triangle that is not culled, with the plane of its depths (the
+  /// first triangle of a quad), as lists of x, y and z. [close] takes the
+  /// instruction (1 Inside Last, 2 Outside Last) of each polygon that ends
+  /// a volume, after its triangles.
+  void walk(
+      int objectList,
+      int parameterBase,
+      void Function(List<DcModifierPoint> triangle,
+              List<DcModifierPoint> plane)
+          triangle,
+      void Function(int instruction) close) {
     final visited = <int>{};
     var unfinished = false;
     for (var address = objectList;; address += 4) {
@@ -36,7 +63,7 @@ class DcGpuModifier {
             throw const DcUnsupported(
                 'CORE modifier volume has no last polygon');
           }
-          return area;
+          return;
         }
         address = (pointer & 0xfffffc) - 4;
         continue;
@@ -67,8 +94,7 @@ class DcGpuModifier {
           throw const DcUnsupported('CORE modifier determinant overflow');
         }
         if (!culled(determinant, isp)) {
-          _triangle(vertices, vertices, parity, depth, originX, originY,
-              sampleOffset, active);
+          triangle(vertices, vertices);
           if (kind == 5) {
             final d =
                 _Point(_number(parameter + 48), _number(parameter + 52), 0);
@@ -80,19 +106,12 @@ class DcGpuModifier {
                     'CORE concave/crossed modifier quad is unverified');
               }
             }
-            _triangle([vertices[0], vertices[2], d], vertices, parity, depth,
-                originX, originY, sampleOffset, active);
+            triangle([vertices[0], vertices[2], d], vertices);
           }
         }
         unfinished = true;
         if (instruction != 0) {
-          for (var pixel = 0; pixel < 1024; pixel++) {
-            // Outside Last retains the previous area only outside this volume.
-            area[pixel] = instruction == 1
-                ? area[pixel] | parity[pixel]
-                : area[pixel] & (parity[pixel] ^ 1);
-          }
-          parity.fillRange(0, 1024, 0);
+          close(instruction);
           unfinished = false;
         }
         // Modifier records use the generic three-word header and XYZ-only vertices.
@@ -203,7 +222,10 @@ class DcGpuModifier {
   }
 }
 
-class _Point {
-  const _Point(this.x, this.y, this.z);
+/// A vertex of a modifier volume.
+class DcModifierPoint {
+  const DcModifierPoint(this.x, this.y, this.z);
   final double x, y, z;
 }
+
+typedef _Point = DcModifierPoint;

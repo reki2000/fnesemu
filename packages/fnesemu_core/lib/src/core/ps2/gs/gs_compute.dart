@@ -88,10 +88,14 @@ class _Pages {
 /// vblank and before a local to host transfer, so that the Gs makes its
 /// pictures, transfers and states from them as without it.
 class GsCompute implements GsResidentSink {
-  /// Compiles the program on [sink]; throws if it cannot.
+  /// Compiles the program on [sink]; throws if it cannot, or if [sink]
+  /// cannot wait for the GPU, as the Gs reads its memory back at points
+  /// where the core cannot stop.
   GsCompute(this.gs, ComputeSink sink)
-      : _program = sink.program(gsComputeShader, _entryPoints, _bindings,
-            paramStride: 256, maxDispatches: _maxSteps);
+      : _program = sink.waits
+            ? sink.program(gsComputeShader, _entryPoints, _bindings,
+                paramStride: 256, maxDispatches: _maxSteps)
+            : throw UnsupportedError('the sink cannot wait for the GPU');
 
   final Gs gs;
   final ComputeProgram _program;

@@ -39,6 +39,12 @@ class _Program implements ComputeProgram {
   }
 
   @override
+  void prefetch(int binding, int byteOffset, int bytes) {}
+
+  @override
+  Future<void>? get fetching => null;
+
+  @override
   void read(int binding, int byteOffset, Uint32List target) {
     target.setRange(0, target.length, _buffer(binding), byteOffset ~/ 4);
   }
@@ -55,6 +61,9 @@ class _Sink implements ComputeSink {
 
   @override
   String get name => 'test GPU';
+
+  @override
+  bool get waits => true;
 
   @override
   ComputeProgram program(

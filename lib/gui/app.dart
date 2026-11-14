@@ -168,6 +168,8 @@ class MainPageState extends State<MainPage> {
   // the GPU setting first selects it, null if it cannot be
   ComputeSink? _compute;
   bool _computeOpened = false;
+  // whether [prepareComputeSink] finished; the Web opens its GPU only after
+  bool _computePrepared = false;
 
   // the GPUs that wgpu-native found, listed when the GPU dialog first opens
   List<String>? _adapters;
@@ -175,6 +177,7 @@ class MainPageState extends State<MainPage> {
   String get _adapter => _storage.setting(_gpuAdapterKey) ?? "";
 
   ComputeSink? _openCompute() {
+    if (!_computePrepared) return null;
     if (!_computeOpened) {
       _computeOpened = true;
       _compute = openComputeSink(
@@ -243,7 +246,8 @@ class MainPageState extends State<MainPage> {
     _restoreDiscFolder();
 
     // opening the compute GPU takes a moment, so it waits for the first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_storage.setting(_gpuKey) == "compute") await _prepareCompute();
       _applyGpu();
       if (mounted) setState(() {});
     });
@@ -488,12 +492,19 @@ class MainPageState extends State<MainPage> {
     return true;
   }
 
+  Future<void> _prepareCompute() async {
+    await prepareComputeSink();
+    _computePrepared = true;
+  }
+
   void _applyGpu() =>
       _controller.computeSink = _renderer == "compute" ? _compute : null;
 
   /// lets the user select the renderer of the 3D renders of the cores: the
   /// software renderer, or one of the GPUs that wgpu-native finds
   Future<void> _selectGpu() async {
+    await _prepareCompute();
+    if (!mounted) return;
     final adapters = _adapters ??= computeAdapters();
     final current = _renderer;
     final currentAdapter = current == "compute" ? _adapter : null;

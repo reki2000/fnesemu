@@ -35,6 +35,9 @@ class DcGpuFog {
   int get tableColor => _tableColor;
   int get vertexColor => _vertexColor;
 
+  /// Whether a lane of the clamp bounds has its minimum above its maximum.
+  bool get invertedClamp => _invertedClamp;
+
   void _updateClamp() {
     _invertedClamp = false;
     for (var shift = 0; shift < 32; shift += 8) {
