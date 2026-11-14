@@ -291,6 +291,22 @@ abstract final class Arm64Backend {
       }
 
       switch (i.op) {
+        case IrOp.vSplat ||
+            IrOp.vExtract ||
+            IrOp.vInsert ||
+            IrOp.vShuffle ||
+            IrOp.vBlend ||
+            IrOp.vuDecode ||
+            IrOp.vFloatAdd ||
+            IrOp.vFloatSub ||
+            IrOp.vFloatMul ||
+            IrOp.vuEncode ||
+            IrOp.vuFlags ||
+            IrOp.vuMax ||
+            IrOp.vuMin ||
+            IrOp.vuClip:
+          // [JitRuntime.vectors] is false for this backend
+          throw UnsupportedError('vector operations');
         case IrOp.constant:
           break;
         case IrOp.ctxLoad:

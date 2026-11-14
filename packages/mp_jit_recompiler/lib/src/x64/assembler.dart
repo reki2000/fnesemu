@@ -229,6 +229,19 @@ final class Assembler {
     u64(imm);
   }
 
+  /// [movRI64] with the shortest encoding: a 32-bit move when [imm] fits
+  /// unsigned, or a sign-extended 32-bit immediate when it fits signed
+  void movRI64Short(int dst, int imm) {
+    if (imm >= 0 && imm <= 0xffffffff) {
+      movRI(dst, imm);
+    } else if (imm == imm.toSigned(32)) {
+      _opReg([0xc7], 0, dst, w: true);
+      u32(imm & 0xffffffff);
+    } else {
+      movRI64(dst, imm);
+    }
+  }
+
   void mov16MR(Mem m, int src) {
     u8(0x66);
     _opMem([0x89], src, m);
@@ -350,6 +363,65 @@ final class Assembler {
 
   void cmovRR(int cc, int dst, int src, {bool w = false}) =>
       _opReg([0x0f, 0x40 + cc], dst, src, w: w);
+  void cmovRM(int cc, int dst, Mem m, {bool w = false}) =>
+      _opMem([0x0f, 0x40 + cc], dst, m, w: w);
+
+  // SSE2 on XMM registers by number; [prefix] 0 for none
+
+  void sseRR(int prefix, int op, int reg, int rm) {
+    if (prefix != 0) u8(prefix);
+    _opReg([0x0f, op], reg, rm);
+  }
+
+  void sseRM(int prefix, int op, int reg, Mem m) {
+    if (prefix != 0) u8(prefix);
+    _opMem([0x0f, op], reg, m);
+  }
+
+  /// with the RIP-relative memory operand at [l], which the instruction
+  /// ends with
+  void sseRL(int prefix, int op, int reg, Label l) {
+    if (prefix != 0) u8(prefix);
+    _rex(false, reg, 0, 0);
+    u8(0x0f);
+    u8(op);
+    u8((reg & 7) << 3 | 5);
+    _rel32(l);
+  }
+
+  void movdquRM(int x, Mem m) => sseRM(0xf3, 0x6f, x, m);
+  void movdquMR(Mem m, int x) => sseRM(0xf3, 0x7f, x, m);
+  void movdqaRR(int dst, int src) => sseRR(0x66, 0x6f, dst, src);
+  void movdqaRL(int dst, Label l) => sseRL(0x66, 0x6f, dst, l);
+
+  /// MOVD from the 32-bit register [src] to [x]
+  void movdXR(int x, int src) => sseRR(0x66, 0x6e, x, src);
+
+  /// MOVD from the low lane of [x] to the 32-bit register [dst]
+  void movdRX(int dst, int x) => sseRR(0x66, 0x7e, x, dst);
+  void movmskps(int dst, int x) => sseRR(0, 0x50, dst, x);
+
+  void pshufd(int dst, int src, int imm) {
+    sseRR(0x66, 0x70, dst, src);
+    u8(imm);
+  }
+
+  void shufps(int dst, int src, int imm) {
+    sseRR(0, 0xc6, dst, src);
+    u8(imm);
+  }
+
+  /// PSLLQ (/6) or PSRLQ (/2) by [imm]
+  void shiftQI(int digit, int x, int imm) {
+    sseRR(0x66, 0x73, digit, x);
+    u8(imm);
+  }
+
+  /// PSRLD (/2) or PSRAD (/4) by [imm]
+  void shiftDI(int digit, int x, int imm) {
+    sseRR(0x66, 0x72, digit, x);
+    u8(imm);
+  }
 
   // control flow
 

@@ -117,6 +117,10 @@ abstract class JitRuntime {
   /// compiling; an estimate from the compile time of this executor.
   int get compileThreshold => 1;
 
+  /// Whether blocks may use v128 values and the vector operations of the
+  /// IR ([irIsVector]).
+  bool get vectors => false;
+
   /// Validate before compiling or publishing links to a block. Every
   /// executor supports the complete IR on every platform.
   void checkBlock(IrBlock block) {

@@ -12,14 +12,22 @@ import 'vu_context.dart';
 /// after the delay slot of a branch, after the pair that follows an end
 /// bit, or before a pair it does not translate. A pair whose XGKICK or end
 /// bit takes effect after the next pair is translated only together with
-/// that pair.
+/// that pair. After a conditional branch to the start of the block, the
+/// block runs the loop once more, and after a forward one it goes on with
+/// the next pair, while there is room; the other way leaves through a side
+/// exit that writes back the state.
 ///
 /// The VF registers, the accumulator, the VI registers and the ready
 /// cycles are kept in values while a block runs and written back at its
 /// end. The cycle counter is a value too: each pair waits for the ready
 /// cycles of the fields it reads and for Q, as [Vu.decodeStall] lists
 /// them, and then takes one cycle. A wait is left out when the value was
-/// written four or more pairs before, as it is ready by then.
+/// written four or more pairs before, as it is ready by then, and decided
+/// while translating when both cycles are the same value plus constants.
+///
+/// With [vectors], the upper instructions, MOVE and CLIP work on whole
+/// registers in v128 values, with the operations of the IR for register
+/// images ([IrOp.vuDecode], [IrOp.vuEncode] and the others).
 ///
 /// Q and the flags are applied lazily. A read of Q selects the result of a
 /// pending division when its cycle has come. The flag results stay in a
@@ -50,6 +58,9 @@ final class VuTranslator {
   final int kickHelper, topHelper, itopHelper;
   final int maxPairs;
 
+  /// whether the runtime has the vector operations ([JitRuntime.vectors])
+  final bool vectors;
+
   /// the lower and upper words of a pair
   final int Function(int word) fetch;
 
@@ -61,19 +72,27 @@ final class VuTranslator {
       required this.kickHelper,
       required this.topHelper,
       required this.itopHelper,
-      this.maxPairs = defaultMaxPairs});
+      this.maxPairs = defaultMaxPairs,
+      this.vectors = false});
 
   late IrBuilder b;
 
   /// the pair index in the block being translated
   int _p = 0;
 
-  final _vf = List<IrValue?>.filled(128, null);
-  final _vfDecoded = List<IrValue?>.filled(128, null);
-  final _vfDirty = List<bool>.filled(128, false);
-  final _acc = List<IrValue?>.filled(4, null);
-  final _accDecoded = List<IrValue?>.filled(4, null);
-  final _accDirty = List<bool>.filled(4, false);
+  // The lanes of the VF registers and, as register 32, of the accumulator,
+  // which follows them in the context. A register also has a vector of its
+  // lanes when [vectors] is set; a lane then is its value in [_vf] when
+  // [_own] is set, and the lane of the vector otherwise. Without a vector,
+  // a lane not in [_vf] is the one in the context.
+  static const _accReg = 32;
+  final _vf = List<IrValue?>.filled(132, null);
+  final _vfDecoded = List<IrValue?>.filled(132, null);
+  final _vfDirty = List<bool>.filled(132, false);
+  final _own = List<bool>.filled(132, false);
+  final _vec = List<IrValue?>.filled(33, null);
+  final _vecDecoded = List<(IrValue, IrValue)?>.filled(33, null);
+  final _splatDecoded = <int, (IrValue, IrValue)>{};
   final _vi = List<IrValue?>.filled(16, null);
   final _viDirty = List<bool>.filled(16, false);
   final _viWord = List<IrValue?>.filled(8, null);
@@ -108,7 +127,41 @@ final class VuTranslator {
   IrValue _c(int v) => b.c32(v);
   IrValue _c64(int v) => b.c64Parts(v, v >> 32);
 
-  IrValue _max64(IrValue a, IrValue v) => b.select(b.ltS(a, v), v, a);
+  // Cycle values that are another plus a constant, by value index: the
+  // other value and the constant. Cycles do not overflow, so two of them
+  // on the same value compare by their constants.
+  final _offsets = <int, (int, int)>{};
+
+  (int, int) _offset(IrValue v) => _offsets[v.index] ?? (v.index, 0);
+
+  /// the cycle [t] plus [n]
+  IrValue _plus(IrValue t, int n) {
+    final (base, offset) = _offset(t);
+    if (offset + n == 0) return IrValue(base);
+    final v = b.add(IrValue(base), _c64(offset + n));
+    _offsets[v.index] = (base, offset + n);
+    return v;
+  }
+
+  /// whether the cycle [a] is before [v], when it is known
+  bool? _before(IrValue a, IrValue v) {
+    final (x, m) = _offset(a);
+    final (y, n) = _offset(v);
+    return x == y ? m < n : null;
+  }
+
+  /// 1 if the cycle [a] is before [v], else 0
+  IrValue _lt(IrValue a, IrValue v) => switch (_before(a, v)) {
+        true => _c(1),
+        false => _c(0),
+        null => b.ltS(a, v),
+      };
+
+  IrValue _max64(IrValue a, IrValue v) => switch (_before(a, v)) {
+        true => v,
+        false => a,
+        null => b.select(b.ltS(a, v), v, a),
+      };
 
   // ---- translation ----
 
@@ -142,11 +195,24 @@ final class VuTranslator {
         // the pair after an XGKICK must not need one more pair itself
         if (!branch && !ending && _isKick(nlo, nhi)) break;
       }
-      _guard(at, lo, hi);
+      if (!_guarded.contains(at)) _guard(at, lo, hi);
       if (branch) {
         final term = _branch(at, lo);
-        _guard(next, nlo, nhi);
+        if (!_guarded.contains(next)) _guard(next, nlo, nhi);
         _pair(next, nlo, nhi);
+        if (term is IrBranch && _continues(pc, at, term)) {
+          // A loop to the start of the block runs again in the block, and
+          // a forward branch continues with the next pair; the other way
+          // leaves the block.
+          final loop = term.pcTrue == pc;
+          b.exitIf(
+              loop ? b.eq(term.cond, _c(0)) : term.cond,
+              IrExit(reasonEnd, loop ? term.pcFalse : term.pcTrue,
+                  link: true, spent: _p, stores: _exitStores()));
+          if (loop) _iterations++;
+          at = loop ? pc : term.pcFalse;
+          continue;
+        }
         _flush();
         return b.finish(term, cost: _p);
       }
@@ -168,18 +234,20 @@ final class VuTranslator {
 
   void _reset() {
     _p = 0;
-    _vf.fillRange(0, 128, null);
-    _vfDecoded.fillRange(0, 128, null);
-    _vfDirty.fillRange(0, 128, false);
-    _acc.fillRange(0, 4, null);
-    _accDecoded.fillRange(0, 4, null);
-    _accDirty.fillRange(0, 4, false);
+    _vf.fillRange(0, 132, null);
+    _vfDecoded.fillRange(0, 132, null);
+    _vfDirty.fillRange(0, 132, false);
+    _own.fillRange(0, 132, false);
+    _vec.fillRange(0, 33, null);
+    _vecDecoded.fillRange(0, 33, null);
+    _splatDecoded.clear();
     _vi.fillRange(0, 16, null);
     _viDirty.fillRange(0, 16, false);
     _viWord.fillRange(0, 8, null);
     _ready.fillRange(0, 128, null);
     _readyDirty.fillRange(0, 128, false);
     _readyPair.fillRange(0, 128, -1);
+    _offsets.clear();
     _cycles = b.ctxLoad(VuCtx.cycles, type: IrType.i64);
     _i = null;
     _iDirty = false;
@@ -192,9 +260,29 @@ final class VuTranslator {
     _flags.clear();
     _slotsLoaded = false;
     _kickPrevious = _kick = null;
+    _guarded.clear();
+    _iterations = 1;
   }
 
+  /// whether the block goes on after the conditional branch [term] at
+  /// [at], in a block that starts at [start]
+  bool _continues(int start, int at, IrBranch term) {
+    if (term.pcTrue == start) {
+      // one more time through the loop
+      final pairs = _p ~/ _iterations;
+      return _p + pairs <= maxPairs &&
+          b.length + b.length ~/ _iterations <= _valueLimit;
+    }
+    return term.pcTrue > at && _p + 2 <= maxPairs && b.length < _valueLimit;
+  }
+
+  /// the pairs of the block that have code guards, and the times the
+  /// block runs its loop
+  final _guarded = <int>{};
+  int _iterations = 1;
+
   void _guard(int pc, int lo, int hi) {
+    _guarded.add(pc);
     b.guard(microBase + pc * 8, lo);
     b.guard(microBase + pc * 8 + 4, hi);
   }
@@ -262,8 +350,8 @@ final class VuTranslator {
     if (stall & Vu.stallQ != 0) t = _waitFor(_qUnit, t);
     if (stall & Vu.stallP != 0) t = _waitFor(_pUnit, t);
     _issued = t;
-    _cycles = b.add(t, _c64(1));
-    _readyNew = b.add(t, _c64(_latency));
+    _cycles = _plus(t, 1);
+    _readyNew = _plus(t, _latency);
     _kick = null;
 
     final upper = _upper(hi);
@@ -276,9 +364,14 @@ final class VuTranslator {
     if (upper != null) {
       final (reg, mask, lanes, decoded) = upper;
       if (reg != 0) {
-        for (var c = 0; c < 4; c++) {
-          if (mask & (8 >> c) == 0) continue;
-          _setLane(reg, c, lanes[c]!, decoded[c]);
+        final vector = _upperVector;
+        if (vector != null) {
+          _setVector(reg, mask, vector);
+        } else {
+          for (var c = 0; c < 4; c++) {
+            if (mask & (8 >> c) == 0) continue;
+            _setLane(reg, c, lanes[c]!, decoded[c]);
+          }
         }
         _setReady(reg, mask);
       }
@@ -295,7 +388,9 @@ final class VuTranslator {
 
   IrValue _lane(int reg, int c) {
     final k = reg * 4 + c;
-    return _vf[k] ??= b.ctxLoad(VuCtx.vf + k);
+    final vec = _vec[reg];
+    return _vf[k] ??=
+        vec != null ? b.vExtract(vec, c) : b.ctxLoad(VuCtx.vf + k);
   }
 
   IrValue _laneDecoded(int reg, int c) {
@@ -309,17 +404,72 @@ final class VuTranslator {
     _vf[k] = bits;
     _vfDecoded[k] = decoded;
     _vfDirty[k] = true;
+    _own[k] = true;
   }
 
-  IrValue _accLane(int c) => _acc[c] ??= b.ctxLoad(VuCtx.acc + c);
-
-  IrValue _accDecodedLane(int c) => _accDecoded[c] ??= _decode(_accLane(c));
-
-  void _setAcc(int c, IrValue bits, [IrValue? decoded]) {
-    _acc[c] = bits;
-    _accDecoded[c] = decoded;
-    _accDirty[c] = true;
+  /// the register as a vector, with the lanes set alone put into it
+  IrValue _vector(int reg) {
+    var vec = _vec[reg];
+    final base = reg * 4;
+    if (vec != null &&
+        !_own[base] &&
+        !_own[base + 1] &&
+        !_own[base + 2] &&
+        !_own[base + 3]) {
+      return vec;
+    }
+    if (vec == null &&
+        !(_own[base] && _own[base + 1] && _own[base + 2] && _own[base + 3])) {
+      vec = b.ctxLoad(VuCtx.vf + base, type: IrType.v128);
+    }
+    for (var c = 0; c < 4; c++) {
+      if (!_own[base + c]) continue;
+      _own[base + c] = false;
+      vec = vec == null
+          ? b.vSplat(_vf[base + c]!)
+          : b.vInsert(vec, _vf[base + c]!, c);
+    }
+    _vecDecoded[reg] = null;
+    return _vec[reg] = vec!;
   }
+
+  /// the binary64 lanes of the register, x and y, then z and w
+  (IrValue, IrValue) _vectorDecoded(int reg) {
+    final vec = _vector(reg);
+    return _vecDecoded[reg] ??= (b.vuDecode(vec, 0), b.vuDecode(vec, 1));
+  }
+
+  /// the binary64 lanes of a vector with [value] in every lane
+  (IrValue, IrValue) _splat(IrValue value) {
+    final vec = b.vSplat(value);
+    return _splatDecoded[value.index] ??=
+        (b.vuDecode(vec, 0), b.vuDecode(vec, 0));
+  }
+
+  /// Writes the lanes of [mask] (x at 8) of the vector [value] to [reg].
+  void _setVector(int reg, int mask, IrValue value) {
+    if (reg == 0 || mask == 0) return;
+    var blend = 0;
+    for (var c = 0; c < 4; c++) {
+      if (mask & (8 >> c) != 0) blend |= 1 << c;
+    }
+    final vec = blend == 15 ? value : b.vBlend(_vector(reg), value, blend);
+    final base = reg * 4;
+    for (var c = 0; c < 4; c++) {
+      _own[base + c] = false;
+      if (blend & (1 << c) == 0) continue;
+      _vf[base + c] = null;
+      _vfDecoded[base + c] = null;
+      _vfDirty[base + c] = true;
+    }
+    _vec[reg] = vec;
+    _vecDecoded[reg] = null;
+  }
+
+  IrValue _accDecodedLane(int c) => _laneDecoded(_accReg, c);
+
+  void _setAcc(int c, IrValue bits, [IrValue? decoded]) =>
+      _setLane(_accReg, c, bits, decoded);
 
   IrValue _getVi(int n) {
     if (n == 0) return _c(0);
@@ -380,13 +530,14 @@ final class VuTranslator {
   IrValue _now(_Unit u) {
     if (_done(u)) return _register(u);
     final done =
-        b.and(b.ne(_busy(u), _c(0)), b.eq(b.ltS(_issued, _readyAt(u)), _c(0)));
+        b.and(b.ne(_busy(u), _c(0)), b.eq(_lt(_issued, _readyAt(u)), _c(0)));
     return b.select(done, _pending(u), _register(u));
   }
 
   /// the cycle [t] after a wait for the pending result of [u]
   IrValue _waitFor(_Unit u, IrValue t) {
     if (_done(u)) return t;
+    if (_busy(u) == _c(1)) return _max64(t, _readyAt(u));
     return _max64(t, b.select(b.ne(_busy(u), _c(0)), _readyAt(u), t));
   }
 
@@ -399,7 +550,7 @@ final class VuTranslator {
     }
     u.busy = _c(1);
     u.pending = value;
-    u.ready = b.add(_cycles, _c64(latency - 1));
+    u.ready = _plus(_cycles, latency - 1);
     u.pair = _p;
     u.latency = latency;
     u.idle = false;
@@ -408,24 +559,28 @@ final class VuTranslator {
 
   void _flushUnit(_Unit u) {
     if (!u.dirty) return;
-    if (u.value != null) b.ctxStore(u.valueWord, u.value!);
-    b.ctxStore(u.busyWord, _busy(u));
-    if (u.pending != null) b.ctxStore(u.pendingWord, u.pending!);
-    if (u.ready != null) b.ctxStore(u.readyWord, u.ready!);
+    if (u.value != null) _store(u.valueWord, u.value!);
+    _store(u.busyWord, _busy(u));
+    if (u.pending != null) _store(u.pendingWord, u.pending!);
+    if (u.ready != null) _store(u.readyWord, u.ready!);
   }
 
   // ---- floating point ----
 
   /// a register image as binary64 bits, exactly
   IrValue _decode(IrValue bits) {
-    final exp = b.and(b.shrU(bits, _c(23)), _c(0xff));
-    final mant = b.and(bits, _c(0x7fffff));
-    final hi = b.or(b.and(bits, _c(0x80000000)),
-        b.or(b.shl(b.add(exp, _c(896)), _c(20)), b.shrU(mant, _c(3))));
+    // the exponent and fraction moved into place, the bias of binary64
+    // added, and the sign
+    final wide = b.zext32(bits);
+    final magnitude = b.add(
+        b.shl(b.and(wide, _c64(0x7fffffff)), _c(29)), _c64(896 << 52));
     final packed =
-        b.or(b.zext32(b.shl(mant, _c(29))), b.shl(b.zext32(hi), _c(32)));
-    return b.select(b.eq(exp, _c(0)), _c64(0), packed);
+        b.or(magnitude, b.and(b.shl(wide, _c(32)), _c64(_signBit64)));
+    return b.select(
+        b.eq(b.and(bits, _c(0x7f800000)), _c(0)), _c64(0), packed);
   }
+
+  static const _signBit64 = -0x8000000000000000;
 
   /// the binary64 bits of the largest magnitude, 0x7fffffff decoded
   static const _maxDecoded = 0x47ffffffe0000000;
@@ -434,26 +589,33 @@ final class VuTranslator {
   /// below single precision cleared, zero, or the largest magnitude
   late IrValue _encodedValue;
 
+  /// whether the image of the last [_encode] is a zero (1) or not (0)
+  late IrValue _encodedZero;
+
   /// A binary64 result truncated to a register image, as
   /// [R5900Fpu.encodeCause]: the image, and whether it underflowed or
   /// overflowed (0 or 1). The image decoded is left in [_encodedValue].
   (IrValue, IrValue, IrValue) _encode(IrValue raw) {
-    final hi = b.trunc32(b.shrU(raw, _c(32)));
-    final lo = b.trunc32(raw);
-    final sign = b.and(hi, _c(0x80000000));
-    final exp = b.sub(b.and(b.shrU(hi, _c(20)), _c(0x7ff)), _c(896));
-    final zero = b.and(b.eq(b.and(hi, _c(0x7fffffff)), _c(0)), b.eq(lo, _c(0)));
-    final under = b.and(b.ltS(exp, _c(1)), b.eq(zero, _c(0)));
-    final over = b.eq(b.ltS(exp, _c(256)), _c(0));
+    // The binary64 exponent decides on the magnitude alone: below 897 the
+    // image is a zero (an underflow unless the value is one), from 1152 on
+    // it is the largest magnitude. In between, the image is the magnitude
+    // shifted down to the single fraction with the bias moved.
+    // The limits have no low word, so the high word compares alone.
+    final high = b.trunc32(b.shrU(raw, _c(32)));
+    final magnitudeHigh = b.and(high, _c(0x7fffffff));
+    final zero = b.ltU(magnitudeHigh, _c(897 << 20));
+    final over = b.ltU(_c((1152 << 20) - 1), magnitudeHigh);
+    final twice = b.shl(raw, _c(1));
+    final under = b.and(zero, b.ne(twice, _c64(0)));
+    final sign = b.and(high, _c(0x80000000));
     final normal = b.or(
-        sign,
-        b.or(b.shl(exp, _c(23)),
-            b.or(b.shl(b.and(hi, _c(0xfffff)), _c(3)), b.shrU(lo, _c(29)))));
-    final bits = b.select(b.or(zero, under), sign,
-        b.select(over, b.or(sign, _c(0x7fffffff)), normal));
-    final clamped = b.or(b.shl(b.zext32(sign), _c(32)), _c64(_maxDecoded));
-    _encodedValue = b.select(b.or(zero, under), _c64(0),
+        sign, b.sub(b.trunc32(b.shrU(twice, _c(30))), _c(896 << 23)));
+    final bits = b.select(
+        zero, sign, b.select(over, b.or(sign, _c(0x7fffffff)), normal));
+    final clamped = b.or(b.and(raw, _c64(_signBit64)), _c64(_maxDecoded));
+    _encodedValue = b.select(zero, _c64(0),
         b.select(over, clamped, b.and(raw, _c64(~0x1fffffff))));
+    _encodedZero = zero;
     return (bits, under, over);
   }
 
@@ -468,10 +630,10 @@ final class VuTranslator {
     return b.select(b.eq(b.and(bits, _c(0x7f800000)), _c(0)), _c(0), value);
   }
 
-  /// the MAC flag bits of lane [c] of a result
+  /// the MAC flag bits of lane [c] of the result of the last [_encode]
   IrValue _macBits(int c, IrValue bits, IrValue under, IrValue over) {
     final shift = 3 - c;
-    final zero = b.eq(b.and(bits, _c(0x7fffffff)), _c(0));
+    final zero = _encodedZero;
     final sign = b.shrU(bits, _c(31));
     return b.or(b.or(b.shl(zero, _c(shift)), b.shl(sign, _c(4 + shift))),
         b.or(b.shl(under, _c(8 + shift)), b.shl(over, _c(12 + shift))));
@@ -479,14 +641,15 @@ final class VuTranslator {
 
   // ---- upper instructions ----
 
-  /// the MAC bits and the clip judgement of the upper instruction
-  IrValue? _upperMac, _upperClip;
+  /// the MAC bits and the clip judgement of the upper instruction, and its
+  /// result as a vector when it has one
+  IrValue? _upperMac, _upperClip, _upperVector;
 
   /// Translates the upper instruction. Returns its VF result: the
   /// register, the mask and the lanes (with their decoded values when
   /// known), or null.
   (int, int, List<IrValue?>, List<IrValue?>)? _upper(int ir) {
-    _upperMac = _upperClip = null;
+    _upperMac = _upperClip = _upperVector = null;
     final mask = (ir >> 21) & 15;
     final ft = (ir >> 16) & 31, fs = (ir >> 11) & 31, fd = (ir >> 6) & 31;
     final op = ir & 63;
@@ -527,6 +690,18 @@ final class VuTranslator {
     final lanes = List<IrValue?>.filled(4, null);
     final decoded = List<IrValue?>.filled(4, null);
     if (kind == 4 || kind == 5) {
+      if (vectors && _lanesOf(mask) >= 2) {
+        final a = _vector(fs);
+        final v = switch (bsel) {
+          < 4 => _vec[ft] != null && !_own[ft * 4 + bsel]
+              ? b.vShuffle(_vec[ft]!, bsel * 0x55)
+              : b.vSplat(_lane(ft, bsel)),
+          6 => _vector(ft),
+          _ => b.vSplat(scalar!),
+        };
+        _upperVector = kind == 4 ? b.vuMax(a, v) : b.vuMin(a, v);
+        return (fd, mask, const [], const []);
+      }
       final scalarKey = scalar == null ? null : _key(scalar);
       for (var c = 0; c < 4; c++) {
         if (mask & (8 >> c) == 0) continue;
@@ -538,6 +713,9 @@ final class VuTranslator {
             : b.select(b.ltS(kv, ka), v, a);
       }
       return (fd, mask, lanes, decoded);
+    }
+    if (vectors) {
+      return _fmacVector(kind, bsel, mask, fs, ft, fd, scalar, toAcc: toAcc);
     }
     final scalarValue = switch (bsel) {
       < 4 => _laneDecoded(ft, bsel),
@@ -571,6 +749,52 @@ final class VuTranslator {
       return null;
     }
     return (fd, mask, lanes, decoded);
+  }
+
+  static int _lanesOf(int mask) =>
+      (mask & 1) + (mask >> 1 & 1) + (mask >> 2 & 1) + (mask >> 3 & 1);
+
+  /// [_fmac] of the kinds other than MAX and MINI on vectors
+  (int, int, List<IrValue?>, List<IrValue?>)? _fmacVector(int kind, int bsel,
+      int mask, int fs, int ft, int fd, IrValue? scalar,
+      {required bool toAcc}) {
+    final (xLow, xHigh) = _vectorDecoded(fs);
+    final (yLow, yHigh) = switch (bsel) {
+      < 4 => _broadcast(ft, bsel),
+      6 => _vectorDecoded(ft),
+      _ => _splat(scalar!),
+    };
+    IrValue lanes(IrValue x, IrValue y, IrValue Function() acc) =>
+        switch (kind) {
+          0 => b.vFloat(IrOp.vFloatAdd, x, y),
+          1 => b.vFloat(IrOp.vFloatSub, x, y),
+          2 => b.vFloat(IrOp.vFloatAdd, acc(), b.vFloat(IrOp.vFloatMul, x, y)),
+          3 => b.vFloat(IrOp.vFloatSub, acc(), b.vFloat(IrOp.vFloatMul, x, y)),
+          _ => b.vFloat(IrOp.vFloatMul, x, y),
+        };
+    final low = lanes(xLow, yLow, () => _vectorDecoded(_accReg).$1);
+    final high = lanes(xHigh, yHigh, () => _vectorDecoded(_accReg).$2);
+    var flagMask = 0;
+    for (var c = 0; c < 4; c++) {
+      if (mask & (8 >> c) != 0) flagMask |= 0x1111 << (3 - c);
+    }
+    _upperMac = b.and(b.vuFlags(low, high), _c(flagMask));
+    final bits = b.vuEncode(low, high);
+    if (toAcc) {
+      _setVector(_accReg, mask, bits);
+      return null;
+    }
+    _upperVector = bits;
+    return (fd, mask, const [], const []);
+  }
+
+  /// the binary64 lanes of a vector with lane [c] of [reg] in every lane
+  (IrValue, IrValue) _broadcast(int reg, int c) {
+    final base = reg * 4 + c;
+    if (_vec[reg] == null || _own[base]) return _splat(_lane(reg, c));
+    final vec = b.vShuffle(_vec[reg]!, c * 0x55);
+    final low = b.vuDecode(vec, 0);
+    return (low, low);
   }
 
   (int, int, List<IrValue?>, List<IrValue?>)? _opmsub(int fs, int ft, int fd) {
@@ -684,6 +908,10 @@ final class VuTranslator {
   }
 
   void _clipJudgement(int fs, int ft) {
+    if (vectors) {
+      _upperClip = b.vuClip(_vector(fs), _vector(ft));
+      return;
+    }
     final w = _lane(ft, 3);
     final kw = b.select(
         b.eq(b.and(w, _c(0x7f800000)), _c(0)), _c(0), b.and(w, _c(0x7fffffff)));
@@ -881,6 +1109,10 @@ final class VuTranslator {
       case const (0x0c << 2 | 0): // MOVE
         if (it == 0) return;
         _setReady(it, mask);
+        if (vectors && _vec[fs] != null && _lanesOf(mask) >= 2) {
+          _setVector(it, mask, _vector(fs));
+          return;
+        }
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0) {
             _setLane(it, c, _lane(fs, c), _vfDecoded[fs * 4 + c]);
@@ -1107,10 +1339,18 @@ final class VuTranslator {
         _apply(f, f.consumed ? b.ne(f.ready, _c64(VuCtx.flagNone)) : null);
         _flags.remove(f);
       } else {
-        final visible = b.eq(b.ltS(_issued, f.ready), _c(0));
-        _apply(f, visible);
-        f.ready = b.select(visible, _c64(VuCtx.flagNone), f.ready);
-        f.consumed = true;
+        switch (_before(_issued, f.ready)) {
+          case true:
+            break; // not visible yet
+          case false:
+            _apply(f, f.consumed ? b.ne(f.ready, _c64(VuCtx.flagNone)) : null);
+            _flags.remove(f);
+          case null:
+            final visible = b.eq(b.ltS(_issued, f.ready), _c(0));
+            _apply(f, visible);
+            f.ready = b.select(visible, _c64(VuCtx.flagNone), f.ready);
+            f.consumed = true;
+        }
       }
     }
   }
@@ -1177,35 +1417,76 @@ final class VuTranslator {
     }
     for (var k = 0; k < VuCtx.flagSlots; k++) {
       final f = slots[k];
-      b.ctxStore(VuCtx.flagReady + 2 * k, f?.ready ?? _c64(VuCtx.flagNone));
-      b.ctxStore(VuCtx.flagMac + k, f?.mac ?? _c(-1));
-      b.ctxStore(VuCtx.flagClip + k, f?.clip ?? _c(-1));
+      _store(VuCtx.flagReady + 2 * k, f?.ready ?? _c64(VuCtx.flagNone));
+      _store(VuCtx.flagMac + k, f?.mac ?? _c(-1));
+      _store(VuCtx.flagClip + k, f?.clip ?? _c(-1));
     }
     if (_flagsDirty) {
-      if (_mac != null) b.ctxStore(VuCtx.mac, _mac!);
-      if (_clip != null) b.ctxStore(VuCtx.clip, _clip!);
-      if (_status != null) b.ctxStore(VuCtx.status, _status!);
-      if (_macOr != null) b.ctxStore(VuCtx.macOr, _macOr!);
-      if (_statusDirty != null) b.ctxStore(VuCtx.statusDirty, _statusDirty!);
+      if (_mac != null) _store(VuCtx.mac, _mac!);
+      if (_clip != null) _store(VuCtx.clip, _clip!);
+      if (_status != null) _store(VuCtx.status, _status!);
+      if (_macOr != null) _store(VuCtx.macOr, _macOr!);
+      if (_statusDirty != null) _store(VuCtx.statusDirty, _statusDirty!);
     }
   }
 
-  void _flush() {
-    for (var k = 4; k < 128; k++) {
-      if (_vfDirty[k]) b.ctxStore(VuCtx.vf + k, _vf[k]!);
-      if (_readyDirty[k]) b.ctxStore(VuCtx.ready + 2 * k, _ready[k]!);
+  /// the stores of the write back go to this list when it is not null
+  List<(int, IrValue)>? _stores;
+
+  void _store(int word, IrValue value) {
+    final stores = _stores;
+    if (stores == null) {
+      b.ctxStore(word, value);
+    } else {
+      stores.add((word, value));
     }
-    for (var c = 0; c < 4; c++) {
-      if (_accDirty[c]) b.ctxStore(VuCtx.acc + c, _acc[c]!);
+  }
+
+  /// The stores of the write back for an exit in the middle of the block.
+  /// The flag state is kept as it is, since the write back applies the
+  /// results that are visible by then.
+  List<(int, IrValue)> _exitStores() {
+    final mac = _mac, status = _status, macOr = _macOr;
+    final statusDirty = _statusDirty, clip = _clip, dirty = _flagsDirty;
+    final stores = _stores = [];
+    _flush();
+    _stores = null;
+    _mac = mac;
+    _status = status;
+    _macOr = macOr;
+    _statusDirty = statusDirty;
+    _clip = clip;
+    _flagsDirty = dirty;
+    return stores;
+  }
+
+  void _flush() {
+    for (var reg = 1; reg <= _accReg; reg++) {
+      final base = reg * 4;
+      if (_vec[reg] != null) {
+        if (_vfDirty[base] ||
+            _vfDirty[base + 1] ||
+            _vfDirty[base + 2] ||
+            _vfDirty[base + 3]) {
+          _store(VuCtx.vf + base, _vector(reg));
+        }
+        continue;
+      }
+      for (var k = base; k < base + 4; k++) {
+        if (_vfDirty[k]) _store(VuCtx.vf + k, _vf[k]!);
+      }
+    }
+    for (var k = 4; k < 128; k++) {
+      if (_readyDirty[k]) _store(VuCtx.ready + 2 * k, _ready[k]!);
     }
     for (var w = 0; w < 8; w++) {
       if (!_viDirty[2 * w] && !_viDirty[2 * w + 1]) continue;
       final low = w == 0 ? _c(0) : _getVi(2 * w);
-      b.ctxStore(VuCtx.vi + w, b.or(low, b.shl(_getVi(2 * w + 1), _c(16))));
+      _store(VuCtx.vi + w, b.or(low, b.shl(_getVi(2 * w + 1), _c(16))));
     }
-    b.ctxStore(VuCtx.cycles, _cycles);
-    if (_iDirty) b.ctxStore(VuCtx.i, _i!);
-    if (_rDirty) b.ctxStore(VuCtx.r, _r!);
+    _store(VuCtx.cycles, _cycles);
+    if (_iDirty) _store(VuCtx.i, _i!);
+    if (_rDirty) _store(VuCtx.r, _r!);
     _flushUnit(_qUnit);
     _flushUnit(_pUnit);
     _flushFlags();

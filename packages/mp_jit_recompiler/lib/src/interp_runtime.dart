@@ -4,11 +4,15 @@ import 'dart:typed_data';
 import 'ir.dart';
 import 'runtime.dart';
 
+part 'interp_vector.dart';
 part 'interp_wide.dart';
 
 /// The reference implementation of [JitRuntime], which interprets the IR.
 /// The native backends must behave the same.
 final class IrInterpreterRuntime extends JitRuntime {
+  @override
+  bool get vectors => true;
+
   @override
   final Uint32List ctx;
   final _helpers = <JitHelper>[];
@@ -192,7 +196,9 @@ final class IrInterpreterRuntime extends JitRuntime {
   ) {
     for (final (word, v) in e.stores) {
       final bits = value(v);
-      if (block.insts[v.index].type == IrType.i64) {
+      if (block.insts[v.index].type == IrType.v128) {
+        ctx.setRange(word, word + 4, bits as Uint32List);
+      } else if (block.insts[v.index].type == IrType.i64) {
         final wide = _Wide._bits(bits);
         ctx[word] = _Wide._word(wide);
         ctx[word + 1] = _Wide._word(wide >> 32);
@@ -262,6 +268,11 @@ final class IrInterpreterRuntime extends JitRuntime {
         final e = block.exits[inst.exit];
         return _leave(block, e, (v) => values[v.index]);
       }
+      if (inst.type == IrType.v128 || irIsVector(inst.op) ||
+          inst.op == IrOp.ctxStore && insts[inst.a].type == IrType.v128) {
+        values[i] = _vector(inst, values);
+        continue;
+      }
       if (wide &&
           (inst.type == IrType.i64 ||
               (inst.a >= 0 && insts[inst.a].type == IrType.i64))) {
@@ -322,6 +333,21 @@ final class IrInterpreterRuntime extends JitRuntime {
           throw StateError('wide conversion in an i32 block'),
         IrOp.exitIf => a(),
         IrOp.guardMapped => _unmapped(inst, a()) ? 1 : 0,
+        IrOp.vSplat ||
+        IrOp.vExtract ||
+        IrOp.vInsert ||
+        IrOp.vShuffle ||
+        IrOp.vBlend ||
+        IrOp.vuDecode ||
+        IrOp.vFloatAdd ||
+        IrOp.vFloatSub ||
+        IrOp.vFloatMul ||
+        IrOp.vuEncode ||
+        IrOp.vuFlags ||
+        IrOp.vuMax ||
+        IrOp.vuMin ||
+        IrOp.vuClip =>
+          throw StateError('vector operation outside the vector path'),
       };
       values[i] = v.toUnsigned(32);
       if ((inst.op == IrOp.exitIf || inst.op == IrOp.guardMapped) && v != 0) {

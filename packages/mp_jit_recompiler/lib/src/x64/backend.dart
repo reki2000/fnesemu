@@ -16,8 +16,12 @@ abstract final class X64Backend {
   /// the Win64 shadow space below the value slots
   static const _shadow = 32;
 
+  /// the v128 value slots, above the scalar slots and the scratch words,
+  /// 16-byte aligned
+  static const _vectorSlots = _shadow + 8 * maxValues + 32;
+
   /// the frame below the pushed registers, keeping rsp 16-byte aligned
-  static const frame = _shadow + 8 * maxValues + 24;
+  static const frame = _vectorSlots + 16 * maxValues + 8;
 
   static const dynEntries = DynTable.entries;
   static const dynEntryBits = DynTable.entryBits; // 16 bytes: pc, tag, entry
@@ -25,7 +29,6 @@ abstract final class X64Backend {
   static const _pinned = [R.rbx, R.rbp, R.r12, R.r13, R.r14, R.r15];
   static const _saved = [..._pinned, R.rsi, R.rdi];
 
-  static Mem _slot(int v) => Mem(R.rsp, disp: _shadow + 8 * v);
   static Mem _scratch(int i) => Mem(R.rsp, disp: _shadow + 8 * (maxValues + i));
   static Mem _ctx(int word) => Mem(R.rbx, disp: 4 * word);
 
@@ -43,11 +46,15 @@ abstract final class X64Backend {
     for (final r in _saved) {
       a.push(r);
     }
-    // touch each page of the frame in order, for hosts with stack guards
-    for (int p = 4096; p <= frame; p += 4096) {
-      a.movMR(Mem(R.rsp, disp: -p), R.rax);
+    // Win64 grows a stack only through its guard page, so each page of the
+    // frame is touched in order there. The stacks of other hosts are
+    // reserved in whole, and touching would only cost stores at each entry.
+    if (win64) {
+      for (int p = 4096; p <= frame; p += 4096) {
+        a.movMR(Mem(R.rsp, disp: -p), R.rax);
+      }
+      a.movMR(Mem(R.rsp, disp: -frame), R.rax);
     }
-    a.movMR(Mem(R.rsp, disp: -frame), R.rax);
     a.aluRI(Alu.sub, R.rsp, frame, w: true);
     a.movRI64(R.rbx, ctx);
     a.movRI64(R.r12, readTable);
@@ -75,7 +82,20 @@ abstract final class X64Backend {
     final insts = block.insts;
     final allocation = X64Allocation(block, win64: env.win64);
     final registers = allocation.registers;
+    // The slots are numbered densely, scalars and vectors apart, so that a
+    // block touches few cache lines of its frame.
+    final slots = List<int>.filled(insts.length, 0);
+    var scalarSlots = 0, vectorSlots = 0;
+    for (var v = 0; v < insts.length; v++) {
+      if (insts[v].op == IrOp.constant) continue;
+      slots[v] =
+          insts[v].type == IrType.v128 ? vectorSlots++ : scalarSlots++;
+    }
+    Mem slot(int v) => Mem(R.rsp, disp: _shadow + 8 * slots[v]);
+    Mem vectorSlot(int v) =>
+        Mem(R.rsp, disp: _vectorSlots + 16 * slots[v]);
     bool wide(int v) => insts[v].type == IrType.i64;
+    bool vector(int v) => insts[v].type == IrType.v128;
     int? constant(int v) {
       final i = insts[v];
       if (i.op != IrOp.constant) return null;
@@ -86,11 +106,11 @@ abstract final class X64Backend {
     void load(int dst, int v) {
       final c = constant(v), reg = registers[v], w = wide(v);
       if (c != null) {
-        w ? a.movRI64(dst, c) : a.movRI(dst, c);
+        w ? a.movRI64Short(dst, c) : a.movRI(dst, c);
       } else if (reg >= 0) {
         if (dst != reg) a.movRR(dst, reg, w: w);
       } else {
-        a.movRM(dst, _slot(v), w: w);
+        a.movRM(dst, slot(v), w: w);
       }
     }
 
@@ -100,7 +120,7 @@ abstract final class X64Backend {
       if (reg >= 0) {
         if (src != reg) a.movRR(reg, src, w: w);
       } else {
-        a.movMR(_slot(v), src, w: w);
+        a.movMR(slot(v), src, w: w);
       }
     }
 
@@ -114,7 +134,7 @@ abstract final class X64Backend {
       } else if (reg >= 0) {
         a.aluRR(op, dst, reg, w: w);
       } else {
-        a.aluRM(op, dst, _slot(v), w: w);
+        a.aluRM(op, dst, slot(v), w: w);
       }
     }
 
@@ -126,7 +146,7 @@ abstract final class X64Backend {
       } else if (reg >= 0) {
         a.aluRI(Alu.cmp, reg, 0);
       } else {
-        a.aluMI(Alu.cmp, _slot(v), 0);
+        a.aluMI(Alu.cmp, slot(v), 0);
       }
     }
 
@@ -137,11 +157,99 @@ abstract final class X64Backend {
       return l;
     }
 
-    final fused = irFusedCompareConsumers(block);
-    // A single-use comparison can branch directly on flags instead of
-    // producing a boolean with SETcc/MOVZX followed by CMP against zero.
-    void jumpOnCondition(int v, Label target, {required bool whenTrue}) {
-      int cc;
+    // 16-byte constants after the code, aligned for SSE memory operands
+    final pool = <String, (Label, List<int>)>{};
+    Label words(List<int> w) =>
+        (pool[w.join(',')] ??= (label(), [for (final x in w) x & 0xffffffff]))
+            .$1;
+    Label lanes32(int v) => words([v, v, v, v]);
+    Label lanes64(int v) => words([v, v >> 32, v, v >> 32]);
+    Label laneMask(int mask) =>
+        words([for (var k = 0; k < 4; k++) mask & (1 << k) != 0 ? -1 : 0]);
+
+    void vload(int x, int v) => a.movdquRM(x, vectorSlot(v));
+    void vsave(int v, int x) {
+      if (allocation.lastUse[v] >= 0) a.movdquMR(vectorSlot(v), x);
+    }
+
+    // SSE2 opcodes, all with the 0x66 prefix
+    const pand = 0xdb, pandn = 0xdf, por = 0xeb, pxor = 0xef;
+    const paddq = 0xd4, psubd = 0xfa, pcmpeqd = 0x76, pcmpgtd = 0x66;
+
+    /// the [IrOp.vuMax] key of each lane of XMM [x] into [k], with the
+    /// temporary [t]: the magnitude, negated for a sign, and 0 for an
+    /// exponent 0
+    void imageKey(int k, int x, int t) {
+      a.movdqaRR(k, x);
+      a.sseRL(0x66, pand, k, lanes32(0x7fffffff));
+      a.movdqaRR(t, x);
+      a.shiftDI(4, t, 31);
+      a.sseRR(0x66, pxor, k, t);
+      a.sseRR(0x66, psubd, k, t);
+      a.movdqaRR(t, x);
+      a.sseRL(0x66, pand, t, lanes32(0x7f800000));
+      a.sseRL(0x66, pcmpeqd, t, lanes32(0));
+      a.sseRR(0x66, pandn, t, k);
+      a.movdqaRR(k, t);
+    }
+
+    /// the images of [encodeLanes] in order, to the slot of [v]
+    void encodedImages(int v) {
+      // the sign, the bits of a normal image, and the largest magnitude of
+      // an overflow
+      // an overflow, shifted down, is the largest magnitude; XMM2 to XMM5
+      // keep the sign and the masks
+      a.sseRL(0x66, pand, 2, lanes32(0x80000000));
+      a.movdqaRR(1, 4);
+      a.sseRR(0x66, por, 1, 5);
+      a.sseRR(0x66, pandn, 1, 0);
+      a.sseRR(0x66, por, 1, 2);
+      a.movdqaRR(0, 5);
+      a.shiftDI(2, 0, 1);
+      a.sseRR(0x66, por, 1, 0);
+      vsave(v, 1);
+    }
+
+    /// the vuEncode done with the vuFlags before it
+    var fusedEncode = -1;
+
+    /// The lanes of the [IrOp.vuEncode] of XMM0 (low) and XMM1 (high),
+    /// in order or [reversed]: XMM0 the image bits below single precision
+    /// shifted into place (unless [reversed]), XMM2 the high words, XMM3 the
+    /// underflows, XMM4 the zeros and XMM5 the overflows; XMM1 is the
+    /// magnitude of the high words.
+    void encodeLanes({required bool reversed}) {
+      a.movdqaRR(2, 0);
+      a.shufps(2, 1, 0xdd);
+      a.movdqaRR(3, 0);
+      a.shufps(3, 1, 0x88);
+      if (reversed) {
+        a.pshufd(2, 2, 0x1b);
+        a.pshufd(3, 3, 0x1b);
+      } else {
+        a.shiftQI(2, 0, 29);
+        a.shiftQI(2, 1, 29);
+        a.shufps(0, 1, 0x88);
+        a.sseRL(0x66, psubd, 0, lanes32(896 << 23));
+      }
+      a.movdqaRR(1, 2);
+      a.sseRL(0x66, pand, 1, lanes32(0x7fffffff));
+      a.sseRR(0x66, por, 3, 1);
+      a.sseRR(0x66, pxor, 4, 4);
+      a.sseRR(0x66, pcmpeqd, 3, 4);
+      a.movdqaRL(4, lanes32(897 << 20));
+      a.sseRR(0x66, pcmpgtd, 4, 1);
+      a.movdqaRR(5, 1);
+      a.sseRL(0x66, pcmpgtd, 5, lanes32((1152 << 20) - 1));
+      a.sseRR(0x66, pandn, 3, 4);
+    }
+
+    final fused = irFusedCompareConsumers(block, selects: true);
+    // A single-use comparison can set the flags for its branch or select
+    // directly instead of producing a boolean with SETcc/MOVZX followed by
+    // CMP against zero. Sets the flags for [v] and returns the condition
+    // code that holds when [v] is true. RAX is a scratch register.
+    int condition(int v) {
       if (fused[v] >= 0) {
         final cmp = insts[v];
         final w = wide(cmp.a);
@@ -161,8 +269,7 @@ abstract final class X64Backend {
             immediate(ka, false)) {
           // K < x unsigned is x above K.
           a.aluRI(Alu.cmp, operand(cmp.b), ka);
-          a.jcc(whenTrue ? Cc.a : Cc.a ^ 1, target);
-          return;
+          return Cc.a;
         }
         final test = cmp.op == IrOp.and;
         if (ka == null && kb != null && immediate(kb, w)) {
@@ -179,17 +286,20 @@ abstract final class X64Backend {
           load(R.rax, cmp.a);
           aluValue(test ? Alu.and : Alu.cmp, R.rax, cmp.b, w: w);
         }
-        cc = switch (cmp.op) {
+        return switch (cmp.op) {
           IrOp.eq => Cc.e,
           IrOp.ne || IrOp.and => Cc.ne,
           IrOp.ltS => Cc.l,
           IrOp.ltU => Cc.b,
           _ => throw StateError('not a fused condition'),
         };
-      } else {
-        compareZero(v);
-        cc = Cc.ne;
       }
+      compareZero(v);
+      return Cc.ne;
+    }
+
+    void jumpOnCondition(int v, Label target, {required bool whenTrue}) {
+      final cc = condition(v);
       a.jcc(whenTrue ? cc : cc ^ 1, target);
     }
 
@@ -211,6 +321,11 @@ abstract final class X64Backend {
       bool linked = false,
     }) {
       for (final (word, v) in stores) {
+        if (vector(v.index)) {
+          a.movdquRM(0, vectorSlot(v.index));
+          a.movdquMR(_ctx(word), 0);
+          continue;
+        }
         load(R.rcx, v.index);
         a.movMR(_ctx(word), R.rcx, w: wide(v.index));
       }
@@ -432,14 +547,170 @@ abstract final class X64Backend {
           a.movsxdRR(R.rax, R.rax);
           save(i, R.rax);
         case IrOp.zext32 || IrOp.trunc32:
-          load(R.rax, inst.a);
-          a.movRR(R.rax, R.rax);
-          save(i, R.rax);
+          // a 32-bit move clears the upper half
+          final dst = registers[i] >= 0 ? registers[i] : R.rax;
+          final c = constant(inst.a), reg = registers[inst.a];
+          if (c != null) {
+            a.movRI(dst, c & 0xffffffff);
+          } else if (reg >= 0) {
+            a.movRR(dst, reg);
+          } else {
+            a.movRM(dst, slot(inst.a));
+          }
+          save(i, dst);
         case IrOp.constant:
           break; // Constants are materialized at their uses.
+        case IrOp.ctxLoad when inst.type == IrType.v128:
+          a.movdquRM(0, _ctx(inst.imm));
+          vsave(i, 0);
+        case IrOp.ctxStore when inst.type == IrType.v128:
+          vload(0, inst.a);
+          a.movdquMR(_ctx(inst.imm), 0);
+        case IrOp.vSplat:
+          load(R.rax, inst.a);
+          a.movdXR(0, R.rax);
+          a.pshufd(0, 0, 0);
+          vsave(i, 0);
+        case IrOp.vExtract:
+          final dst = registers[i] >= 0 ? registers[i] : R.rax;
+          vload(0, inst.a);
+          if (inst.imm != 0) a.pshufd(0, 0, inst.imm);
+          a.movdRX(dst, 0);
+          save(i, dst);
+        case IrOp.vInsert:
+          vload(0, inst.a);
+          load(R.rax, inst.b);
+          a.movdXR(1, R.rax);
+          a.pshufd(1, 1, 0);
+          final mask = laneMask(1 << inst.imm);
+          a.sseRL(0x66, pand, 1, mask);
+          a.movdqaRL(2, mask);
+          a.sseRR(0x66, pandn, 2, 0);
+          a.sseRR(0x66, por, 1, 2);
+          vsave(i, 1);
+        case IrOp.vShuffle:
+          vload(0, inst.a);
+          a.pshufd(0, 0, inst.imm);
+          vsave(i, 0);
+        case IrOp.vBlend:
+          vload(0, inst.a);
+          vload(1, inst.b);
+          final mask = laneMask(inst.imm);
+          a.sseRL(0x66, pand, 1, mask);
+          a.movdqaRL(2, mask);
+          a.sseRR(0x66, pandn, 2, 0);
+          a.sseRR(0x66, por, 1, 2);
+          vsave(i, 1);
+        case IrOp.vuDecode:
+          // each binary64 lane holds its image in both words, which puts
+          // the sign at bit 63
+          final h = inst.imm * 2;
+          vload(0, inst.a);
+          a.pshufd(0, 0, h | h << 2 | (h + 1) << 4 | (h + 1) << 6);
+          a.movdqaRR(1, 0);
+          a.sseRL(0x66, pand, 1, lanes64(0x7fffffff));
+          a.shiftQI(6, 1, 29);
+          a.sseRL(0x66, paddq, 1, lanes64(896 << 52));
+          a.movdqaRR(2, 0);
+          a.sseRL(0x66, pand, 2, lanes64(-0x8000000000000000));
+          a.sseRR(0x66, por, 1, 2);
+          a.movdqaRR(3, 0);
+          a.sseRL(0x66, pand, 3, lanes64(0x7f800000));
+          a.sseRR(0x66, pxor, 2, 2);
+          a.sseRR(0x66, pcmpeqd, 3, 2);
+          a.pshufd(3, 3, 0xa0);
+          a.sseRR(0x66, pandn, 3, 1);
+          vsave(i, 3);
+        case IrOp.vFloatAdd || IrOp.vFloatSub || IrOp.vFloatMul:
+          vload(0, inst.a);
+          vload(1, inst.b);
+          a.sseRR(
+              0x66,
+              switch (inst.op) {
+                IrOp.vFloatAdd => 0x58,
+                IrOp.vFloatSub => 0x5c,
+                _ => 0x59,
+              },
+              0,
+              1);
+          vsave(i, 0);
+        case IrOp.vuEncode:
+          if (fusedEncode == i) break;
+          vload(0, inst.a);
+          vload(1, inst.b);
+          encodeLanes(reversed: false);
+          encodedImages(i);
+        case IrOp.vuFlags:
+          final dst = registers[i] >= 0 ? registers[i] : R.rax;
+          vload(0, inst.a);
+          vload(1, inst.b);
+          // The encode of the same lanes that the translator puts next is
+          // done here as well, from the same lanes, which are reversed for
+          // the flags after it.
+          final next = i + 1;
+          final fuse = next < insts.length &&
+              insts[next].op == IrOp.vuEncode &&
+              insts[next].a == inst.a &&
+              insts[next].b == inst.b;
+          encodeLanes(reversed: !fuse);
+          if (fuse) {
+            encodedImages(next);
+            fusedEncode = next;
+            for (final x in const [2, 3, 4, 5]) {
+              a.pshufd(x, x, 0x1b);
+            }
+          }
+          a.movmskps(dst, 4);
+          for (final (x, shift) in const [(2, 4), (3, 8), (5, 12)]) {
+            a.movmskps(R.rcx, x);
+            a.shiftRI(Shift.shl, R.rcx, shift);
+            a.aluRR(Alu.or, dst, R.rcx);
+          }
+          save(i, dst);
+        case IrOp.vuMax || IrOp.vuMin:
+          vload(0, inst.a);
+          vload(1, inst.b);
+          imageKey(2, 0, 4);
+          imageKey(3, 1, 4);
+          // the lanes that take b
+          final take = inst.op == IrOp.vuMax ? 3 : 2;
+          a.sseRR(0x66, pcmpgtd, take, take == 3 ? 2 : 3);
+          a.movdqaRR(4, take);
+          a.sseRR(0x66, pand, 4, 1);
+          a.sseRR(0x66, pandn, take, 0);
+          a.sseRR(0x66, por, take, 4);
+          vsave(i, take);
+        case IrOp.vuClip:
+          final dst = registers[i] >= 0 ? registers[i] : R.rax;
+          vload(0, inst.a);
+          vload(1, inst.b);
+          a.pshufd(1, 1, 0xff);
+          a.movdqaRR(2, 1);
+          a.sseRL(0x66, pand, 2, lanes32(0x7fffffff));
+          a.movdqaRR(3, 1);
+          a.sseRL(0x66, pand, 3, lanes32(0x7f800000));
+          a.sseRL(0x66, pcmpeqd, 3, lanes32(0));
+          a.sseRR(0x66, pandn, 3, 2);
+          imageKey(2, 0, 4);
+          a.sseRR(0x66, pxor, 4, 4);
+          a.sseRR(0x66, psubd, 4, 3);
+          a.movdqaRR(5, 2);
+          a.sseRR(0x66, pcmpgtd, 5, 3);
+          a.sseRR(0x66, pcmpgtd, 4, 2);
+          // above and below interleaved by lane
+          a.movdqaRR(1, 5);
+          a.sseRR(0x66, 0x62, 1, 4); // PUNPCKLDQ
+          a.sseRR(0x66, 0x6a, 5, 4); // PUNPCKHDQ
+          a.movmskps(dst, 1);
+          a.movmskps(R.rcx, 5);
+          a.aluRI(Alu.and, R.rcx, 3);
+          a.shiftRI(Shift.shl, R.rcx, 4);
+          a.aluRR(Alu.or, dst, R.rcx);
+          save(i, dst);
         case IrOp.ctxLoad:
-          a.movRM(R.rax, _ctx(inst.imm), w: w);
-          save(i, R.rax);
+          final dst = registers[i] >= 0 ? registers[i] : R.rax;
+          a.movRM(dst, _ctx(inst.imm), w: w);
+          save(i, dst);
         case IrOp.ctxStore:
           final value = constant(inst.a), reg = registers[inst.a];
           if (value != null && !w) {
@@ -471,7 +742,7 @@ abstract final class X64Backend {
             } else if (reg >= 0) {
               a.imulRR(dst, reg, w: w);
             } else {
-              a.imulRM(dst, _slot(inst.b), w: w);
+              a.imulRM(dst, slot(inst.b), w: w);
             }
           });
         case IrOp.divS || IrOp.divU || IrOp.remS || IrOp.remU:
@@ -519,8 +790,8 @@ abstract final class X64Backend {
                 : a.mul1R(R.rcx, w: w);
           } else {
             inst.op == IrOp.mulHiS
-                ? a.imul1M(_slot(inst.b), w: w)
-                : a.mul1M(_slot(inst.b), w: w);
+                ? a.imul1M(slot(inst.b), w: w)
+                : a.mul1M(slot(inst.b), w: w);
           }
           save(i, R.rdx);
         case IrOp.shl:
@@ -538,17 +809,28 @@ abstract final class X64Backend {
         case IrOp.ltU:
           if (fused[i] < 0) compare(Cc.b);
         case IrOp.select:
-          load(R.rax, inst.b);
-          load(R.rcx, inst.c);
-          compareZero(inst.a);
-          a.cmovRR(Cc.e, R.rax, R.rcx, w: w);
-          save(i, R.rax);
+          // the loads after the comparison are MOVs, which keep the flags
+          // The result register is none of the operands, which are still
+          // live here.
+          final cc = condition(inst.a);
+          final dst = registers[i] >= 0 ? registers[i] : R.rax;
+          load(dst, inst.b);
+          final c = inst.c, reg = registers[c];
+          if (constant(c) == null && reg >= 0) {
+            a.cmovRR(cc ^ 1, dst, reg, w: w);
+          } else if (constant(c) == null) {
+            a.cmovRM(cc ^ 1, dst, slot(c), w: w);
+          } else {
+            load(R.rcx, c);
+            a.cmovRR(cc ^ 1, dst, R.rcx, w: w);
+          }
+          save(i, dst);
         case IrOp.sext8:
           if (registers[inst.a] >= 0 || constant(inst.a) != null) {
             load(R.rax, inst.a);
             a.movsx8RR(R.rax, R.rax, w: w);
           } else {
-            a.movsx8RM(R.rax, _slot(inst.a), w: w);
+            a.movsx8RM(R.rax, slot(inst.a), w: w);
           }
           save(i, R.rax);
         case IrOp.sext16:
@@ -556,7 +838,7 @@ abstract final class X64Backend {
             load(R.rax, inst.a);
             a.movsx16RR(R.rax, R.rax, w: w);
           } else {
-            a.movsx16RM(R.rax, _slot(inst.a), w: w);
+            a.movsx16RM(R.rax, slot(inst.a), w: w);
           }
           save(i, R.rax);
         case IrOp.zext8:
@@ -564,7 +846,7 @@ abstract final class X64Backend {
             load(R.rax, inst.a);
             a.movzx8RR(R.rax, R.rax);
           } else {
-            a.movzx8RM(R.rax, _slot(inst.a));
+            a.movzx8RM(R.rax, slot(inst.a));
           }
           save(i, R.rax);
         case IrOp.zext16:
@@ -572,7 +854,7 @@ abstract final class X64Backend {
             load(R.rax, inst.a);
             a.movzx16RR(R.rax, R.rax);
           } else {
-            a.movzx16RM(R.rax, _slot(inst.a));
+            a.movzx16RM(R.rax, slot(inst.a));
           }
           save(i, R.rax);
         case IrOp.load:
@@ -765,6 +1047,17 @@ abstract final class X64Backend {
 
     for (var i = 0; i < stubs.length; i++) {
       stubs[i]();
+    }
+    if (pool.isNotEmpty) {
+      while (a.offset & 15 != 0) {
+        a.u8(0xcc);
+      }
+      for (final (l, w) in pool.values) {
+        a.bind(l);
+        for (final x in w) {
+          a.u32(x);
+        }
+      }
     }
     a.link(labels);
     return a.bytes;

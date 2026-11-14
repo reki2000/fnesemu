@@ -23,6 +23,16 @@ The reference executor uses `BigInt` for exact i64 semantics on every Dart compi
 - Native backends rely on the host default rounding mode (x64 MXCSR, ARM64 FPCR). The operations preserve the N64 interpreter arithmetic model and do not implement guest exception flags or other rounding modes.
 - Values remain ordinary SSA bit patterns. Guest FPRs are not allocated to host floating-point registers across blocks.
 
+## Vector values
+
+`IrType.v128` holds four 32-bit lanes, or two binary64 lanes for the floating-point vector operations. Lane 0 is the lowest word. A v128 value appears only in `ctxLoad`, `ctxStore`, side-exit stores and the vector operations, and occupies four context words. The verifier rejects any other use.
+
+- `vSplat`, `vExtract`, `vInsert`, `vShuffle` and `vBlend` move 32-bit lanes.
+- `vuDecode` converts two lanes of register images of a vector unit to binary64 exactly. An image is binary32 bits without infinity or NaN: exponent 0 is zero and exponent 255 is a normal exponent. `vFloatAdd`, `vFloatSub` and `vFloatMul` evaluate binary64 lanes and round to nearest.
+- `vuEncode` truncates two pairs of binary64 lanes back to images, and `vuFlags` returns their zero, sign, underflow and overflow flags as one i32. `vuMax`, `vuMin` and `vuClip` compare images by value.
+
+The operations are available only when `JitRuntime.vectors` is true: in the reference executor, on x86-64 (SSE2) and in Wasm runtimes that validate SIMD modules. The ARM64 backend rejects them. The exact semantics of each operation are in the comments of `IrOp`.
+
 ## Optimizer
 
 Compiled backends run `optimizeIrBlock` before emission. It folds i32 constants (including safe division), algebraic identities and discards unused pure values. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks keep their i64 operations while the safe i32 simplifications and dead-value removal still apply. The native and Wasm backends fuse a comparison or masked bit test (`and`) into a branch or conditional exit when its result has exactly one consumer, preserving operands through intervening operations. On x64 the bit test becomes an AND that sets flags, on ARM64 an ANDS to the zero register, and on Wasm an inline `and` feeding `if`.

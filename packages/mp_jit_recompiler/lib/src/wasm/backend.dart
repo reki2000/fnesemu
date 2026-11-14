@@ -59,13 +59,19 @@ abstract final class WasmBackend {
     final insts = block.insts;
     final fused = irFusedCompareConsumers(block);
     bool wide(int v) => insts[v].type == IrType.i64;
+    bool vector(int v) => insts[v].type == IrType.v128;
 
     // SSA values occupy locals of their own width: i32 values and i32
-    // temporaries first, then i64 values and i64 temporaries.
+    // temporaries first, then i64 values and i64 temporaries, then v128
+    // values and v128 temporaries.
     final local = List<int>.filled(insts.length, 0);
-    var count32 = 0, count64 = 0;
+    var count32 = 0, count64 = 0, count128 = 0;
     for (var i = 0; i < insts.length; i++) {
-      local[i] = wide(i) ? count64++ : count32++;
+      local[i] = vector(i)
+          ? count128++
+          : wide(i)
+              ? count64++
+              : count32++;
     }
     final address = count32, page = count32 + 1, temp = count32 + 2;
     final swap32 = count32 + 3, value32 = count32 + 4;
@@ -76,6 +82,13 @@ abstract final class WasmBackend {
     final swap64 = locals32 + count64, value64 = swap64 + 1;
     final mulLow = swap64 + 2, mulMiddle = swap64 + 3;
     final locals64 = count64 + 4;
+    final vectorBase = locals32 + locals64;
+    for (var i = 0; i < insts.length; i++) {
+      if (vector(i)) local[i] += vectorBase;
+    }
+    // v128 temporaries
+    final t = [for (var k = 0; k < 6; k++) vectorBase + count128 + k];
+    final locals128 = count128 + (count128 == 0 ? 0 : t.length);
     void get(int v) => c.get(local[v]);
 
     // Emit a single-use comparison directly onto the Wasm if condition
@@ -169,6 +182,14 @@ abstract final class WasmBackend {
       List<(int, IrValue)> stores = const [],
     }) {
       for (final (word, v) in stores) {
+        if (vector(v.index)) {
+          c.i32(env.ctxOffset + 4 * word);
+          get(v.index);
+          c.simd(0x0b);
+          c.u(2);
+          c.u(0);
+          continue;
+        }
         ctxStore(word, () => get(v.index), wide: wide(v.index));
       }
       if (refund != 0) {
@@ -287,6 +308,98 @@ abstract final class WasmBackend {
       if (windowed) c.op(0x0b);
     }
 
+    // four 32-bit lanes of two binary64 lanes of the words [low], [high]
+    List<int> lanes64(int low, int high) => [low, high, low, high];
+
+    // i8x16.shuffle of the two vectors on the stack by 32-bit lanes, 0 to
+    // 3 of the first and 4 to 7 of the second
+    void shuffle(List<int> lanes) {
+      c.simd(0x0d);
+      for (final l in lanes) {
+        for (var k = 0; k < 4; k++) {
+          c.op(4 * l + k);
+        }
+      }
+    }
+
+    /// The lanes of the vuEncode of the operands of [inst] in temporaries:
+    /// t0 the image bits below single precision shifted into place (unless
+    /// [reversed]), t1 the high words, t3 the underflows, t4 the zeros and
+    /// t5 the overflows, in lane order or [reversed].
+    void encodeLanes(IrInst inst, {required bool reversed}) {
+      final order = reversed ? const [3, 2, 1, 0] : const [0, 1, 2, 3];
+      void pick(List<int> words) {
+        shuffle([for (final o in order) words[o]]);
+      }
+
+      get(inst.a);
+      get(inst.b);
+      pick(const [1, 3, 5, 7]);
+      c.set(t[1]);
+      if (!reversed) {
+        get(inst.a);
+        c.i32(29);
+        c.simd(0xcd); // i64x2.shr_u
+        get(inst.b);
+        c.i32(29);
+        c.simd(0xcd);
+        pick(const [0, 2, 4, 6]);
+        c.v128(const [896 << 23, 896 << 23, 896 << 23, 896 << 23]);
+        c.simd(0xb1);
+        c.set(t[0]);
+      }
+      c.get(t[1]);
+      c.v128(const [0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff]);
+      c.simd(0x4e);
+      c.set(t[2]); // the magnitude of the high words
+      c.get(t[2]);
+      get(inst.a);
+      get(inst.b);
+      pick(const [0, 2, 4, 6]);
+      c.simd(0x50);
+      c.v128(const [0, 0, 0, 0]);
+      c.simd(0x37);
+      c.set(t[3]); // zero values
+      c.get(t[2]);
+      c.v128(const [897 << 20, 897 << 20, 897 << 20, 897 << 20]);
+      c.simd(0x39);
+      c.set(t[4]);
+      c.get(t[2]);
+      c.v128(const [
+        (1152 << 20) - 1,
+        (1152 << 20) - 1,
+        (1152 << 20) - 1,
+        (1152 << 20) - 1
+      ]);
+      c.simd(0x3b);
+      c.set(t[5]);
+      c.get(t[4]);
+      c.get(t[3]);
+      c.simd(0x4f);
+      c.set(t[3]);
+    }
+
+    /// Replaces the vector on the stack, pushed by [value] as well, by the
+    /// vuMax key of its lanes: the magnitude, negated for a sign, and 0
+    /// for an exponent 0.
+    void imageKey(void Function() value) {
+      c.v128(const [0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff]);
+      c.simd(0x4e);
+      value();
+      c.i32(31);
+      c.simd(0xac); // i32x4.shr_s
+      c.tee(t[0]);
+      c.simd(0x51);
+      c.get(t[0]);
+      c.simd(0xb1);
+      value();
+      c.v128(const [0x7f800000, 0x7f800000, 0x7f800000, 0x7f800000]);
+      c.simd(0x4e);
+      c.v128(const [0, 0, 0, 0]);
+      c.simd(0x37);
+      c.simd(0x4f);
+    }
+
     ctxLoad(JitCtx.stop);
     ctxLoad(JitCtx.budget);
     c.i32(0);
@@ -354,6 +467,160 @@ abstract final class WasmBackend {
       }
 
       switch (inst.op) {
+        case IrOp.ctxLoad when inst.type == IrType.v128:
+          c.i32(env.ctxOffset + 4 * inst.imm);
+          c.simd(0x00);
+          c.u(2);
+          c.u(0);
+        case IrOp.ctxStore when inst.type == IrType.v128:
+          c.i32(env.ctxOffset + 4 * inst.imm);
+          a();
+          c.simd(0x0b);
+          c.u(2);
+          c.u(0);
+        case IrOp.vSplat:
+          a();
+          c.simd(0x11);
+        case IrOp.vExtract:
+          a();
+          c.simd(0x1b);
+          c.op(inst.imm);
+        case IrOp.vInsert:
+          a();
+          b();
+          c.simd(0x1c);
+          c.op(inst.imm);
+        case IrOp.vShuffle:
+          a();
+          a();
+          shuffle([for (var k = 0; k < 4; k++) (inst.imm >> 2 * k) & 3]);
+        case IrOp.vBlend:
+          b();
+          a();
+          c.v128([
+            for (var k = 0; k < 4; k++) inst.imm & (1 << k) != 0 ? -1 : 0
+          ]);
+          c.simd(0x52); // bitselect
+        case IrOp.vuDecode:
+          // each binary64 lane holds its image in both words, which puts
+          // the sign at bit 63
+          final h = inst.imm * 2;
+          a();
+          a();
+          shuffle([h, h, h + 1, h + 1]);
+          c.set(t[0]);
+          c.get(t[0]);
+          c.v128(lanes64(0x7fffffff, 0));
+          c.simd(0x4e);
+          c.i32(29);
+          c.simd(0xcb); // i64x2.shl
+          c.v128(lanes64(0, 896 << 20));
+          c.simd(0xce); // i64x2.add
+          c.get(t[0]);
+          c.v128(lanes64(0, 0x80000000));
+          c.simd(0x4e);
+          c.simd(0x50);
+          c.get(t[0]);
+          c.v128(lanes64(0x7f800000, 0));
+          c.simd(0x4e);
+          c.v128(const [0, 0, 0, 0]);
+          c.simd(0x37); // i32x4.eq
+          c.set(t[1]);
+          c.get(t[1]);
+          c.get(t[1]);
+          shuffle(const [0, 0, 2, 2]);
+          c.simd(0x4f); // andnot
+        case IrOp.vFloatAdd || IrOp.vFloatSub || IrOp.vFloatMul:
+          a();
+          b();
+          c.simd(switch (inst.op) {
+            IrOp.vFloatAdd => 0xf0,
+            IrOp.vFloatSub => 0xf1,
+            _ => 0xf2,
+          });
+        case IrOp.vuEncode:
+          encodeLanes(inst, reversed: false);
+          // the bits of a normal image, the sign, and the largest
+          // magnitude of an overflow
+          c.get(t[0]);
+          c.get(t[4]);
+          c.get(t[5]);
+          c.simd(0x50);
+          c.simd(0x4f);
+          c.get(t[1]);
+          c.v128(const [0x80000000, 0x80000000, 0x80000000, 0x80000000]);
+          c.simd(0x4e);
+          c.simd(0x50);
+          c.get(t[5]);
+          c.i32(1);
+          c.simd(0xad); // i32x4.shr_u
+          c.simd(0x50);
+        case IrOp.vuFlags:
+          encodeLanes(inst, reversed: true);
+          c.get(t[4]);
+          c.simd(0xa4); // i32x4.bitmask
+          for (final (v, shift) in [(t[1], 4), (t[3], 8), (t[5], 12)]) {
+            c.get(v);
+            c.simd(0xa4);
+            c.i32(shift);
+            c.op(0x74, 0x72);
+          }
+        case IrOp.vuMax || IrOp.vuMin:
+          b();
+          a();
+          a();
+          imageKey(a);
+          b();
+          imageKey(b);
+          if (inst.op == IrOp.vuMin) {
+            c.set(t[0]);
+            c.set(t[1]);
+            c.get(t[0]);
+            c.get(t[1]);
+          }
+          c.simd(0x39); // i32x4.lt_s: the lanes that take b
+          c.simd(0x52);
+        case IrOp.vuClip:
+          b();
+          b();
+          shuffle(const [3, 3, 3, 3]);
+          c.set(t[0]);
+          c.get(t[0]);
+          c.v128(const [0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff]);
+          c.simd(0x4e);
+          c.get(t[0]);
+          c.v128(const [0x7f800000, 0x7f800000, 0x7f800000, 0x7f800000]);
+          c.simd(0x4e);
+          c.v128(const [0, 0, 0, 0]);
+          c.simd(0x37);
+          c.simd(0x4f);
+          c.set(t[2]); // the limit
+          a();
+          imageKey(a);
+          c.set(t[3]);
+          c.get(t[3]);
+          c.get(t[2]);
+          c.simd(0x3b); // above: i32x4.gt_s
+          c.set(t[4]);
+          c.get(t[3]);
+          c.v128(const [0, 0, 0, 0]);
+          c.get(t[2]);
+          c.simd(0xb1); // i32x4.sub
+          c.simd(0x39); // below: i32x4.lt_s
+          c.set(t[5]);
+          // above and below interleaved by lane
+          c.get(t[4]);
+          c.get(t[5]);
+          shuffle(const [0, 4, 1, 5]);
+          c.simd(0xa4);
+          c.get(t[4]);
+          c.get(t[5]);
+          shuffle(const [2, 6, 2, 6]);
+          c.simd(0xa4);
+          c.i32(3);
+          c.op(0x71);
+          c.i32(4);
+          c.op(0x74, 0x72);
         case IrOp.constant:
           w ? c.i64(inst.imm, inst.immHi) : c.i32(inst.imm);
         case IrOp.ctxLoad:
@@ -745,6 +1012,7 @@ abstract final class WasmBackend {
     return _module(c, 0, [
       (locals32, 0x7f),
       (locals64, 0x7e),
+      (locals128, 0x7b),
     ], 2 + env.helperCount + (env.profileBlocks ? 1 : 0));
   }
 
@@ -864,6 +1132,22 @@ final class _Code {
   void get(int index) {
     op(0x20);
     u(index);
+  }
+
+  /// a SIMD instruction
+  void simd(int opcode) {
+    op(0xfd);
+    u(opcode);
+  }
+
+  /// v128.const of four 32-bit lanes
+  void v128(List<int> lanes) {
+    simd(0x0c);
+    for (final l in lanes) {
+      for (var k = 0; k < 4; k++) {
+        op((l >> 8 * k) & 0xff);
+      }
+    }
   }
 
   void set(int index) {

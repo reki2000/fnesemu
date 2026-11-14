@@ -46,7 +46,8 @@ final class VuJit extends JitAdapter implements VuCompiler {
         return 0;
       }),
       topHelper: rt.addHelper((a, b, c) => _vu!.top()),
-      itopHelper: rt.addHelper((a, b, c) => _vu!.itop()));
+      itopHelper: rt.addHelper((a, b, c) => _vu!.itop()),
+      vectors: rt.vectors);
   late final _driver = JitDriver(rt,
       translate: (pc, tag) => _translator.translate(pc),
       codeWord: (pc) => micro[pc * 2] | micro[pc * 2 + 1] << 32,
