@@ -655,7 +655,7 @@ class Dc extends Core {
   }
 
   @override
-  Future<void>? get computeWait => bus.gpu.render.computeWait;
+  Future<void>? computeWait() => bus.gpu.render.computeWait;
 
   /// Controllers attached before the input is connected read through
   /// [padPort] from here; the bus hands it to controllers attached

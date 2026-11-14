@@ -88,17 +88,21 @@ class _Pages {
 /// vblank and before a local to host transfer, so that the Gs makes its
 /// pictures, transfers and states from them as without it.
 class GsCompute implements GsResidentSink {
-  /// Compiles the program on [sink]; throws if it cannot, or if [sink]
-  /// cannot wait for the GPU, as the Gs reads its memory back at points
-  /// where the core cannot stop.
+  /// Compiles the program on [sink]; throws if it cannot.
   GsCompute(this.gs, ComputeSink sink)
-      : _program = sink.waits
-            ? sink.program(gsComputeShader, _entryPoints, _bindings,
-                paramStride: 256, maxDispatches: _maxSteps)
-            : throw UnsupportedError('the sink cannot wait for the GPU');
+      : _program = sink.program(gsComputeShader, _entryPoints, _bindings,
+            paramStride: 256, maxDispatches: _maxSteps),
+        _waits = sink.waits;
 
   final Gs gs;
   final ComputeProgram _program;
+
+  /// Whether a read waits for the GPU. When not, the core stops before each
+  /// [sync] and awaits [requestSync].
+  final bool _waits;
+
+  /// Whether the memory and the CLUT are fetched after all work so far.
+  bool _fetched = false;
 
   /// counts of the work that is not done as on the hardware, for tools
   final unsupported = <String, int>{};
@@ -127,6 +131,7 @@ class GsCompute implements GsResidentSink {
   void attach() {
     _program.write(_vramBinding, 0, gs.mem.words);
     _version = 0;
+    _fetched = false;
     _program.write(_clutBinding, 0, gs.raster.residentClut);
     _resetOrdering();
     _begin();
@@ -141,13 +146,38 @@ class GsCompute implements GsResidentSink {
   }
 
   /// Runs all work, waits for it, and copies the local memory and the
-  /// current CLUT into the Gs.
+  /// current CLUT into the Gs. On a sink that does not wait, it reads what
+  /// [requestSync] fetched; when that has not come, the Gs keeps its memory
+  /// as it was.
   void sync() {
     finish();
+    if (!_waits) {
+      if (requestSync() != null) {
+        _count(unsupported, 'sync before the GPU results came');
+        return;
+      }
+      _fetched = false;
+    }
     _program.read(_vramBinding, 0, gs.mem.words);
     final clut = Uint32List(512);
     _program.read(_clutBinding, _version * 2048, clut);
     gs.raster.residentClut = clut;
+  }
+
+  /// On a sink that does not wait, submits all work and starts to fetch the
+  /// local memory and the CLUT for the next [sync]. Returns the future that
+  /// completes when they are on the host; null when [sync] can read them.
+  Future<void>? requestSync() {
+    if (_waits) return null;
+    // a submit of work after the last fetch clears [_fetched]
+    finish();
+    if (!_fetched) {
+      _program
+        ..prefetch(_vramBinding, 0, GsMemory.size)
+        ..prefetch(_clutBinding, _version * 2048, 2048);
+      _fetched = true;
+    }
+    return _program.fetching;
   }
 
   void _resetOrdering() {
@@ -217,6 +247,7 @@ class GsCompute implements GsResidentSink {
       ..[0] = 0
       ..[1] = _primCount;
     final clock = Stopwatch()..start();
+    _fetched = false;
     _program
       ..write(_primBinding, 0, _prims, 0, _primCount * primWords)
       ..write(_dataBinding, 0, _data, 0, _dataLength)
@@ -808,6 +839,12 @@ class GsCompute implements GsResidentSink {
   @override
   void beginDownload(
       int psm, int base, int bufferWidth, int x, int y, int width, int height) {
+    if (!_waits) {
+      // the core stops for the results before it reads the transfer
+      requestSync();
+      gs.syncRequested = true;
+      return;
+    }
     sync();
     _count(unsupported, 'download (synchronous)');
   }

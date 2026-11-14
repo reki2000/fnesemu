@@ -150,12 +150,30 @@ class Gs {
   /// the GS on the GPU while it is attached, for tools
   GsCompute? get compute => _compute;
 
+  /// Set when a local to host transfer waits for the memory from a GPU
+  /// that does not wait: the core stops after the current instruction,
+  /// awaits [computeWait] and calls [syncCompute] before it runs on.
+  bool syncRequested = false;
+
+  /// Asks the GPU for the memory that the Gs needs at the next vblank, a
+  /// transfer or a saved state, on a sink that does not wait. Returns the
+  /// future that completes when it has come; null when it is there.
+  Future<void>? computeWait() => _compute?.requestSync();
+
+  /// Brings [mem] up to date for the transfer of [syncRequested], after
+  /// [computeWait] has completed.
+  void syncCompute() {
+    syncRequested = false;
+    _compute?.sync();
+  }
+
   GsMemory get mem => _mem;
 
   /// Moves the work of the Gs to [sink], or back to [raster] when null.
   set computeSink(ComputeSink? sink) {
     if (identical(sink, _computeSink)) return;
     _compute?.detach();
+    syncRequested = false;
     _compute = null;
     _computeSink = sink;
     if (sink == null) return;

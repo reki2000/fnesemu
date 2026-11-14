@@ -263,9 +263,9 @@ class ComputeDevice {
 
 /// A range of a binding on its way to the host.
 class _Fetch {
-  _Fetch(this.binding, this.offset, this.bytes, this.buffer);
+  _Fetch(this.offset, this.bytes, this.buffer);
 
-  final int binding, offset, bytes;
+  final int offset, bytes;
   final JSObject buffer;
   late final Future<void> future;
   bool settled = false;
@@ -288,7 +288,9 @@ class ComputeProgram {
   final JSObject _group;
   final List<JSObject> _pipes;
   final int paramStride;
-  _Fetch? _fetch;
+
+  /// the ranges of the last prefetch of each binding
+  final _fetches = <int, _Fetch>{};
   String? _error;
 
   JSObject get _queue => device._queue;
@@ -358,10 +360,10 @@ class ComputeProgram {
 
   /// Copies [bytes] at [byteOffset] of [binding] after the runs so far and
   /// starts to map them. [fetching] completes when [read] can take them.
-  /// A new prefetch drops the range of the last one.
+  /// A new prefetch of a binding drops the last range of that binding.
   void prefetch(int binding, int byteOffset, int bytes) {
     _check();
-    _release();
+    _release(binding);
     final size = (bytes + 3) & ~3;
     final buffer = device._buffer(size, _mapRead | _copyDestination);
     final commands = device._device.call<JSObject>('createCommandEncoder');
@@ -375,7 +377,7 @@ class ComputeProgram {
     _queue.call('submit', [
       [commands.call<JSObject>('finish')].toJS,
     ]);
-    final fetch = _fetch = _Fetch(binding, byteOffset, bytes, buffer);
+    final fetch = _fetches[binding] = _Fetch(byteOffset, bytes, buffer);
     fetch.future = buffer
         .call<JSPromise<JSAny?>>('mapAsync', [_read.toJS, 0.toJS, size.toJS])
         .toDart
@@ -389,26 +391,30 @@ class ComputeProgram {
         );
   }
 
-  /// The range of the last [prefetch] while it is not on the host; null
-  /// when [read] can take it, or when nothing is fetched.
+  /// The ranges of the prefetches while they are not on the host; null when
+  /// [read] can take them all, or when nothing is fetched.
   Future<void>? get fetching {
-    final fetch = _fetch;
-    return fetch == null || fetch.settled ? null : fetch.future;
+    final waiting = [
+      for (final fetch in _fetches.values)
+        if (!fetch.settled) fetch.future,
+    ];
+    return switch (waiting.length) {
+      0 => null,
+      1 => waiting.single,
+      _ => Future.wait(waiting),
+    };
   }
 
   /// Reads [target].length words at [byteOffset] of [binding], from the
-  /// range of the last [prefetch], once [fetching] is null. The range is
-  /// then dropped. Throws when the range was not fetched or has not come.
+  /// range of the last [prefetch] of [binding], once it has come. The range
+  /// is then dropped. Throws when the range was not fetched or has not come.
   void read(int binding, int byteOffset, Uint32List target) {
     final bytes = target.lengthInBytes;
     if (bytes == 0) return;
     _check();
-    final fetch = _fetch;
+    final fetch = _fetches[binding];
     final start = byteOffset - (fetch?.offset ?? 0);
-    if (fetch == null ||
-        fetch.binding != binding ||
-        start < 0 ||
-        start + bytes > fetch.bytes) {
+    if (fetch == null || start < 0 || start + bytes > fetch.bytes) {
       throw ComputeException('read of a range that no prefetch fetched');
     }
     if (!fetch.settled) {
@@ -420,19 +426,18 @@ class ComputeProgram {
       fetch.buffer['size'],
     ]);
     target.setAll(0, range.toDart.asUint32List(start, target.length));
-    _release();
+    _release(binding);
   }
 
-  void _release() {
-    final fetch = _fetch;
-    if (fetch == null) return;
-    _fetch = null;
+  void _release(int binding) {
     // Destroying a buffer also ends its mapping, or one still on its way.
-    fetch.buffer.call('destroy');
+    _fetches.remove(binding)?.buffer.call('destroy');
   }
 
   void dispose() {
-    _release();
+    for (final binding in [..._fetches.keys]) {
+      _release(binding);
+    }
     for (final buffer in _buffers) {
       buffer.call('destroy');
     }
