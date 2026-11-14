@@ -54,11 +54,36 @@ extension R5900Fpu on R5900 {
   }
 
   /// the value of a single precision register image
+  @pragma('vm:prefer-inline')
   static double decode(int bits) {
     final exp = (bits >>> 23) & 0xff;
     if (exp == 0) return 0.0;
-    final v = ((bits & 0x7fffff) | 0x800000) * _decodeScale[exp];
+    // 0.0 + converts the mantissa inline, where int * double would not
+    final v = (0.0 + ((bits & 0x7fffff) | 0x800000)) * _decodeScale[exp];
     return bits & 0x80000000 != 0 ? -v : v;
+  }
+
+  /// the cause bits of the last [encodeCause]
+  static int lastCause = 0;
+
+  /// [encode] that leaves the cause bits in [lastCause] instead of a list
+  @pragma('vm:prefer-inline')
+  static int encodeCause(double value) {
+    lastCause = 0;
+    if (value == 0.0) return value.isNegative ? 0x80000000 : 0;
+    _f64[0] = value;
+    final raw = _i64[0];
+    final sign = raw < 0 ? 0x80000000 : 0;
+    final exp = ((raw >>> 52) & 0x7ff) - 1023 + 127;
+    if (exp <= 0) {
+      lastCause = flagUnderflow;
+      return sign;
+    }
+    if (exp >= 256) {
+      lastCause = flagOverflow;
+      return sign | _maxMagnitude;
+    }
+    return sign | (exp << 23) | ((raw >>> 29) & 0x7fffff);
   }
 
   /// Truncates [value] to a register image; [flags] receives the cause bits.

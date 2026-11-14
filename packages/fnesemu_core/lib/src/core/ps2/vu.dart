@@ -78,13 +78,16 @@ class Vu {
   /// the cycle at which each field of a VF register holds its newest value,
   /// indexed by register * 4 + field
   final _vfReady = Int64List(128);
+  // the latest cycle in [_vfReady] of each register, at least, so that a
+  // register whose fields are all ready is passed without its fields
+  final _vfRegReady = Int64List(32);
 
   static const _fmacLatency = 4;
 
   // The flag results in the FMAC pipeline, in issue order: the cycle at which
   // each one becomes visible, the MAC flag bits (or -1) and the clip
   // judgement bits (or -1).
-  static const _flagSlots = 16;
+  static const _flagSlots = 16; // a power of two
   final _flagReady = Int64List(_flagSlots);
   final _flagMac = Int32List(_flagSlots);
   final _flagClip = Int32List(_flagSlots);
@@ -116,6 +119,7 @@ class Vu {
     p = 0;
     _qBusy = _pBusy = false;
     _vfReady.fillRange(0, 128, 0);
+    _vfRegReady.fillRange(0, 32, 0);
     _flagCount = 0;
   }
 
@@ -170,6 +174,13 @@ class Vu {
     _micro = s.boolean();
     _qBusy = s.boolean();
     _pBusy = s.boolean();
+    for (var reg = 0; reg < 32; reg++) {
+      var t = 0;
+      for (var c = 0; c < 4; c++) {
+        if (_vfReady[reg * 4 + c] > t) t = _vfReady[reg * 4 + c];
+      }
+      _vfRegReady[reg] = t;
+    }
   }
 
   /// starts the program at pair [address] and runs it to its end
@@ -186,7 +197,7 @@ class Vu {
     if (running) running = false;
     _sendKick();
     _micro = false;
-    _commitFlags(null);
+    _commitFlags(_allCycles);
     _finishDivision();
     _finishEfu();
     onEnd?.call();
@@ -274,19 +285,19 @@ class Vu {
 
   int _lane(int reg, int c) => vf[reg * 4 + c];
 
-  void _setVf(int reg, int mask, List<int> value) {
+  void _setVf(int reg, int mask, Uint32List value) {
     if (reg == 0) return;
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) vf[reg * 4 + c] = value[c];
     }
   }
 
-  final _result = List<int>.filled(4, 0);
+  final _result = Uint32List(4);
 
   /// the snapshot of [_result] that [step] applies after the lower
   /// instruction of the pair has run; a reused buffer, so that a pair
   /// allocates nothing
-  final _upperResult = List<int>.filled(4, 0);
+  final _upperResult = Uint32List(4);
 
   // ---- execution of one pair ----
 
@@ -300,10 +311,12 @@ class Vu {
     _kick = -1;
     final wasEnding = _ending;
     final iBit = highWord >>> 31 != 0;
-    _stall(highWord, iBit ? 0 : lowWord);
+    _stall(highWord, lowWord);
     if (_qBusy && cycles >= _qReady) _finishDivision();
     if (_pBusy && cycles >= _pReady) _finishEfu();
-    if (_flagCount > 0) _commitFlags(cycles);
+    if (_flagCount > 0 && _flagReady[_flagHead] <= cycles) {
+      _commitFlags(cycles);
+    }
     final issued = cycles++;
 
     if (highWord & 0x40000000 != 0) _ending = true;
@@ -350,6 +363,7 @@ class Vu {
   }
 
   void _setReady(int reg, int fields, int cycle) {
+    if (_vfRegReady[reg] < cycle) _vfRegReady[reg] = cycle;
     for (var c = 0; c < 4; c++) {
       if (fields & (8 >> c) != 0) _vfReady[reg * 4 + c] = cycle;
     }
@@ -357,7 +371,7 @@ class Vu {
 
   /// the cycle at which the [fields] of [reg] are ready, at least [t]
   int _readyAt(int reg, int fields, int t) {
-    if (reg == 0) return t;
+    if (reg == 0 || _vfRegReady[reg] <= t) return t;
     for (var c = 0; c < 4; c++) {
       if (fields & (8 >> c) != 0) {
         final r = _vfReady[reg * 4 + c];
@@ -367,19 +381,52 @@ class Vu {
     return t;
   }
 
-  /// Waits for the VF fields that the pair reads, and for Q before a WAITQ
-  /// or P before a WAITP. A pair with a new division waits for the pending one as a whole, so its upper instruction reads the new Q.
+  /// Waits for the VF fields that the pair at [pc] reads, and for Q before
+  /// a WAITQ or P before a WAITP. A pair with a new division waits for the
+  /// pending one as a whole, so its upper instruction reads the new Q.
   void _stall(int upper, int lower) {
+    final key = upper << 32 | lower;
+    var d = _stallReads[pc];
+    if (_stallKeys[pc] != key || d == 0) {
+      d = _stallReads[pc] = _decodeStall(upper, lower);
+      _stallKeys[pc] = key;
+    }
     var t = cycles;
+    for (var g = d & _stallGroups; g != 0; g >>= 9) {
+      final fields = (g >> 5) & 15;
+      if (fields != 0) t = _readyAt(g & 31, fields, t);
+    }
+    if (d & _stallQ != 0 && _qBusy && _qReady > t) t = _qReady;
+    if (d & _stallP != 0 && _pBusy && _pReady > t) t = _pReady;
+    cycles = t;
+  }
+
+  // What each pair waits for, decoded once per pair by [_decodeStall] and
+  // kept with the words it came from ([_stallKeys], upper word above the
+  // lower one): up to four groups of nine bits, each a VF register in bits
+  // 0 to 4 and the fields it reads in bits 5 to 8, [_stallQ], [_stallP],
+  // and [_stallDecoded], so that zero marks a pair not decoded yet.
+  late final _stallReads = Int64List(microWords ~/ 2);
+  late final _stallKeys = Int64List(microWords ~/ 2);
+  static const _stallGroups = (1 << 36) - 1;
+  static const _stallQ = 1 << 36, _stallP = 1 << 37, _stallDecoded = 1 << 38;
+
+  int _decodeStall(int upper, int lower) {
+    if (upper >>> 31 != 0) lower = 0; // the lower word is I
+    var d = _stallDecoded, n = 0;
+    void reads(int reg, int fields) {
+      if (reg == 0 || fields == 0) return;
+      d |= (reg | fields << 5) << (9 * n++);
+    }
+
     _upperReads(upper);
-    final fsFields = _readFsFields, ftFields = _readFtFields;
-    if (fsFields != 0) t = _readyAt((upper >> 11) & 31, fsFields, t);
-    if (ftFields != 0) t = _readyAt((upper >> 16) & 31, ftFields, t);
+    reads((upper >> 11) & 31, _readFsFields);
+    reads((upper >> 16) & 31, _readFtFields);
     final op = lower >>> 25;
     final mask = (lower >> 21) & 15;
     final fs = (lower >> 11) & 31, ft = (lower >> 16) & 31;
     if (op == 0x01) {
-      t = _readyAt(fs, mask, t); // SQ
+      reads(fs, mask); // SQ
     } else if (op == 0x40 && lower & 0x3c == 0x3c) {
       final fsf = 8 >> ((lower >> 21) & 3), ftf = 8 >> ((lower >> 23) & 3);
       final code = ((lower >> 6) & 31) << 2 | (lower & 3);
@@ -388,41 +435,42 @@ class Vu {
         case const (0x0c << 2 | 0) ||
               const (0x0d << 2 | 1) ||
               const (0x0d << 2 | 3):
-          t = _readyAt(fs, mask, t);
+          reads(fs, mask);
         // MR32 reads the field after each written one
         case const (0x0c << 2 | 1):
-          t = _readyAt(fs, (mask >> 1 | mask << 3) & 15, t);
+          reads(fs, (mask >> 1 | mask << 3) & 15);
         // MTIR, RINIT, RXOR
         case const (0x0f << 2 | 0) ||
               const (0x10 << 2 | 2) ||
               const (0x10 << 2 | 3):
-          t = _readyAt(fs, fsf, t);
+          reads(fs, fsf);
         // DIV, RSQRT
         case const (0x0e << 2 | 0) || const (0x0e << 2 | 2):
-          t = _readyAt(ft, ftf, _readyAt(fs, fsf, t));
-          if (_qBusy && _qReady > t) t = _qReady;
+          reads(fs, fsf);
+          reads(ft, ftf);
+          d |= _stallQ;
         // SQRT
         case const (0x0e << 2 | 1):
-          t = _readyAt(ft, ftf, t);
-          if (_qBusy && _qReady > t) t = _qReady;
+          reads(ft, ftf);
+          d |= _stallQ;
         // WAITQ
         case const (0x0e << 2 | 3):
-          if (_qBusy && _qReady > t) t = _qReady;
+          d |= _stallQ;
         // WAITP
         case const (0x1e << 2 | 3):
-          if (_pBusy && _pReady > t) t = _pReady;
+          d |= _stallP;
         // ESADD, ERSADD, ELENG, ERLENG, EATANxy, EATANxz
         case >= 0x70 && < 0x76:
-          t = _readyAt(fs, 14, t);
+          reads(fs, 14);
         // ESUM
         case const (0x1d << 2 | 2):
-          t = _readyAt(fs, 15, t);
+          reads(fs, 15);
         // the EFU operations of one field
         case >= 0x78:
-          t = _readyAt(fs, fsf, t);
+          reads(fs, fsf);
       }
     }
-    cycles = t;
+    return d;
   }
 
   /// the fields of fs and ft that the upper instruction reads, left in
@@ -590,22 +638,25 @@ class Vu {
   int _clipPending = -1;
 
   void _queueFlags(int ready, int macBits, int clipBits) {
-    if (_flagCount == _flagSlots) _commitFlags(null);
-    final k = (_flagHead + _flagCount) % _flagSlots;
+    if (_flagCount == _flagSlots) _commitFlags(_allCycles);
+    final k = (_flagHead + _flagCount) & (_flagSlots - 1);
     _flagReady[k] = ready;
     _flagMac[k] = macBits;
     _flagClip[k] = clipBits;
     _flagCount++;
   }
 
-  /// applies the queued flag results that are visible at cycle [now], or all
-  /// of them when [now] is null
-  void _commitFlags(int? now) {
+  /// a cycle after every queued flag result
+  static const _allCycles = 1 << 62;
+
+  /// applies the queued flag results that are visible at cycle [now]; all of
+  /// them for [_allCycles]
+  void _commitFlags(int now) {
     while (_flagCount > 0) {
       final k = _flagHead;
-      if (now != null && _flagReady[k] > now) return;
+      if (_flagReady[k] > now) return;
       _applyFlags(_flagMac[k], _flagClip[k]);
-      _flagHead = (k + 1) % _flagSlots;
+      _flagHead = (k + 1) & (_flagSlots - 1);
       _flagCount--;
     }
   }
@@ -666,38 +717,44 @@ class Vu {
   // kind: 0 ADD, 1 SUB, 2 MADD, 3 MSUB, 4 MAX, 5 MINI, 6 MUL
   void _fmac(int kind, int bsel, int mask, int fs, int ft,
       {required bool toAcc}) {
-    var macBits = 0;
-    for (var c = 0; c < 4; c++) {
-      final enabled = mask & (8 >> c) != 0;
-      final a = _lane(fs, c);
-      final bBits = switch (bsel) {
-        4 => q,
-        5 => i,
-        6 => _lane(ft, c),
-        _ => _lane(ft, bsel),
-      };
-      int out;
-      switch (kind) {
-        case 4:
-          out = _d(a) >= _d(bBits) ? a : bBits;
-        case 5:
-          out = _d(a) <= _d(bBits) ? a : bBits;
-        default:
-          final x = _d(a), y = _d(bBits);
-          // the accumulator is decoded only by the kinds that use it
-          final v = switch (kind) {
-            0 => x + y,
-            1 => x - y,
-            2 => _d(acc[c]) + x * y,
-            3 => _d(acc[c]) - x * y,
-            _ => x * y,
-          };
-          out = _enc(v);
-          if (enabled) macBits |= _macBits(c, out, _lastFlags);
+    final vf = this.vf, result = _result;
+    final fsBase = fs * 4, ftBase = ft * 4;
+    // the lane of ft, Q or I that every lane reads, or -1 for the vector
+    final scalar = switch (bsel) {
+      4 => q,
+      5 => i,
+      6 => -1,
+      _ => vf[ftBase + bsel],
+    };
+    if (kind == 4 || kind == 5) {
+      // MAX and MINI set no flags
+      for (var c = 0; c < 4; c++) {
+        if (mask & (8 >> c) == 0) continue;
+        final a = vf[fsBase + c];
+        final b = scalar < 0 ? vf[ftBase + c] : scalar;
+        final x = R5900Fpu.decode(a), y = R5900Fpu.decode(b);
+        result[c] = (kind == 4 ? x >= y : x <= y) ? a : b;
       }
-      _result[c] = out;
+      return;
     }
-    if (kind == 4 || kind == 5) return; // MAX and MINI set no flags
+    final scalarValue = scalar < 0 ? 0.0 : R5900Fpu.decode(scalar);
+    var macBits = 0;
+    // a lane outside the mask is neither written nor flagged
+    for (var c = 0; c < 4; c++) {
+      if (mask & (8 >> c) == 0) continue;
+      final x = R5900Fpu.decode(vf[fsBase + c]);
+      final y = scalar < 0 ? R5900Fpu.decode(vf[ftBase + c]) : scalarValue;
+      final v = switch (kind) {
+        0 => x + y,
+        1 => x - y,
+        2 => R5900Fpu.decode(acc[c]) + x * y,
+        3 => R5900Fpu.decode(acc[c]) - x * y,
+        _ => x * y,
+      };
+      final out = R5900Fpu.encodeCause(v);
+      macBits |= _macBits(c, out, R5900Fpu.lastCause);
+      result[c] = out;
+    }
     _finish(macBits, mask, toAcc);
   }
 
