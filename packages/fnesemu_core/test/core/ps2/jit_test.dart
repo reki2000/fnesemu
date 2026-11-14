@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/jit/ps2_jit.dart';
+import 'package:fnesemu_core/src/core/ps2/jit/r5900_translator.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:test/test.dart';
 
@@ -88,8 +89,12 @@ List<int> _words() {
 
 (R5900, Ps2Bus) _load(Ps2Jit? jit,
     [List<int>? words, List<int>? data]) {
-  final bus = Ps2Bus(ram: jit?.ram);
-  final cpu = R5900(bus, gpr: jit?.gpr, fpr: jit?.fpr);
+  final bus = Ps2Bus(ram: jit?.ram, scratch: jit?.scratch);
+  final cpu = R5900(bus,
+      gpr: jit?.gpr,
+      fpr: jit?.fpr,
+      multiply: jit?.multiply,
+      fpuControl: jit?.fpuControl);
   jit?.attach(cpu);
   final program = words ?? _words();
   for (var i = 0; i < program.length; i++) {
@@ -365,8 +370,9 @@ void main() {
     if (jit == null) return;
     addTearDown(jit.dispose);
     final io = _CountingIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(35, 3, 2, -4)); // lw r2, -4(r3)
     cpu.setReg(3, 0xb000f004); // uncached alias of the IO register
@@ -398,8 +404,9 @@ void main() {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     final io = _CountingIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(35, 3, 2, -4));
     cpu.setReg(3, 0xb000f004);
@@ -422,8 +429,9 @@ void main() {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
-    final bus = Ps2Bus(ram: jit.ram)..io = _CountingIo();
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = _CountingIo();
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(35, 3, 2, -4));
     cpu.setReg(3, 0xb000f004);
@@ -444,8 +452,9 @@ void main() {
     if (jit == null) return;
     addTearDown(jit.dispose);
     final io = _CountingIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(35, 3, 2, -4));
     cpu.setReg(3, 0xb000f004);
@@ -469,8 +478,9 @@ void main() {
     if (jit == null) return;
     addTearDown(jit.dispose);
     final io = _CountingIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(4, 0, 0, 2)); // beq r0, r0, target
     bus.write32(_base + 4, _i(35, 3, 2, -4));
@@ -495,8 +505,9 @@ void main() {
     if (jit == null) return;
     addTearDown(jit.dispose);
     final io = _CountingIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     const code = 0x80000000 + _base;
     bus.write32(code, _i(35, 3, 2, -4));
@@ -523,8 +534,9 @@ void main() {
     if (jit == null) return;
     addTearDown(jit.dispose);
     final io = _CountingIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(35, 3, 2, -4));
     cpu.setReg(3, 0xb000f004);
@@ -547,8 +559,9 @@ void main() {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
-    final bus = Ps2Bus(ram: jit.ram)..io = _CountingIo();
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = _CountingIo();
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     bus.write32(_base, _i(35, 3, 2, -4));
     cpu.setReg(3, 0xb000f004);
@@ -566,8 +579,9 @@ void main() {
   aggCase('an overflowing ADD leaves to the interpreter for the exception', () {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
-    final bus = Ps2Bus(ram: jit.ram);
-    final cpu = R5900(bus, gpr: jit.gpr);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch);
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
     jit.attach(cpu);
     final program = [
       _i(15, 0, 1, 0x7fff), // lui r1, 0x7fff
@@ -586,6 +600,34 @@ void main() {
     cpu.step();
     expect(cpu.pc, 0x80000180);
     expect(cpu.reg(2), 0);
+  });
+
+  aggCase('compiled code shares the scratchpad but not its alias', () {
+    final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
+    addTearDown(jit.dispose);
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch);
+    final cpu = R5900(bus,
+        gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
+    jit.attach(cpu);
+    const alias = 0x80000000 | R5900Translator.scratchAlias;
+    final program = [
+      _i(15, 0, 1, 0x7000), // lui r1, 0x7000
+      _i(9, 0, 2, 0x1234), // addiu r2, zero, 0x1234
+      _i(43, 1, 2, 0x10), // sw r2, 0x10(r1)
+      _i(35, 1, 3, 0x10), // lw r3, 0x10(r1)
+      _i(15, 0, 4, alias >>> 16), // lui r4, the alias in kseg0
+      _i(35, 4, 5, 0x10), // lw r5, 0x10(r4): not the scratchpad
+    ];
+    for (var i = 0; i < program.length; i++) {
+      bus.write32(_base + i * 4, program[i]);
+    }
+    cpu.jumpTo(_base);
+    expect(jit.run(100), isTrue);
+    expect(cpu.pc, _base + 20);
+    expect(cpu.reg(3), 0x1234);
+    expect(bus.read32(Ps2Bus.scratchBase + 0x10), 0x1234);
+    cpu.step();
+    expect(cpu.reg(5), 0);
   });
 
   const chunkCount = 2;

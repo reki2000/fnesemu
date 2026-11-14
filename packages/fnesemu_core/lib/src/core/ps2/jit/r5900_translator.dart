@@ -1,5 +1,7 @@
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../bus.dart';
+
 /// Translates R5900 integer code into IR blocks.
 ///
 /// A general register is 128 bits wide and takes four context words: the
@@ -11,13 +13,12 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// jumps, MOVZ/MOVN, the aligned loads and stores up to 128 bits, integer
 /// DIV/DIVU and the MMI DIV1/DIVU1, and COP1: the register moves, LWC1 and
 /// SWC1, the single precision arithmetic, the compares and CVT.W.S. HI/LO
-/// and HI1/LO1 live in four extra 64-bit context slots synchronized by
-/// Ps2Jit at compiled/interpreter boundaries, and the division forms
-/// preserve the zero-divisor and overflow semantics. The COP1 register
-/// images follow the HI/LO slots in the context; the accumulator and
-/// FCR31 take one word each after them, and the adapter copies those two
-/// in and out around a run because the interpreter keeps them in plain
-/// fields. EE floating point semantics are rebuilt with integer
+/// and HI1/LO1 live in four extra 64-bit context slots, and the division
+/// forms preserve the zero-divisor and overflow semantics. The COP1
+/// register images follow the HI/LO slots in the context, and the
+/// accumulator and FCR31 take one word each after them. The interpreter
+/// keeps all of these in the same context words. EE floating point
+/// semantics are rebuilt with integer
 /// operations around the binary64 IR operations: decode and encode are
 /// exact bit constructions (see [_fdecode] and [_fencode]), so compiled
 /// results match the interpreter bit for bit. COP0 and COP2, BC1,
@@ -38,6 +39,10 @@ final class R5900Translator {
   static const ctxFcr31 = ctxFacc + 1;
   static const ctxWords = ctxFcr31 + 1;
   static const interpret = JitReason.user;
+
+  /// where the adapter maps the scratchpad in the address space of
+  /// compiled code, outside main memory
+  static const scratchAlias = 0x02000000;
 
   /// FCR31 cause bits I, D, O, U (bits 17..14), as the interpreter's FPU
   /// extension lays them out.
@@ -421,16 +426,28 @@ final class R5900Translator {
     }
   }
 
-  /// Exits unless [address] is aligned to [size] and in a segment that the
+  /// Returns the address that compiled code accesses for [address], and
+  /// exits unless it is aligned to [size] and in a segment that the
   /// adapter maps to main memory: user addresses below 0x40000000 (which
   /// the adapter requires to be mapped one to one) and the unmapped kernel
-  /// segments. Pages outside main memory exit at the access.
-  void _checkAddress(IrValue address, int size, IrExit exit) {
-    final segment = b.shrU(address, _c(29));
+  /// segments. The scratchpad is moved to [scratchAlias], and the other
+  /// addresses that reach that alias exit. Pages outside main memory and
+  /// the scratchpad exit at the access.
+  IrValue _checkAddress(IrValue address, int size, IrExit exit) {
+    final scratch = b.eq(b.and(address, _c(~(Ps2Bus.scratchSize - 1))),
+        _c(Ps2Bus.scratchBase));
+    final mapped = b.select(scratch,
+        b.xor(address, _c(Ps2Bus.scratchBase ^ scratchAlias)), address);
+    final segment = b.shrU(mapped, _c(29));
     final allowed = b.and(b.shrU(_c(0x33), segment), _c(1));
     var bad = b.eq(allowed, _c(0));
+    bad = b.or(
+        bad,
+        b.eq(b.and(address, _c(0x1fffffff & ~(Ps2Bus.scratchSize - 1))),
+            _c(scratchAlias)));
     if (size > 1) bad = b.or(bad, b.ne(b.and(address, _c(size - 1)), _c(0)));
     b.exitIf(bad, exit);
+    return mapped;
   }
 
   void _access(int code, int s, int t, int imm, IrExit exit) {
@@ -440,8 +457,7 @@ final class R5900Translator {
       55 || 63 => 8,
       _ => 4,
     };
-    final address = b.add(_low(s), _c(imm));
-    _checkAddress(address, size, exit);
+    final address = _checkAddress(b.add(_low(s), _c(imm)), size, exit);
     if (_stores.contains(code)) {
       b.store(size, address, size == 8 ? _get64(t) : _low(t), unmapped: exit);
       return;
@@ -455,8 +471,8 @@ final class R5900Translator {
 
   /// LQ and SQ ignore the low four address bits
   void _quad(bool store, int s, int t, int imm, IrExit exit) {
-    final address = b.and(b.add(_low(s), _c(imm)), _c(~15));
-    _checkAddress(address, 1, exit);
+    final address =
+        _checkAddress(b.and(b.add(_low(s), _c(imm)), _c(~15)), 1, exit);
     final high = b.add(address, _c(8));
     if (store) {
       b.store(8, address, _get64(t), unmapped: exit);
@@ -474,8 +490,7 @@ final class R5900Translator {
 
   /// LWC1 and SWC1: [t] names a COP1 register instead of a general one.
   void _accessF(bool store, int s, int t, int imm, IrExit exit) {
-    final address = b.add(_low(s), _c(imm));
-    _checkAddress(address, 4, exit);
+    final address = _checkAddress(b.add(_low(s), _c(imm)), 4, exit);
     if (store) {
       b.store(4, address, _fget(t), unmapped: exit);
       return;

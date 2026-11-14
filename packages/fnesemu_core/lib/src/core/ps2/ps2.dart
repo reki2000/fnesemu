@@ -10,6 +10,7 @@ import '../../sram.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
 import 'bus.dart';
+import 'ee_idle_loop.dart';
 import 'ee_io.dart';
 import 'elf.dart';
 import 'intc.dart';
@@ -34,7 +35,11 @@ class Ps2 extends Core {
   // line 240 (ps2tek)
   static const _scanlines = 262, _busClocksInScanline = 9370;
 
-  static const _deviceQuantum = 32;
+  /// The EE clocks between two advances of the devices and the IOP. The
+  /// devices see the EE, and the EE sees their interrupts, at this
+  /// granularity; each advance costs about as much as tens of compiled EE
+  /// instructions.
+  static const _deviceQuantum = 128;
   static const _vblankLine = 240;
 
   /// The EE clocks of an uncached read of an EE register, as seen by
@@ -48,13 +53,21 @@ class Ps2 extends Core {
   /// the IOP recompiler, created with the EE one
   final IopJit? iopJit;
   final Ps2Bus bus;
-  late final R5900 cpu = R5900(bus, gpr: jit?.gpr, fpr: jit?.fpr);
+  late final R5900 cpu = R5900(bus,
+      gpr: jit?.gpr,
+      fpr: jit?.fpr,
+      multiply: jit?.multiply,
+      fpuControl: jit?.fpuControl);
   late EeIo io = _newIo();
+
+  /// a polling loop of the EE that [runFrame] skips
+  late final _idle = EeIdleLoop(cpu);
 
   Ps2({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
       : this._(jit ? Ps2Jit.create() : null, jit ? IopJit.create() : null);
 
-  Ps2._(this.jit, this.iopJit) : bus = Ps2Bus(ram: jit?.ram) {
+  Ps2._(this.jit, this.iopJit)
+      : bus = Ps2Bus(ram: jit?.ram, scratch: jit?.scratch) {
     jit?.attach(cpu);
     iopJit?.attach(iop, iopMemory);
   }
@@ -258,6 +271,7 @@ class Ps2 extends Core {
 
   @override
   void reset() {
+    _idle.reset();
     jit?.reset();
     iopJit?.reset();
     cpu.reset();
@@ -325,6 +339,7 @@ class Ps2 extends Core {
     final s = StateReader(state, 'ps2', _stateVersion, _media);
     s.section('ps2');
     final v = s.fields(7, 'ps2');
+    _idle.reset();
     _nextScanlineClock = v[0];
     _lastDeviceClock = v[1];
     _nextDeviceClock = v[2];
@@ -370,7 +385,8 @@ class Ps2 extends Core {
     _iopFraction += eeClocks;
     final steps = _iopFraction >> 3;
     _iopFraction &= 7;
-    var remaining = steps;
+    // An interrupt raised below is taken at the next step.
+    var remaining = steps > 0 && iop.idle(steps) ? 0 : steps;
     while (remaining > 0) {
       final ran = iopJit?.run(remaining) ?? 0;
       if (ran > 0) {
@@ -438,12 +454,17 @@ class Ps2 extends Core {
       final jit = this.jit;
       while (cpu.clocks < limit) {
         final before = cpu.clocks;
+        if (_idle.skip(limit, _nextScanlineClock - _registerReadClocks)) {
+          _result.elapsedClocks = cpu.clocks - before;
+          continue;
+        }
         if (jit != null && jit.run(limit - before)) {
           _result.elapsedClocks = cpu.clocks - before;
           if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
           if (gs.syncRequested) break;
           continue;
         }
+        final at = cpu.pc;
         if (!cpu.step()) {
           _result
             ..stopped = true
@@ -452,6 +473,7 @@ class Ps2 extends Core {
             ..linesLeft = 0;
           return _result;
         }
+        _idle.observe(at);
         _result.elapsedClocks = cpu.clocks - before;
         if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
         if (gs.syncRequested) break;

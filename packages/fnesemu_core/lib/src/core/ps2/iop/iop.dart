@@ -87,6 +87,53 @@ class Iop extends R3000Core {
   bool prepareCompiled() =>
       !inBranchDelay && nextPc == pc + 4 && !cacheIsolated && !_interruptPending();
 
+  /// Runs [steps] steps at once while the IOP waits for an interrupt in a
+  /// jump to itself with a NOP in its delay slot, at the jump or at the
+  /// NOP. The steps alternate between the two and change nothing else, as
+  /// long as no interrupt is pending. Returns false, without a step, when
+  /// the IOP does not wait so.
+  bool idle(int steps) {
+    if (nextDelayReg != 0 || cacheIsolated || _interruptPending()) {
+      return false;
+    }
+    final int loop;
+    if (!inBranchDelay && nextPc == pc + 4) {
+      loop = pc;
+    } else if (inBranchDelay && nextPc == pc - 4) {
+      loop = nextPc;
+    } else {
+      return false;
+    }
+    final ir = bus.read32(loop);
+    final self = ir == 0x1000ffff || // BEQ zero, zero to itself
+        (ir >>> 26 == 2 && (ir & 0x3ffffff) << 2 == loop & 0x0ffffffc);
+    if (!self ||
+        loop & 0xf0000000 != (loop + 4) & 0xf0000000 ||
+        bus.read32(loop + 4) != 0) {
+      return false;
+    }
+    clocks += steps;
+    final cause = cop0[cop0Cause], hwBit = _hwInterrupt ? 0x400 : 0;
+    if ((cause & 0x400) != hwBit) cop0[cop0Cause] = (cause & ~0x400) | hwBit;
+    // the instruction that runs last: the NOP after an even count from the
+    // jump
+    final endsAtNop = (steps + (loop == pc ? 0 : 1)).isEven;
+    if (endsAtNop) {
+      instPc = loop + 4;
+      inDelaySlot = true;
+      pc = loop;
+      nextPc = loop + 4;
+      inBranchDelay = false;
+    } else {
+      instPc = loop;
+      inDelaySlot = false;
+      pc = loop + 4;
+      nextPc = loop;
+      inBranchDelay = true;
+    }
+    return true;
+  }
+
   bool _interruptPending() {
     final sr = cop0[cop0Status];
     if (sr & 1 == 0) return false;

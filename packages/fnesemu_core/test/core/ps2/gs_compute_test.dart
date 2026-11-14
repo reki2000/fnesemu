@@ -105,7 +105,7 @@ void _sprite(Gs gs) {
 void main() {
   test(
       'a compute sink takes the memory and the draws, and gives the memory '
-      'back at vblank', () {
+      'of a vblank back at the next one', () {
     final sink = _Sink();
     final gs = _gs();
     gs.mem.words[5] = 0x1234;
@@ -119,6 +119,9 @@ void main() {
     expect(gs.mem.read(GsPsm.ct32, 0, 1, 1, 1), 0);
     gs.vblank();
     expect(program.entries, contains(1));
+    // the core goes on while the GPU draws
+    expect(gs.mem.words[0], 0);
+    gs.vblank();
     expect(gs.mem.words[0], _Program.marker);
     expect(gs.mem.words[5], 0x1234);
 

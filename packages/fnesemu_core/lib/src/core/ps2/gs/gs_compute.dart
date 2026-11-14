@@ -129,6 +129,7 @@ class GsCompute implements GsResidentSink {
   /// Copies the local memory and the CLUT of the Gs to the GPU and takes the
   /// work of the Gs.
   void attach() {
+    _dropPrefetch();
     _program.write(_vramBinding, 0, gs.mem.words);
     _version = 0;
     _fetched = false;
@@ -150,6 +151,8 @@ class GsCompute implements GsResidentSink {
   /// [requestSync] fetched; when that has not come, the Gs keeps its memory
   /// as it was.
   void sync() {
+    gs.showPicture();
+    _dropPrefetch();
     finish();
     if (!_waits) {
       if (requestSync() != null) {
@@ -178,6 +181,31 @@ class GsCompute implements GsResidentSink {
       _fetched = true;
     }
     return _program.fetching;
+  }
+
+  /// Whether [vblank] only starts to copy the local memory, and the Gs
+  /// shows its picture at the next one. A sink that does not wait reads
+  /// the memory at each vblank instead, after the core has stopped for it.
+  bool get defersPicture => _waits;
+
+  /// whether the copy of the local memory that [vblank] started is still
+  /// on the GPU
+  bool _prefetched = false;
+
+  /// Copies the local memory at the last vblank into the Gs, once the GPU
+  /// has drawn it.
+  void takeMemory() {
+    if (!_prefetched) return;
+    _prefetched = false;
+    _program.read(_vramBinding, 0, gs.mem.words);
+  }
+
+  /// Settles the copy of [vblank] without taking it: a later read of the
+  /// same range would get the copy instead of the memory then.
+  void _dropPrefetch() {
+    if (!_prefetched) return;
+    _prefetched = false;
+    _program.read(_vramBinding, 0, Uint32List(GsMemory.size ~/ 4));
   }
 
   void _resetOrdering() {
@@ -849,6 +877,20 @@ class GsCompute implements GsResidentSink {
     _count(unsupported, 'download (synchronous)');
   }
 
+  /// Submits the work so far without waiting, and has the GPU copy the
+  /// local memory after it, which [takeMemory] takes later. The core goes on
+  /// while the GPU draws, and the Gs shows the picture of this vblank from
+  /// the copy at the next one ([Gs.showPicture]).
   @override
-  void vblank(int field) => sync();
+  void vblank(int field) {
+    if (!_waits) {
+      sync();
+      return;
+    }
+    _close(materialize: true);
+    _submit(wait: false);
+    _dropPrefetch();
+    _program.prefetch(_vramBinding, 0, GsMemory.size);
+    _prefetched = true;
+  }
 }
