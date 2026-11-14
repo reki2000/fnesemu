@@ -68,8 +68,9 @@ void _loadEe(Ps2Bus bus, R5900 cpu) {
 
 (int Function(), int) _runJit() {
   final jit = Ps2Jit.create()!;
-  final bus = Ps2Bus(ram: jit.ram);
-  final cpu = R5900(bus, gpr: jit.gpr);
+  final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch);
+  final cpu = R5900(bus,
+      gpr: jit.gpr, multiply: jit.multiply, fpuControl: jit.fpuControl);
   jit.attach(cpu);
   _loadEe(bus, cpu);
   while (cpu.pc != _eeEnd) {

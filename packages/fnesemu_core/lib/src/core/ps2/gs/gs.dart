@@ -11,6 +11,16 @@ import 'gs_raster.dart';
 
 void Function(int operation, int register, int value)? gsCommandRecorder;
 
+/// the registers that select the picture of the read circuits
+typedef _Display = ({
+  int pmode,
+  int smode2,
+  int dispfb1,
+  int display1,
+  int dispfb2,
+  int display2,
+});
+
 /// Takes the work of a Gs in order while attached as [Gs.residentSink]: the
 /// primitives, the transfers and the CLUT loads. The Gs keeps its registers,
 /// and the sink brings [Gs.mem] up to date at each vblank and before a local
@@ -175,6 +185,7 @@ class Gs {
     _compute?.detach();
     syncRequested = false;
     _compute = null;
+    _shown = null;
     _computeSink = sink;
     if (sink == null) return;
     try {
@@ -197,6 +208,13 @@ class Gs {
   int csr = 0, imr = 0xff00, busdir = 0, siglblid = 0;
   int _field = 0;
   final _fields = FieldOutput();
+
+  // The picture of the last vblank while the GPU draws it: the display
+  // registers and the field then. [_shown] is the progressive picture that
+  // [showPicture] made from it.
+  _Display? _pending;
+  int _pendingParity = 0;
+  ImageBuffer? _shown;
   int _pendingInterrupts = 0;
 
   // general registers
@@ -307,6 +325,8 @@ class Gs {
     s.typed(mem.bytes);
     raster.loadState(s);
     _fields.loadState(s);
+    _pending = null;
+    _shown = null;
     // the GPU takes the loaded memory
     _compute?.attach();
   }
@@ -314,6 +334,8 @@ class Gs {
   void reset() {
     _field = 0;
     _fields.reset();
+    _pending = null;
+    _shown = null;
     csr = 0;
     imr = 0xff00;
     _pendingInterrupts = 0;
@@ -429,11 +451,32 @@ class Gs {
     _pendingInterrupts = active;
   }
 
+  _Display get _display => (
+        pmode: pmode,
+        smode2: smode2,
+        dispfb1: dispfb1,
+        display1: display1,
+        dispfb2: dispfb2,
+        display2: display2,
+      );
+
   /// called at the start of the vertical blank
   void vblank() {
     gsCommandRecorder?.call(4, 0, 0);
-    residentSink?.vblank(_field);
-    if (smode2 & 1 != 0) _readImage(_field);
+    final compute = _compute;
+    if (compute != null &&
+        identical(residentSink, compute) &&
+        compute.defersPicture) {
+      // The picture of this vblank is made at the next one, when the GPU
+      // has drawn it, so the core does not wait for the GPU here.
+      showPicture();
+      compute.vblank(_field);
+      _pending = _display;
+      _pendingParity = _field;
+    } else {
+      residentSink?.vblank(_field);
+      if (smode2 & 1 != 0) _readImage(_field, _display);
+    }
     _field ^= 1;
     _event(csrVsint);
   }
@@ -794,12 +837,24 @@ class Gs {
   /// before 1) at the size of its display rectangle. Completed interlaced
   /// fields retain the other parity; merge circuits remain unimplemented.
   ImageBuffer image() {
-    return smode2 & 1 != 0 && _fields.image != null
-        ? _fields.image!
-        : _readImage(_field);
+    if (smode2 & 1 != 0 && _fields.image != null) return _fields.image!;
+    return _shown ?? _readImage(_field, _display);
   }
 
-  ImageBuffer _readImage(int parity) {
+  /// Makes the picture of the vblank that the GPU has drawn since, from the
+  /// local memory then. Called before the memory is read for another use.
+  void showPicture() {
+    final display = _pending;
+    if (display == null) return;
+    _pending = null;
+    _compute?.takeMemory();
+    final image = _readImage(_pendingParity, display);
+    _shown = display.smode2 & 1 != 0 ? null : image;
+  }
+
+  ImageBuffer _readImage(int parity, _Display display) {
+    final (:pmode, :smode2, :dispfb1, :display1, :dispfb2, :display2) =
+        display;
     final interlaced = smode2 & 1 != 0;
     final useCircuit2 = pmode & 2 != 0;
     if (pmode & 3 == 0) {
