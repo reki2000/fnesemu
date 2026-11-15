@@ -10,12 +10,6 @@ abstract interface class VuCompiler {
   /// Runs [vu] from its pc while it is running, for at most [maxPairs]
   /// pairs, with [Vu.step] for the pairs it does not compile.
   void run(Vu vu, int maxPairs);
-
-  /// Drops the code compiled from the pair [pair], whose words changed.
-  void codeChanged(int pair);
-
-  /// Drops all compiled code, as all of micro memory may have changed.
-  void codeReset();
 }
 
 /// A vector unit (VU0 or VU1): 32 four-lane float registers, 16 integer
@@ -47,9 +41,7 @@ class Vu {
   final int microWords; // 32-bit words of micro memory
   final int dataQuads;
 
-  /// Micro memory. Only [writeMicro] changes it, so that a compiler learns
-  /// which pairs changed.
-  final Uint32List _code;
+  final Uint32List micro;
   final Uint32List data;
   final Uint32List vf;
   final Uint16List vi;
@@ -123,7 +115,7 @@ class Vu {
       Int64List? vfReady})
       : microWords = index == 0 ? 1024 : 4096,
         dataQuads = index == 0 ? 256 : 1024,
-        _code = micro ?? Uint32List(index == 0 ? 1024 : 4096),
+        micro = micro ?? Uint32List(index == 0 ? 1024 : 4096),
         data = data ?? Uint32List((index == 0 ? 256 : 1024) * 4),
         vf = vf ?? Uint32List(128),
         vi = vi ?? Uint16List(16),
@@ -160,7 +152,7 @@ class Vu {
   void saveState(StateWriter w) {
     w.section('vu$index');
     for (final list in [
-      _code, data, vf, vi, acc, _vfReady, _flagReady, //
+      micro, data, vf, vi, acc, _vfReady, _flagReady, //
       _flagMac, _flagClip
     ]) {
       w.typed(list);
@@ -177,12 +169,11 @@ class Vu {
   void loadState(StateReader s) {
     s.section('vu$index');
     for (final list in [
-      _code, data, vf, vi, acc, _vfReady, _flagReady, //
+      micro, data, vf, vi, acc, _vfReady, _flagReady, //
       _flagMac, _flagClip
     ]) {
       s.typed(list);
     }
-    compiler?.codeReset();
     final v = s.fields(17, 'vu');
     i = v[0];
     q = v[1];
@@ -443,21 +434,10 @@ class Vu {
   /// allocates nothing
   final _upperResult = Uint32List(4);
 
-  /// the word [word] of micro memory
-  int readMicro(int word) => _code[word & (microWords - 1)];
-
-  /// Writes [value] to the word [word] of micro memory.
-  void writeMicro(int word, int value) {
-    word &= microWords - 1;
-    if (_code[word] == value) return;
-    _code[word] = value;
-    compiler?.codeChanged(word >> 1);
-  }
-
   // ---- execution of one pair ----
 
   void step() {
-    final lowWord = _code[pc * 2], highWord = _code[pc * 2 + 1];
+    final lowWord = micro[pc * 2], highWord = micro[pc * 2 + 1];
     final delayTarget = _pending;
     _pending = -1;
     // the GIF reads the packet of an XGKICK while the program goes on, so the

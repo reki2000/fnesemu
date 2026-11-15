@@ -15,9 +15,8 @@ import 'vu_translator.dart';
 /// The pipeline state is copied through the context around each compiled
 /// run. Compiled code starts only at a pair boundary
 /// ([Vu.atPairBoundary]); the interpreter runs the pairs that do not
-/// translate. Micro memory changes only through [Vu.writeMicro], outside
-/// compiled code, so blocks have no code guards: a change drops the blocks
-/// translated from the pair ([codeChanged]).
+/// translate. Micro memory is changed only by the VIF, outside compiled
+/// code, so the code guards of the blocks catch new programs.
 final class VuJit extends JitAdapter implements VuCompiler {
   static const microBase = 0x8000;
   static const _pairs = 2048, _dataQuads = 1024;
@@ -48,10 +47,9 @@ final class VuJit extends JitAdapter implements VuCompiler {
       }),
       topHelper: rt.addHelper((a, b, c) => _vu!.top()),
       itopHelper: rt.addHelper((a, b, c) => _vu!.itop()),
-      vectors: rt.vectors,
-      guards: false);
+      vectors: rt.vectors);
   late final _driver = JitDriver(rt,
-      translate: (pc, tag) => _translate(pc),
+      translate: (pc, tag) => _translator.translate(pc),
       codeWord: (pc) => micro[pc * 2] | micro[pc * 2 + 1] << 32,
       threshold: compileThreshold);
 
@@ -95,36 +93,6 @@ final class VuJit extends JitAdapter implements VuCompiler {
 
   /// the pairs that the last [run] took, for checks
   int lastPairs = 0;
-
-  /// the start pairs of the blocks translated from each pair
-  final _blocks = List<List<int>?>.filled(_pairs, null);
-
-  IrBlock? _translate(int pc) {
-    final block = _translator.translate(pc);
-    if (block != null) {
-      for (final pair in _translator.pairs) {
-        final starts = _blocks[pair] ??= [];
-        if (!starts.contains(pc)) starts.add(pc);
-      }
-    }
-    return block;
-  }
-
-  @override
-  void codeChanged(int pair) {
-    final starts = _blocks[pair];
-    if (starts == null) return;
-    _blocks[pair] = null;
-    for (final pc in starts) {
-      _driver.invalidate(pc, 0);
-    }
-  }
-
-  @override
-  void codeReset() {
-    _blocks.fillRange(0, _pairs, null);
-    _driver.reset();
-  }
 
   @override
   void run(Vu vu, int maxPairs) {

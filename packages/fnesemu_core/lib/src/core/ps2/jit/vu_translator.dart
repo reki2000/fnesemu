@@ -66,10 +66,6 @@ final class VuTranslator {
   /// whether the runtime has the vector operations ([JitRuntime.vectors])
   final bool vectors;
 
-  /// whether blocks compare their code words at entry; without guards,
-  /// the caller drops the blocks of [pairs] when their words change
-  final bool guards;
-
   /// the lower and upper words of a pair
   final int Function(int word) fetch;
 
@@ -82,8 +78,7 @@ final class VuTranslator {
       required this.topHelper,
       required this.itopHelper,
       this.maxPairs = defaultMaxPairs,
-      this.vectors = false,
-      this.guards = true});
+      this.vectors = false});
 
   late IrBuilder b;
 
@@ -285,17 +280,13 @@ final class VuTranslator {
     return term.pcTrue > at && _p + 2 <= maxPairs && !_full;
   }
 
-  /// the pairs that the last block was translated from, and the times the
+  /// the pairs of the block that have code guards, and the times the
   /// block runs its loop
   final _guarded = <int>{};
   int _iterations = 1;
 
-  /// the pairs that the last block of [translate] was translated from
-  Iterable<int> get pairs => _guarded;
-
   void _guard(int pc, int lo, int hi) {
     _guarded.add(pc);
-    if (!guards) return;
     b.guard(microBase + pc * 8, lo);
     b.guard(microBase + pc * 8 + 4, hi);
   }

@@ -214,21 +214,14 @@ class EeIo implements IoPort {
   static bool _isVuMemory(int address) =>
       address >= 0x11000000 && address < 0x11010000;
 
-  /// the VU whose micro memory a physical address falls in, and the offset
-  /// inside it
-  (Vu, int)? _vuMicro(int address) {
-    if (address < 0x11001000) return (vu0, address - 0x11000000);
-    if (address >= 0x11008000 && address < 0x1100c000) {
-      return (vu1, address - 0x11008000);
-    }
-    return null;
-  }
-
-  /// the VU data memory a physical address falls in, and the offset inside
-  /// it
+  /// the VU memory a physical address falls in, and the offset inside it
   (Uint32List, int)? _vuMemory(int address) {
+    if (address < 0x11001000) return (vu0.micro, address - 0x11000000);
     if (address >= 0x11004000 && address < 0x11005000) {
       return (vu0.data, address - 0x11004000);
+    }
+    if (address >= 0x11008000 && address < 0x1100c000) {
+      return (vu1.micro, address - 0x11008000);
     }
     if (address >= 0x1100c000) return (vu1.data, address - 0x1100c000);
     return null;
@@ -283,13 +276,6 @@ class EeIo implements IoPort {
     if (Ipu.handlesRegister(address)) return ipu.read(address, size);
     if (Ipu.handlesFifo(address)) return ipu.readFifo(address, size);
     if (_isVuMemory(address)) {
-      final code = _vuMicro(address);
-      if (code != null) {
-        final (vu, offset) = code;
-        final i = offset >> 2;
-        if (size == 8) return vu.readMicro(i) | (vu.readMicro(i + 1) << 32);
-        return vu.readMicro(i);
-      }
       final m = _vuMemory(address);
       if (m == null) return 0;
       final (words, offset) = m;
@@ -349,15 +335,6 @@ class EeIo implements IoPort {
         (address < 0x10005000 ? vif0 : vif1).put(_vifFifo.low, _vifFifo.high);
       }
     } else if (_isVuMemory(address)) {
-      final code = _vuMicro(address);
-      if (code != null) {
-        // micro memory changes through its VU, which tells its compiler
-        final (vu, offset) = code;
-        final i = offset >> 2;
-        vu.writeMicro(i, value);
-        if (size == 8) vu.writeMicro(i + 1, value >>> 32);
-        return true;
-      }
       final m = _vuMemory(address);
       if (m == null) return false;
       final (words, offset) = m;
@@ -392,6 +369,5 @@ class EeIo implements IoPort {
       _isCdvd(address) ||
       _isVif(address) ||
       _isVifFifo(address) ||
-      (_isVuMemory(address) &&
-          (_vuMicro(address) != null || _vuMemory(address) != null));
+      (_isVuMemory(address) && _vuMemory(address) != null);
 }

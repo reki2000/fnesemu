@@ -434,7 +434,7 @@ class Vif extends DmaEndpoint {
       case _mpg:
         final n = _count;
         for (var k = 0; k < n; k++) {
-          vu.writeMicro(_imm * 2 + k, _buf[k]);
+          vu.micro[(_imm * 2 + k) & (vu.microWords - 1)] = _buf[k];
         }
       case _direct || _directHl:
         break;
