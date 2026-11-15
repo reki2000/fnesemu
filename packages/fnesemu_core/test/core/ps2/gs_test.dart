@@ -644,6 +644,29 @@ void main() {
       expect(gs.readPrivileged(0x12001000) & 2, 2);
     });
 
+    aggCase('a second SIGNAL stops the GS until the flag is cleared', () {
+      final gs = _gs();
+      gs.writePrivileged(0x12001010, 0);
+      gs.writeRegister(0x60, 0);
+      expect(gs.readPrivileged(0x12001000) & 1, 1);
+      gs.writeRegister(0x60, 0); // the flag is still set: the GS stops
+      _sprite(gs, 0, 0, 4, 4, _rgba(1, 2, 3));
+      gs.writeRegister(0x61, 0);
+      gs.writeRegister(0x60, 0);
+      gs.writeRegister(0x61, 0);
+      expect(gs.mem.read(GsPsm.ct32, 0, 1, 1, 1), 0);
+      expect(gs.readPrivileged(0x12001000) & 2, 0);
+      // clearing the flag runs the held writes up to the third SIGNAL
+      gs.writePrivileged(0x12001000, 1);
+      expect(gs.mem.read(GsPsm.ct32, 0, 1, 1, 1), _rgba(1, 2, 3));
+      expect(gs.readPrivileged(0x12001000) & 3, 3);
+      gs.writePrivileged(0x12001000, 2);
+      gs.writePrivileged(0x12001000, 1);
+      expect(gs.readPrivileged(0x12001000) & 3, 3);
+      gs.writePrivileged(0x12001000, 3);
+      expect(gs.readPrivileged(0x12001000) & 3, 0);
+    });
+
     aggCase('the display circuit is read into the image', () {
       final gs = _gs();
       _sprite(gs, 0, 0, 8, 8, _rgba(9, 8, 7));
