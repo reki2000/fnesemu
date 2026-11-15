@@ -25,11 +25,14 @@ The reference executor uses `BigInt` for exact i64 semantics on every Dart compi
 
 ## Vector values
 
-`IrType.v128` holds four 32-bit lanes, or two binary64 lanes for the floating-point vector operations. Lane 0 is the lowest word. A v128 value appears only in `ctxLoad`, `ctxStore`, side-exit stores and the vector operations, and occupies four context words. The verifier rejects any other use.
+`IrType.v128` holds four 32-bit lanes. Lane 0 is the lowest word. A v128 value appears only in `ctxLoad`, `ctxStore`, 16-byte `load` and `store`, side-exit stores and the vector operations, and occupies four context words. The verifier rejects any other use. A 16-byte access is little endian, untranslated and 16-byte aligned.
 
 - `vSplat`, `vExtract`, `vInsert`, `vShuffle` and `vBlend` move 32-bit lanes.
-- `vuDecode` converts two lanes of register images of a vector unit to binary64 exactly. An image is binary32 bits without infinity or NaN: exponent 0 is zero and exponent 255 is a normal exponent. `vFloatAdd`, `vFloatSub` and `vFloatMul` evaluate binary64 lanes and round to nearest.
-- `vuEncode` truncates two pairs of binary64 lanes back to images, and `vuFlags` returns their zero, sign, underflow and overflow flags as one i32. `vuMax`, `vuMin` and `vuClip` compare images by value.
+- The vector unit operations take register images of a vector unit. An image is binary32 bits without infinity or NaN: exponent 0 is zero and exponent 255 is a normal exponent.
+- `vuAdd`, `vuSub`, `vuMul`, `vuMadd` and `vuMsub` decode their operands exactly to binary64, pick the lanes of each operand by a shuffle selector, round a sum to nearest and truncate the result back to images. `vuMac` returns the zero, sign, underflow and overflow flags of such a result as one i32.
+- `vuItof` and `vuFtoi` convert between 32-bit integer lanes and images with a fixed-point shift. `vuMax`, `vuMin` and `vuClip` compare images by value.
+
+A backend chooses the forms of each value: the images, the decoded binary64 lanes or the flags. It computes a form only when a use needs it, so a chain of arithmetic operations stays decoded and drops the flags nobody reads.
 
 The operations are available only when `JitRuntime.vectors` is true: in the reference executor, on x86-64 (SSE2) and in Wasm runtimes that validate SIMD modules. The ARM64 backend rejects them. The exact semantics of each operation are in the comments of `IrOp`.
 

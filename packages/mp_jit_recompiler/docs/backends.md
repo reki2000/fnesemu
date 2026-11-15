@@ -13,8 +13,9 @@
 
 - Immediate arithmetic and shifts are used, and constants are rematerialized.
 - Block-local values are assigned to seven general-purpose registers (R8-R11, RBP, RSI, RDI) with a linear scan. Both widths use the same allocator and eight-byte spill slots. Values spanning possible helper calls remain in stack slots, and side exits retain values at their branch point. No register state is shared across block boundaries.
-- The frame reserves 4,096 value slots, which bounds the block length. Scalar and v128 values are numbered separately, and v128 values live in 16-byte stack slots.
-- Vector operations use SSE2 in XMM0-XMM5, which are caller-saved on every x64 ABI. Their constants are in a pool after the code and are addressed relative to RIP.
+- The frame reserves 4,096 scalar value slots and 1,024 v128 value slots, which bound the block length. Scalar and v128 values are numbered separately. A v128 slot is 64 bytes: the images, two decoded binary64 halves and the flags.
+- Vector operations use SSE2 in XMM0-XMM5, which are caller-saved on every x64 ABI. XMM8-XMM15 keep copies of the slots that later uses read, and the slots are still written for stubs and exits. A stub that calls the host reloads the copies before it rejoins the block, and the trampoline saves XMM8-XMM15 on Win64, where they are callee-saved. Their constants are in a pool after the code and are addressed relative to RIP. Decoding converts an image with CVTPS2PD and takes an out-of-line integer path when a lane has exponent 255.
+- Guards are sorted by host address, and four adjacent words are compared with one SSE2 comparison.
 - The trampoline probes its stack frame only on Windows.
 
 ## ARM64
@@ -41,7 +42,7 @@ QEMU validates instruction encodings and Linux ARM64 execution semantics. It doe
 - `dispose` returns a runtime's allocations, and a finalizer returns those of a runtime dropped without `dispose`. Allocations beyond the free capacity throw. Dispose runtimes explicitly, since finalization timing is not guaranteed.
 - The code cache clears at 4,096 installed blocks and recompiles on demand. It does not reclaim guest allocations.
 - i64 values use Wasm i64 locals. Big-endian accesses and guards reverse bytes around little-endian linear-memory operations. Floating-point operations reinterpret the bit patterns as f32 and f64.
-- v128 values use Wasm v128 locals. The runtime validates a small SIMD module at startup, and `vectors` is false when the engine rejects it.
+- v128 values use Wasm v128 locals, and their decoded halves use two more locals. The runtime validates a small SIMD module at startup, and `vectors` is false when the engine rejects it.
 
 ## Code publication
 

@@ -152,8 +152,8 @@ void main() {
       _lowerNop, _upperNop,
       0x14000000, // MSCAL 0
     ]);
-    expect(io.vu1.micro[0], _lowerNop);
-    expect(io.vu1.micro[1], _upperNop | (1 << 30));
+    expect(io.vu1.readMicro(0), _lowerNop);
+    expect(io.vu1.readMicro(1), _upperNop | (1 << 30));
   });
 
   aggCase('COP2 moves between GPRs, VU0 registers and control registers', () {

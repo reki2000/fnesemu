@@ -1,8 +1,9 @@
 part of 'interp_runtime.dart';
 
 /// The vector operations, on lanes of 32-bit words so that they are exact
-/// on every platform: a v128 value is a [Uint32List] of four words, and a
-/// binary64 lane is two of them, the low word first.
+/// on every platform: a v128 value is a [Uint32List] of four words. The
+/// result of a vector unit operation has its flags ([IrOp.vuMac]) as a
+/// fifth word.
 extension _Vector on IrInterpreterRuntime {
   static Uint32List _lanes(Object value) => value as Uint32List;
 
@@ -14,6 +15,18 @@ extension _Vector on IrInterpreterRuntime {
         return Uint32List.fromList(ctx.sublist(inst.imm, inst.imm + 4));
       case IrOp.ctxStore:
         ctx.setRange(inst.imm, inst.imm + 4, a());
+        return 0;
+      case IrOp.load:
+        final address = values[inst.a] as int;
+        return Uint32List.fromList([
+          for (var k = 0; k < 4; k++)
+            _load(address + 4 * k, 4, false, IrEndian.little),
+        ]);
+      case IrOp.store:
+        final address = values[inst.a] as int, x = b();
+        for (var k = 0; k < 4; k++) {
+          _store(address + 4 * k, 4, x[k], IrEndian.little);
+        }
         return 0;
       case IrOp.vSplat:
         return Uint32List(4)..fillRange(0, 4, values[inst.a] as int);
@@ -31,37 +44,28 @@ extension _Vector on IrInterpreterRuntime {
         return Uint32List.fromList([
           for (var i = 0; i < 4; i++) inst.imm & (1 << i) != 0 ? y[i] : x[i],
         ]);
-      case IrOp.vuDecode:
-        final x = a(), r = Uint32List(4);
-        for (var k = 0; k < 2; k++) {
-          final image = x[2 * inst.imm + k];
-          if (image & 0x7f800000 == 0) continue;
-          final magnitude = image & 0x7fffffff;
-          r[2 * k] = (magnitude << 29) & 0xffffffff;
-          r[2 * k + 1] =
-              ((magnitude >>> 3) + (896 << 20)) | (image & 0x80000000);
-        }
-        return r;
-      case IrOp.vFloatAdd || IrOp.vFloatSub || IrOp.vFloatMul:
-        final x = a(), y = b(), r = Uint32List(4);
-        for (var k = 0; k < 2; k++) {
-          final p = _double64(x, k), q = _double64(y, k);
-          final v = switch (inst.op) {
-            IrOp.vFloatAdd => p + q,
-            IrOp.vFloatSub => p - q,
-            _ => p * q,
-          };
-          _floatData.setFloat64(0, v, Endian.little);
-          r[2 * k] = _floatData.getUint32(0, Endian.little);
-          r[2 * k + 1] = _floatData.getUint32(4, Endian.little);
-        }
-        return r;
-      case IrOp.vuEncode || IrOp.vuFlags:
-        final x = a(), y = b(), r = Uint32List(4);
+      case IrOp.vuAdd ||
+            IrOp.vuSub ||
+            IrOp.vuMul ||
+            IrOp.vuMadd ||
+            IrOp.vuMsub:
+        // the images, then the flags of the result
+        final x = a(), y = b(), r = Uint32List(5);
+        final c = inst.c >= 0 ? _lanes(values[inst.c]) : null;
         var flags = 0;
         for (var i = 0; i < 4; i++) {
-          final source = i < 2 ? x : y, k = i & 1;
-          final low = source[2 * k], high = source[2 * k + 1];
+          final p = _value(x[(inst.imm >> 2 * i) & 3]);
+          final q = _value(y[(inst.imm >> 8 + 2 * i) & 3]);
+          final v = switch (inst.op) {
+            IrOp.vuAdd => p + q,
+            IrOp.vuSub => p - q,
+            IrOp.vuMul => p * q,
+            IrOp.vuMadd => _value(c![i]) + p * q,
+            _ => _value(c![i]) - p * q,
+          };
+          _floatData.setFloat64(0, v, Endian.little);
+          final low = _floatData.getUint32(0, Endian.little);
+          final high = _floatData.getUint32(4, Endian.little);
           final magnitudeHigh = high & 0x7fffffff;
           final sign = high & 0x80000000;
           final zero = magnitudeHigh < 897 << 20;
@@ -79,7 +83,27 @@ extension _Vector on IrInterpreterRuntime {
           if (under) flags |= 1 << (8 + at);
           if (over) flags |= 1 << (12 + at);
         }
-        return inst.op == IrOp.vuEncode ? r : flags;
+        r[4] = flags;
+        return r;
+      case IrOp.vuMac:
+        return a()[4];
+      case IrOp.vuItof:
+        final x = a(), r = Uint32List(4);
+        for (var i = 0; i < 4; i++) {
+          r[i] = _image(x[i].toSigned(32) / (1 << inst.imm));
+        }
+        return r;
+      case IrOp.vuFtoi:
+        final x = a(), r = Uint32List(4);
+        for (var i = 0; i < 4; i++) {
+          final v = _value(x[i]) * (1 << inst.imm);
+          r[i] = v >= 0x80000000
+              ? 0x7fffffff
+              : v <= -0x80000000
+              ? 0x80000000
+              : v.truncate() & 0xffffffff;
+        }
+        return r;
       case IrOp.vuMax || IrOp.vuMin:
         final x = a(), y = b();
         return Uint32List.fromList([
@@ -112,9 +136,26 @@ extension _Vector on IrInterpreterRuntime {
     return image & 0x80000000 != 0 ? -magnitude : magnitude;
   }
 
-  double _double64(Uint32List lanes, int k) {
-    _floatData.setUint32(0, lanes[2 * k], Endian.little);
-    _floatData.setUint32(4, lanes[2 * k + 1], Endian.little);
+  /// the register image of [v], truncated
+  int _image(double v) {
+    _floatData.setFloat64(0, v, Endian.little);
+    final low = _floatData.getUint32(0, Endian.little);
+    final high = _floatData.getUint32(4, Endian.little);
+    final magnitudeHigh = high & 0x7fffffff;
+    final sign = high & 0x80000000;
+    if (magnitudeHigh < 897 << 20) return sign;
+    if (magnitudeHigh > (1152 << 20) - 1) return sign | 0x7fffffff;
+    final shifted = ((high & 0x1fffffff) << 3) | (low >>> 29);
+    return sign | ((shifted - (896 << 23)) & 0xffffffff);
+  }
+
+  /// the value of a register image, exactly
+  double _value(int image) {
+    if (image & 0x7f800000 == 0) return 0;
+    final magnitude = image & 0x7fffffff;
+    _floatData.setUint32(0, (magnitude << 29) & 0xffffffff, Endian.little);
+    _floatData.setUint32(4,
+        ((magnitude >>> 3) + (896 << 20)) | (image & 0x80000000), Endian.little);
     return _floatData.getFloat64(0, Endian.little);
   }
 }
