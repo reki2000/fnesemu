@@ -220,8 +220,9 @@ List<String> _differences(
     ];
 
 void _load(Vu vu, _Program program, Uint32List data, Uint32List vf,
-    List<int> vi, List<String> kicks) {
-  vu.micro.fillRange(0, vu.micro.length, 0);
+    List<int> vi, List<String> kicks,
+    {bool clear = true}) {
+  if (clear) vu.micro.fillRange(0, vu.micro.length, 0);
   for (var n = 0; n < program.pairs.length; n++) {
     vu.micro[n * 2] = program.pairs[n].$1;
     vu.micro[n * 2 + 1] = program.pairs[n].$2;
@@ -270,6 +271,18 @@ void _compare(int seed, {required bool native}) {
         isEmpty,
         reason: 'seed $seed, run $run');
   }
+  // Another program over the first keeps its first pair, so only the
+  // guards of the changed pairs catch it.
+  final other = _Program(rnd)..build(4 + rnd.nextInt(24));
+  _load(reference, other, data, vf, vi, referenceKicks, clear: false);
+  _load(compiled, other, data, vf, vi, compiledKicks, clear: false);
+  reference.start(0);
+  compiled.start(0);
+  expect(
+      _differences(
+          _state(compiled, compiledKicks), _state(reference, referenceKicks)),
+      isEmpty,
+      reason: 'seed $seed, rewritten');
   jit.dispose();
 }
 

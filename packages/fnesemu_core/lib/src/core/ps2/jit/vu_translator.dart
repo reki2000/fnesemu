@@ -50,6 +50,11 @@ final class VuTranslator {
   /// pairs and the write back stay within the 4096 values of a block
   static const _valueLimit = 2400;
 
+  /// the v128 values of a block, below the 1024 of the x64 backend
+  static const _vectorLimit = 800;
+
+  bool get _full => b.length >= _valueLimit || b.vectors >= _vectorLimit;
+
   final int pairCount;
   final int dataQuads;
 
@@ -91,8 +96,7 @@ final class VuTranslator {
   final _vfDirty = List<bool>.filled(132, false);
   final _own = List<bool>.filled(132, false);
   final _vec = List<IrValue?>.filled(33, null);
-  final _vecDecoded = List<(IrValue, IrValue)?>.filled(33, null);
-  final _splatDecoded = <int, (IrValue, IrValue)>{};
+  final _splats = <int, IrValue>{};
   final _vi = List<IrValue?>.filled(16, null);
   final _viDirty = List<bool>.filled(16, false);
   final _viWord = List<IrValue?>.filled(8, null);
@@ -174,7 +178,7 @@ final class VuTranslator {
     while (true) {
       // the pair after an XGKICK always belongs to the block of the XGKICK
       if (_kickPrevious == null &&
-          (_p >= maxPairs || b.length >= _valueLimit)) {
+          (_p >= maxPairs || _full)) {
         break;
       }
       final (lo, hi) = _words(at);
@@ -239,8 +243,7 @@ final class VuTranslator {
     _vfDirty.fillRange(0, 132, false);
     _own.fillRange(0, 132, false);
     _vec.fillRange(0, 33, null);
-    _vecDecoded.fillRange(0, 33, null);
-    _splatDecoded.clear();
+    _splats.clear();
     _vi.fillRange(0, 16, null);
     _viDirty.fillRange(0, 16, false);
     _viWord.fillRange(0, 8, null);
@@ -271,9 +274,10 @@ final class VuTranslator {
       // one more time through the loop
       final pairs = _p ~/ _iterations;
       return _p + pairs <= maxPairs &&
-          b.length + b.length ~/ _iterations <= _valueLimit;
+          b.length + b.length ~/ _iterations <= _valueLimit &&
+          b.vectors + b.vectors ~/ _iterations <= _vectorLimit;
     }
-    return term.pcTrue > at && _p + 2 <= maxPairs && b.length < _valueLimit;
+    return term.pcTrue > at && _p + 2 <= maxPairs && !_full;
   }
 
   /// the pairs of the block that have code guards, and the times the
@@ -429,22 +433,12 @@ final class VuTranslator {
           ? b.vSplat(_vf[base + c]!)
           : b.vInsert(vec, _vf[base + c]!, c);
     }
-    _vecDecoded[reg] = null;
     return _vec[reg] = vec!;
   }
 
-  /// the binary64 lanes of the register, x and y, then z and w
-  (IrValue, IrValue) _vectorDecoded(int reg) {
-    final vec = _vector(reg);
-    return _vecDecoded[reg] ??= (b.vuDecode(vec, 0), b.vuDecode(vec, 1));
-  }
-
-  /// the binary64 lanes of a vector with [value] in every lane
-  (IrValue, IrValue) _splat(IrValue value) {
-    final vec = b.vSplat(value);
-    return _splatDecoded[value.index] ??=
-        (b.vuDecode(vec, 0), b.vuDecode(vec, 0));
-  }
+  /// a vector with [value] in every lane
+  IrValue _splat(IrValue value) =>
+      _splats[value.index] ??= b.vSplat(value);
 
   /// Writes the lanes of [mask] (x at 8) of the vector [value] to [reg].
   void _setVector(int reg, int mask, IrValue value) {
@@ -463,7 +457,6 @@ final class VuTranslator {
       _vfDirty[base + c] = true;
     }
     _vec[reg] = vec;
-    _vecDecoded[reg] = null;
   }
 
   IrValue _accDecodedLane(int c) => _laneDecoded(_accReg, c);
@@ -758,46 +751,53 @@ final class VuTranslator {
   (int, int, List<IrValue?>, List<IrValue?>)? _fmacVector(int kind, int bsel,
       int mask, int fs, int ft, int fd, IrValue? scalar,
       {required bool toAcc}) {
-    final (xLow, xHigh) = _vectorDecoded(fs);
-    final (yLow, yHigh) = switch (bsel) {
-      < 4 => _broadcast(ft, bsel),
-      6 => _vectorDecoded(ft),
-      _ => _splat(scalar!),
+    final (y, lanes) = switch (bsel) {
+      < 4 => _vec[ft] != null && !_own[ft * 4 + bsel]
+          ? (_vec[ft]!, bsel * 0x55)
+          : (_splat(_lane(ft, bsel)), 0xe4),
+      6 => (_vector(ft), 0xe4),
+      _ => (_splat(scalar!), 0xe4),
     };
-    IrValue lanes(IrValue x, IrValue y, IrValue Function() acc) =>
-        switch (kind) {
-          0 => b.vFloat(IrOp.vFloatAdd, x, y),
-          1 => b.vFloat(IrOp.vFloatSub, x, y),
-          2 => b.vFloat(IrOp.vFloatAdd, acc(), b.vFloat(IrOp.vFloatMul, x, y)),
-          3 => b.vFloat(IrOp.vFloatSub, acc(), b.vFloat(IrOp.vFloatMul, x, y)),
-          _ => b.vFloat(IrOp.vFloatMul, x, y),
-        };
-    final low = lanes(xLow, yLow, () => _vectorDecoded(_accReg).$1);
-    final high = lanes(xHigh, yHigh, () => _vectorDecoded(_accReg).$2);
+    final op = const [
+      IrOp.vuAdd,
+      IrOp.vuSub,
+      IrOp.vuMadd,
+      IrOp.vuMsub,
+      IrOp.vuMul,
+      IrOp.vuMul,
+      IrOp.vuMul
+    ][kind];
+    final result = b.vuArithmetic(op, _vector(fs), y,
+        c: kind == 2 || kind == 3 ? _vector(_accReg) : null, bLanes: lanes);
+    return _vectorResult(result, mask, fd, toAcc: toAcc);
+  }
+
+  /// The FMAC [result] for the fields [mask] of [fd] or the accumulator.
+  (int, int, List<IrValue?>, List<IrValue?>)? _vectorResult(
+      IrValue result, int mask, int fd,
+      {required bool toAcc}) {
     var flagMask = 0;
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) flagMask |= 0x1111 << (3 - c);
     }
-    _upperMac = b.and(b.vuFlags(low, high), _c(flagMask));
-    final bits = b.vuEncode(low, high);
+    _upperMac = b.and(b.vuMac(result), _c(flagMask));
     if (toAcc) {
-      _setVector(_accReg, mask, bits);
+      _setVector(_accReg, mask, result);
       return null;
     }
-    _upperVector = bits;
+    _upperVector = result;
     return (fd, mask, const [], const []);
   }
 
-  /// the binary64 lanes of a vector with lane [c] of [reg] in every lane
-  (IrValue, IrValue) _broadcast(int reg, int c) {
-    final base = reg * 4 + c;
-    if (_vec[reg] == null || _own[base]) return _splat(_lane(reg, c));
-    final vec = b.vShuffle(_vec[reg]!, c * 0x55);
-    final low = b.vuDecode(vec, 0);
-    return (low, low);
-  }
+  // the lanes y, z, x and z, x, y of the outer product
+  static const _outerA = 0xc9, _outerB = 0xd2;
 
   (int, int, List<IrValue?>, List<IrValue?>)? _opmsub(int fs, int ft, int fd) {
+    if (vectors) {
+      final result = b.vuArithmetic(IrOp.vuMsub, _vector(fs), _vector(ft),
+          c: _vector(_accReg), aLanes: _outerA, bLanes: _outerB);
+      return _vectorResult(result, 14, fd, toAcc: false);
+    }
     final lanes = List<IrValue?>.filled(4, null);
     IrValue mac = _c(0);
     for (var c = 0; c < 3; c++) {
@@ -860,6 +860,11 @@ final class VuTranslator {
       case const (11 << 2 | 1): // MSUBA
         return _fmac(3, 6, mask, fs, ft, 0, toAcc: true);
       case const (11 << 2 | 2): // OPMULA
+        if (vectors) {
+          final result = b.vuArithmetic(IrOp.vuMul, _vector(fs), _vector(ft),
+              aLanes: _outerA, bLanes: _outerB);
+          return _vectorResult(result, 14, 0, toAcc: true);
+        }
         IrValue mac = _c(0);
         for (var c = 0; c < 3; c++) {
           final a = c == 2 ? 0 : c + 1, v = c == 0 ? 2 : c - 1;
@@ -878,6 +883,11 @@ final class VuTranslator {
   (int, int, List<IrValue?>, List<IrValue?>) _convert(
       bool toFloat, int col, int mask, int fs, int ft) {
     final n = const [0, 4, 12, 15][col];
+    if (vectors) {
+      final a = _vector(fs);
+      _upperVector = toFloat ? b.vuItof(a, n) : b.vuFtoi(a, n);
+      return (ft, mask, const [], const []);
+    }
     final lanes = List<IrValue?>.filled(4, null);
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) == 0) continue;
@@ -938,6 +948,11 @@ final class VuTranslator {
   void _loadQuad(int reg, int mask, IrValue quad) {
     if (reg == 0) return;
     _setReady(reg, mask);
+    if (vectors) {
+      final address = b.shl(quad, _c(4));
+      _setVector(reg, mask, b.load(16, address, type: IrType.v128));
+      return;
+    }
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) {
         _setLane(reg, c, b.load(4, _laneAddress(quad, c)));
@@ -946,6 +961,10 @@ final class VuTranslator {
   }
 
   void _storeQuad(int reg, int mask, IrValue quad) {
+    if (vectors && mask == 15) {
+      b.store(16, b.shl(quad, _c(4)), _vector(reg));
+      return;
+    }
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) {
         b.store(4, _laneAddress(quad, c), _lane(reg, c));

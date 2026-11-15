@@ -296,12 +296,14 @@ abstract final class Arm64Backend {
             IrOp.vInsert ||
             IrOp.vShuffle ||
             IrOp.vBlend ||
-            IrOp.vuDecode ||
-            IrOp.vFloatAdd ||
-            IrOp.vFloatSub ||
-            IrOp.vFloatMul ||
-            IrOp.vuEncode ||
-            IrOp.vuFlags ||
+            IrOp.vuAdd ||
+            IrOp.vuSub ||
+            IrOp.vuMul ||
+            IrOp.vuMadd ||
+            IrOp.vuMsub ||
+            IrOp.vuMac ||
+            IrOp.vuItof ||
+            IrOp.vuFtoi ||
             IrOp.vuMax ||
             IrOp.vuMin ||
             IrOp.vuClip:

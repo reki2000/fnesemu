@@ -492,6 +492,33 @@ void main() {
         expect(env.ctx[8], 0);
       });
 
+      test('a changed word among adjacent guards invalidates the block', () {
+        if (factory == null) return;
+        // ten words, guarded out of order, which the x64 backend compares
+        // four at a time where they are adjacent
+        final view = ByteData.sublistView(env.ram);
+        int value(int w) => 0x01020304 * (w + 1);
+        for (var w = 0; w < 10; w++) {
+          view.setUint32(0x20 + 4 * w, value(w), Endian.little);
+        }
+        final b = IrBuilder(0x1020);
+        for (final w in const [3, 0, 1, 2, 9, 4, 6, 5, 7, 8]) {
+          b.guard(0x1020 + 4 * w, value(w));
+        }
+        b.ctxStore(8, b.c32(7));
+        env.rt.install(b
+            .finish(const IrExitTerm(IrExit(JitReason.user, 0x1048)), cost: 1));
+        for (var w = 0; w < 10; w++) {
+          run(0x1020);
+          expect(env.ctx[JitCtx.exitReason], JitReason.user);
+          env.ram[0x20 + 4 * w + (w & 3)] ^= 0x80;
+          run(0x1020);
+          expect(env.ctx[JitCtx.exitReason], JitReason.invalid,
+              reason: 'word $w');
+          env.ram[0x20 + 4 * w + (w & 3)] ^= 0x80;
+        }
+      });
+
       for (final write in [false, true]) {
         test('unmapped ${write ? 'stores' : 'loads'} exit with the address',
             () {

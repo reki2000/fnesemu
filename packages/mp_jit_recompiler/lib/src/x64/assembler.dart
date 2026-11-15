@@ -401,6 +401,21 @@ final class Assembler {
   void movdRX(int dst, int x) => sseRR(0x66, 0x7e, x, dst);
   void movmskps(int dst, int x) => sseRR(0, 0x50, dst, x);
 
+  /// PMOVMSKB: the sign bits of the bytes of [x] to [dst]
+  void pmovmskb(int dst, int x) => sseRR(0x66, 0xd7, dst, x);
+
+  /// PSHUFLW: the low four words of [dst] picked from [src] by [imm]
+  void pshuflw(int dst, int src, int imm) {
+    sseRR(0xf2, 0x70, dst, src);
+    u8(imm);
+  }
+
+  /// PSHUFHW: the high four words of [dst] picked from [src] by [imm]
+  void pshufhw(int dst, int src, int imm) {
+    sseRR(0xf3, 0x70, dst, src);
+    u8(imm);
+  }
+
   void pshufd(int dst, int src, int imm) {
     sseRR(0x66, 0x70, dst, src);
     u8(imm);
@@ -408,6 +423,29 @@ final class Assembler {
 
   void shufps(int dst, int src, int imm) {
     sseRR(0, 0xc6, dst, src);
+    u8(imm);
+  }
+
+  /// SHUFPD: the low lane of [dst] from lane `imm & 1` of [dst], the high
+  /// lane from lane `imm >> 1 & 1` of [src]
+  void shufpd(int dst, int src, int imm) {
+    sseRR(0x66, 0xc6, dst, src);
+    u8(imm);
+  }
+
+  /// CMPPD with the predicate [imm] (0 EQ, 1 LT, 2 LE, 4 NEQ, 5 NLT, 6 NLE)
+  void cmppd(int dst, int src, int imm) {
+    sseRR(0x66, 0xc2, dst, src);
+    u8(imm);
+  }
+
+  void cvtdq2pd(int dst, int src) => sseRR(0xf3, 0xe6, dst, src);
+  void cvtps2pd(int dst, int src) => sseRR(0, 0x5a, dst, src);
+  void cvttpd2dq(int dst, int src) => sseRR(0x66, 0xe6, dst, src);
+  void punpcklqdq(int dst, int src) => sseRR(0x66, 0x6c, dst, src);
+
+  void shufpdRM(int dst, Mem m, int imm) {
+    sseRM(0x66, 0xc6, dst, m);
     u8(imm);
   }
 
