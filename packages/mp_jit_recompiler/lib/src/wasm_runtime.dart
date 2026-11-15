@@ -29,6 +29,27 @@ extension type _Instance._(JSObject _) implements JSObject {
   external JSObject get exports;
 }
 
+@JS('WebAssembly.validate')
+external bool _validate(JSUint8Array bytes);
+
+/// Whether the host compiles the fixed-width SIMD of Wasm: a module whose
+/// function returns a lane of a v128 constant.
+final bool _simd = () {
+  try {
+    return _validate(Uint8List.fromList([
+      0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, //
+      1, 5, 1, 0x60, 0, 1, 0x7f, // type () -> i32
+      3, 2, 1, 0, // function
+      10, 0x19, 1, 0x17, 0, // code
+      0xfd, 0x0c, for (var i = 0; i < 16; i++) 0, // v128.const
+      0xfd, 0x1b, 0, // i32x4.extract_lane 0
+      0x0b,
+    ]).toJS);
+  } catch (_) {
+    return false;
+  }
+}();
+
 /// Capability detection includes policy restrictions on compiling Wasm.
 /// No dynamic JavaScript evaluation or external loader is needed.
 final bool supported = () {
@@ -236,6 +257,9 @@ final class _WasmRuntime extends JitRuntime
   /// about 3ms to translate, compile and instantiate a block
   @override
   int get compileThreshold => 32;
+
+  @override
+  bool get vectors => _simd;
 
   @override
   Uint8List alloc(int size) {

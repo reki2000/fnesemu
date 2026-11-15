@@ -2,7 +2,7 @@
 
 A block recompiler for emulator cores. A core translates guest code to `IrBlock`s, and `JitRuntime` runs them as x86-64, ARM64 or WebAssembly code.
 
-- `IrBlock` is straight-line SSA code over explicit `i32` and `i64` values with side exits and one terminator: a static jump, a branch, a dynamic jump or an exit to the host. Blocks are keyed by (pc, tag); the tag carries guest state that the code depends on, such as a load in its delay slot.
+- `IrBlock` is straight-line SSA code over explicit `i32` and `i64` values, and optional `v128` vectors, with side exits and one terminator: a static jump, a branch, a dynamic jump or an exit to the host. Blocks are keyed by (pc, tag); the tag carries guest state that the code depends on, such as a load in its delay slot.
 - The context is an array of 32-bit words shared with the host. The first words hold the exit reason, pc and tag, the clock budget, a stop word and a fault address; the rest belong to the guest.
 - Guest memory is mapped in pages to buffers from `JitRuntime.alloc`. Unmapped accesses call host functions or leave the block, and guards detect modified code.
 - `JitDriver` runs the dispatch loop for an adapter. `JitDiagnostics` collects optional statistics.
@@ -11,6 +11,8 @@ A block recompiler for emulator cores. A core translates guest code to `IrBlock`
 
 Every backend provides the same IR and runtime features on every platform: both value widths, both memory byte orders, floating-point operations, buffer sharing, entry counters and diagnostics. Frontends and cores therefore emit one lowering and do not query backend capabilities. A new IR feature is complete only when the reference executor and all compiled backends implement it. Block profiling is the one compiled-only diagnostic.
 
+The vector operations are the one exception. `JitRuntime.vectors` reports whether a runtime runs them: the reference executor, x86-64 and Wasm with SIMD do, and ARM64 does not yet. A frontend that uses them keeps a scalar lowering for the other runtimes. See [vector values](docs/ir.md#vector-values).
+
 ## Documentation
 
 The documents are grouped by purpose.
@@ -18,7 +20,7 @@ The documents are grouped by purpose.
 | Purpose | Document | Contents |
 | --- | --- | --- |
 | Use the runtime | [Runtime](docs/runtime.md) | Memory mappings, code protection, linking and dispatch, `JitDriver`, buffer sharing, error handling |
-| Use the runtime | [IR](docs/ir.md) | Value widths, byte order, floating-point operations, optimizer |
+| Use the runtime | [IR](docs/ir.md) | Value widths, byte order, floating-point operations, vector values, optimizer |
 | Understand a backend | [Backends](docs/backends.md) | x86-64, ARM64, Wasm and the reference executor, host requirements, code publication |
 | Write a frontend | [Frontend guide](docs/frontends.md) | State and clock contracts, register allocation, guarded specialization, validation |
 | Check what a core does | [Core adapters](docs/cores.md) | Current defaults and options of PS1, N64, SS and 32X, with their frontend policies |

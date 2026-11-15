@@ -206,6 +206,9 @@ final class _NativeRuntime extends JitRuntime
   int get compileThreshold => 4;
 
   @override
+  bool get vectors => !_os.arm64;
+
+  @override
   Uint8List alloc(int size) {
     final p = _alloc(size);
     final view = Pointer<Uint8>.fromAddress(p).asTypedList(size);
