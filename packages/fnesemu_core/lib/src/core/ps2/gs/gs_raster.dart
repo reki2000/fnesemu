@@ -155,11 +155,22 @@ class GsRaster {
   void draw(Gs gs, int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
     final resident = gs.residentSink;
     if (resident != null) {
-      resident.primitive(type, attrs, switch (type) {
-        Gs.primPoint => [a],
-        Gs.primTriangle => [a, b, c],
-        _ => [a, b],
-      });
+      // the lists are reused; the sink copies the vertices it keeps
+      final List<GsVertex> v;
+      switch (type) {
+        case Gs.primPoint:
+          v = _one..[0] = a;
+        case Gs.primTriangle:
+          v = _three
+            ..[0] = a
+            ..[1] = b
+            ..[2] = c;
+        default:
+          v = _two
+            ..[0] = a
+            ..[1] = b;
+      }
+      resident.primitive(type, attrs, v);
       return;
     }
     _setup((attrs >> 9) & 1, attrs);
@@ -176,6 +187,10 @@ class GsRaster {
   }
 
   // ---- primitives ----
+
+  final _one = List<GsVertex>.filled(1, GsVertex()),
+      _two = List<GsVertex>.filled(2, GsVertex()),
+      _three = List<GsVertex>.filled(3, GsVertex());
 
   void _point(GsVertex v, int attrs) {
     final x = (v.x - _ofx) >> 4, y = (v.y - _ofy) >> 4;

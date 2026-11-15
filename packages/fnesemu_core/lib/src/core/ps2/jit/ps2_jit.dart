@@ -5,7 +5,9 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import '../../../util/jit_adapter.dart';
 import '../bus.dart';
 import '../r5900/r5900.dart';
+import '../vu.dart';
 import 'r5900_translator.dart';
+import 'vu_jit.dart';
 
 /// Runs EE code compiled by [R5900Translator].
 ///
@@ -38,6 +40,27 @@ final class Ps2Jit extends JitAdapter {
       rt.ctx.offsetInBytes + R5900Translator.ctxFacc * 4, 2);
   late final R5900 cpu;
   late final R5900Translator _translator;
+
+  /// the VU0 of [newVu0], whose registers compiled code reads and writes
+  Vu? _vu0;
+
+  /// Returns a VU0 that keeps its registers in the context, for the
+  /// compiled COP2 instructions, and whose micro programs [micro] runs.
+  Vu newVu0([VuJit? micro]) {
+    Uint32List words(int word, int length) => Uint32List.view(
+        rt.ctx.buffer, rt.ctx.offsetInBytes + word * 4, length);
+    final vu = _vu0 = Vu(0,
+        vf: words(R5900Translator.ctxVu0Vf, 128),
+        acc: words(R5900Translator.ctxVu0Vf + 128, 4),
+        vi: Uint16List.view(rt.ctx.buffer,
+            rt.ctx.offsetInBytes + R5900Translator.ctxVu0Vi * 4, 16),
+        scalars: words(R5900Translator.ctxVu0Scalars, Vu.scalarWords),
+        micro: micro?.micro,
+        data: micro?.data,
+        vfReady: micro?.ready);
+    micro?.attach(vu);
+    return vu;
+  }
   late final _code = JitCodeMemory(rt);
   late final _driver = JitDriver(rt,
       translate: (pc, tag) => _translator.translate(pc, tag: tag),
@@ -110,7 +133,8 @@ final class Ps2Jit extends JitAdapter {
     _code.map(0, ram.length, ram);
     // The scratchpad holds no compiled code, so it needs no protection.
     rt.mapPages(R5900Translator.scratchAlias, scratch.length, scratch);
-    _translator = R5900Translator(fetch: _fetch, protect: _code.protect);
+    _translator = R5900Translator(
+        fetch: _fetch, protect: _code.protect, vectors: rt.vectors);
   }
 
   String _memoryRegion(int address) {
@@ -163,11 +187,14 @@ final class Ps2Jit extends JitAdapter {
     if (budget <= 0 || suspended) return false;
     final cpu = this.cpu;
     final pc = cpu.pc;
-    // The tag records whether COP1 is usable: blocks compiled with it
-    // clear translate no COP1 instructions, so a usable exception is
-    // never skipped, and blocks compiled with it set keep working when
-    // the bit later clears.
-    final tag = cpu.cop1Usable ? 1 : 0;
+    // The tag records whether COP1 and COP2 are usable: blocks compiled
+    // with a bit clear translate no instructions of that coprocessor, so
+    // a usable exception is never skipped, and blocks compiled with it
+    // set keep working when the bit later clears. COP2 counts as usable
+    // only when VU0 keeps its registers in the context.
+    final status = cpu.cop0[R5900.cop0Status];
+    final tag = (status >> 29 & 1) |
+        (_vu0 != null && identical(cpu.vu0, _vu0) ? status >> 29 & 2 : 0);
     final slot = (pc >> 2) & _refusedMask;
     if (_refusedKey[slot] == pc | tag << 32 &&
         _ram.getUint32(pc & 0x1fffffff, Endian.little) == _refusedWord[slot]) {

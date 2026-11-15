@@ -10,6 +10,9 @@ abstract interface class VuCompiler {
   /// Runs [vu] from its pc while it is running, for at most [maxPairs]
   /// pairs, with [Vu.step] for the pairs it does not compile.
   void run(Vu vu, int maxPairs);
+
+  /// Notes that words of micro memory changed.
+  void codeChanged();
 }
 
 /// A vector unit (VU0 or VU1): 32 four-lane float registers, 16 integer
@@ -41,7 +44,9 @@ class Vu {
   final int microWords; // 32-bit words of micro memory
   final int dataQuads;
 
-  final Uint32List micro;
+  /// Micro memory. Only [writeMicro] changes it, so that a compiler learns
+  /// that it changed.
+  final Uint32List _code;
   final Uint32List data;
   final Uint32List vf;
   final Uint16List vi;
@@ -50,8 +55,26 @@ class Vu {
   /// runs the micro programs instead of [step], or null
   VuCompiler? compiler;
 
-  int i = 0, q = 0x3f800000, r = 0x3f800000, p = 0;
-  int mac = 0, status = 0, clip = 0;
+  /// I, Q, R, the status, MAC and clip flags, in storage that compiled code
+  /// may share
+  final Uint32List _scalars;
+  int get i => _scalars[0];
+  set i(int value) => _scalars[0] = value;
+  int get q => _scalars[1];
+  set q(int value) => _scalars[1] = value;
+  int get r => _scalars[2];
+  set r(int value) => _scalars[2] = value;
+  int get status => _scalars[3];
+  set status(int value) => _scalars[3] = value;
+  int get mac => _scalars[4];
+  set mac(int value) => _scalars[4] = value;
+  int get clip => _scalars[5];
+  set clip(int value) => _scalars[5] = value;
+
+  /// the words of [Vu.new]'s scalars: I, Q, R, status, MAC and clip
+  static const scalarWords = 6;
+
+  int p = 0;
   int pc = 0;
   int cmsar0 = 0;
   bool running = false;
@@ -112,14 +135,16 @@ class Vu {
       Uint32List? vf,
       Uint16List? vi,
       Uint32List? acc,
+      Uint32List? scalars,
       Int64List? vfReady})
       : microWords = index == 0 ? 1024 : 4096,
         dataQuads = index == 0 ? 256 : 1024,
-        micro = micro ?? Uint32List(index == 0 ? 1024 : 4096),
+        _code = micro ?? Uint32List(index == 0 ? 1024 : 4096),
         data = data ?? Uint32List((index == 0 ? 256 : 1024) * 4),
         vf = vf ?? Uint32List(128),
         vi = vi ?? Uint16List(16),
         acc = acc ?? Uint32List(4),
+        _scalars = scalars ?? Uint32List(scalarWords),
         _vfReady = vfReady ?? Int64List(128) {
     reset();
   }
@@ -152,7 +177,7 @@ class Vu {
   void saveState(StateWriter w) {
     w.section('vu$index');
     for (final list in [
-      micro, data, vf, vi, acc, _vfReady, _flagReady, //
+      _code, data, vf, vi, acc, _vfReady, _flagReady, //
       _flagMac, _flagClip
     ]) {
       w.typed(list);
@@ -169,11 +194,12 @@ class Vu {
   void loadState(StateReader s) {
     s.section('vu$index');
     for (final list in [
-      micro, data, vf, vi, acc, _vfReady, _flagReady, //
+      _code, data, vf, vi, acc, _vfReady, _flagReady, //
       _flagMac, _flagClip
     ]) {
       s.typed(list);
     }
+    compiler?.codeChanged();
     final v = s.fields(17, 'vu');
     i = v[0];
     q = v[1];
@@ -434,10 +460,21 @@ class Vu {
   /// allocates nothing
   final _upperResult = Uint32List(4);
 
+  /// the word [word] of micro memory
+  int readMicro(int word) => _code[word & (microWords - 1)];
+
+  /// Writes [value] to the word [word] of micro memory.
+  void writeMicro(int word, int value) {
+    word &= microWords - 1;
+    if (_code[word] == value) return;
+    _code[word] = value;
+    compiler?.codeChanged();
+  }
+
   // ---- execution of one pair ----
 
   void step() {
-    final lowWord = micro[pc * 2], highWord = micro[pc * 2 + 1];
+    final lowWord = _code[pc * 2], highWord = _code[pc * 2 + 1];
     final delayTarget = _pending;
     _pending = -1;
     // the GIF reads the packet of an XGKICK while the program goes on, so the

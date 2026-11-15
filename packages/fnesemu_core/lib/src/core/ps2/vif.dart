@@ -143,6 +143,30 @@ class Vif extends DmaEndpoint {
 
   @override
   void put(int low, int high) {
+    // a quadword inside the data of a code goes in whole
+    if (_wordsLeft >= 4 && !_waiting && !_stalled && _held.isEmpty) {
+      if (_cmd == _direct || _cmd == _directHl) {
+        if (_quadCount == 0) {
+          path2?.put(low, high);
+          _wordsLeft -= 4;
+          if (_wordsLeft == 0) _done();
+          return;
+        }
+      } else {
+        final n = _count;
+        _buf[n] = low;
+        _buf[n + 1] = low >>> 32;
+        _buf[n + 2] = high;
+        _buf[n + 3] = high >>> 32;
+        _count = n + 4;
+        _wordsLeft -= 4;
+        if (_wordsLeft == 0) {
+          _finish();
+          _done();
+        }
+        return;
+      }
+    }
     _word(low & 0xffffffff);
     _word(low >>> 32);
     _word(high & 0xffffffff);
@@ -363,6 +387,11 @@ class Vif extends DmaEndpoint {
     final cycle = cl < writeCycle ? writeCycle : cl;
     final elementBits = size == 3 ? 16 : 32 >> size;
     final filling = cl < writeCycle;
+    if ((!maskEnabled || mask == 0) && !filling && size != 3) {
+      _unpackPlain(addr, vectors, writeCycle, cycle, comps, elementBits,
+          unsigned);
+      return;
+    }
     final x = List<int>.filled(4, 0);
     var k = 0;
     for (var i = 0; i < vectors; i++) {
@@ -419,6 +448,54 @@ class Vif extends DmaEndpoint {
     }
   }
 
+  /// [_unpack] without a mask, a filling write or the 5-bit format
+  void _unpackPlain(int addr, int vectors, int writeCycle, int cycle,
+      int comps, int bits, bool unsigned) {
+    final data = vu.data, buf = _buf, quads = vu.dataQuads - 1;
+    final elementMask = bits == 32 ? 0xffffffff : (1 << bits) - 1;
+    final sign = bits == 32 || unsigned ? 0 : 1 << (bits - 1);
+    final mode = this.mode;
+    var pos = 0, line = addr, slot = 0;
+    int element() {
+      final word = buf[pos >> 5];
+      final raw = (word >>> (pos & 31)) & elementMask;
+      pos += bits;
+      return ((raw ^ sign) - sign) & 0xffffffff;
+    }
+
+    for (var i = 0; i < vectors; i++) {
+      final o = ((line + slot) & quads) * 4;
+      if (++slot == writeCycle) {
+        slot = 0;
+        line += cycle;
+      }
+      final x0 = element();
+      final x1 = comps == 1 ? x0 : element();
+      final x2 = comps == 1 ? x0 : (comps > 2 ? element() : 0);
+      final x3 = comps == 1 ? x0 : (comps > 3 ? element() : 0);
+      if (mode == 0) {
+        data[o] = x0;
+        data[o + 1] = x1;
+        data[o + 2] = x2;
+        data[o + 3] = x3;
+        continue;
+      }
+      final r = row;
+      final v0 = (x0 + r[0]) & 0xffffffff, v1 = (x1 + r[1]) & 0xffffffff;
+      final v2 = (x2 + r[2]) & 0xffffffff, v3 = (x3 + r[3]) & 0xffffffff;
+      data[o] = v0;
+      data[o + 1] = v1;
+      data[o + 2] = v2;
+      data[o + 3] = v3;
+      if (mode == 2) {
+        r[0] = v0;
+        r[1] = v1;
+        r[2] = v2;
+        r[3] = v3;
+      }
+    }
+  }
+
   void _finish() {
     switch (_cmd) {
       case 0x20:
@@ -434,7 +511,7 @@ class Vif extends DmaEndpoint {
       case _mpg:
         final n = _count;
         for (var k = 0; k < n; k++) {
-          vu.micro[(_imm * 2 + k) & (vu.microWords - 1)] = _buf[k];
+          vu.writeMicro(_imm * 2 + k, _buf[k]);
         }
       case _direct || _directHl:
         break;

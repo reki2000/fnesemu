@@ -54,8 +54,8 @@ int _loSpecial(int sub, int col,
 Vu _vu(List<(int, int)> program, {int index = 1}) {
   final vu = Vu(index);
   for (var p = 0; p < program.length; p++) {
-    vu.micro[p * 2] = program[p].$1; // lower
-    vu.micro[p * 2 + 1] = program[p].$2; // upper
+    vu.writeMicro(p * 2, program[p].$1); // lower
+    vu.writeMicro(p * 2 + 1, program[p].$2); // upper
   }
   return vu;
 }

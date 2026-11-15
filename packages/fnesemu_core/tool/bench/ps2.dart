@@ -154,11 +154,11 @@ int _up(int op, int dest, int fd, int fs, int ft) =>
   // pair reads a register an earlier pair has not finished writing
   const ops = [0x28, 0x2a, 0x01, 0x18, 0x29, 0x02, 0x1a, 0x2c];
   for (var p = 0; p < pairs; p++) {
-    vu.micro[p * 2] = 0x8000033c; // lower NOP
-    vu.micro[p * 2 + 1] = _up(ops[p % ops.length], 15, 3 + p % 16, 1, 2);
+    vu.writeMicro(p * 2, 0x8000033c); // lower NOP
+    vu.writeMicro(p * 2 + 1, _up(ops[p % ops.length], 15, 3 + p % 16, 1, 2));
   }
-  vu.micro[pairs * 2] = (0x20 << 25) | (-pairs - 1 & 0x7ff); // B 0
-  vu.micro[pairs * 2 + 1] = 0x000002ff; // upper NOP
+  vu.writeMicro(pairs * 2, (0x20 << 25) | (-pairs - 1 & 0x7ff)); // B 0
+  vu.writeMicro(pairs * 2 + 1, 0x000002ff); // upper NOP
   final f = ByteData(4);
   void setVf(int reg, List<double> v) {
     for (var c = 0; c < 4; c++) {

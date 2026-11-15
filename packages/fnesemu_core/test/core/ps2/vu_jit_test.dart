@@ -222,12 +222,14 @@ List<String> _differences(
 void _load(Vu vu, _Program program, Uint32List data, Uint32List vf,
     List<int> vi, List<String> kicks,
     {bool clear = true}) {
-  if (clear) vu.micro.fillRange(0, vu.micro.length, 0);
-  for (var n = 0; n < program.pairs.length; n++) {
-    vu.micro[n * 2] = program.pairs[n].$1;
-    vu.micro[n * 2 + 1] = program.pairs[n].$2;
+  for (var w = 0; clear && w < vu.microWords; w++) {
+    vu.writeMicro(w, 0);
   }
-  vu.data.setAll(0, data);
+  for (var n = 0; n < program.pairs.length; n++) {
+    vu.writeMicro(n * 2, program.pairs[n].$1);
+    vu.writeMicro(n * 2 + 1, program.pairs[n].$2);
+  }
+  vu.data.setAll(0, data.sublist(0, vu.data.length));
   vu.vf.setAll(4, vf.sublist(4));
   for (var n = 1; n < 16; n++) {
     vu.vi[n] = vi[n];
@@ -237,14 +239,17 @@ void _load(Vu vu, _Program program, Uint32List data, Uint32List vf,
   vu.onXgkick = (q) {
     var h = 0;
     for (var n = 0; n < 16; n++) {
-      h = (h * 31 + vu.data[(q * 4 + n) & 4095]) & 0xffffffff;
+      h = (h * 31 + vu.data[(q * 4 + n) & (vu.data.length - 1)]) & 0xffffffff;
     }
     kicks.add('$q:$h');
   };
 }
 
-void _compare(int seed, {required bool native}) {
-  final jit = VuJit.create(native: native, compileThreshold: 1);
+/// Compares VU [index] compiled with the interpreter. The compiled VU0
+/// keeps its registers in buffers of its own, as with the EE recompiler.
+void _compare(int seed, {required bool native, int index = 1}) {
+  final jit =
+      VuJit.create(index: index, native: native, compileThreshold: 1);
   if (jit == null) {
     markTestSkipped('no recompiler on this host');
     return;
@@ -257,7 +262,15 @@ void _compare(int seed, {required bool native}) {
       Uint32List.fromList([for (var n = 0; n < 128; n++) program._float()]);
   final vi = [for (var n = 0; n < 16; n++) rnd.nextInt(0x10000)];
   vi[15] = rnd.nextInt(1024);
-  final reference = Vu(1), compiled = jit.newVu();
+  final reference = Vu(index);
+  final Vu compiled;
+  if (index == 1) {
+    compiled = jit.newVu();
+  } else {
+    compiled =
+        Vu(0, micro: jit.micro, data: jit.data, vfReady: jit.ready);
+    jit.attach(compiled);
+  }
   final referenceKicks = <String>[], compiledKicks = <String>[];
   _load(reference, program, data, vf, vi, referenceKicks);
   _load(compiled, program, data, vf, vi, compiledKicks);
@@ -296,6 +309,12 @@ void main() {
   test('compiled micro programs match the interpreter (native)', () {
     for (var seed = 0; seed < 1000; seed++) {
       _compare(seed, native: true);
+    }
+  });
+
+  test('compiled VU0 micro programs match the interpreter', () {
+    for (var seed = 0; seed < 300; seed++) {
+      _compare(seed, native: seed.isOdd, index: 0);
     }
   });
 }

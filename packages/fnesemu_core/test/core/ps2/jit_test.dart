@@ -3,6 +3,7 @@ import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/jit/ps2_jit.dart';
 import 'package:fnesemu_core/src/core/ps2/jit/r5900_translator.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
+import 'package:fnesemu_core/src/core/ps2/vu.dart';
 import 'package:test/test.dart';
 
 int _r(int fn, {int rs = 0, int rt = 0, int rd = 0, int sa = 0}) =>
@@ -94,7 +95,8 @@ List<int> _words() {
       gpr: jit?.gpr,
       fpr: jit?.fpr,
       multiply: jit?.multiply,
-      fpuControl: jit?.fpuControl);
+      fpuControl: jit?.fpuControl)
+    ..vu0 = jit?.newVu0() ?? Vu(0);
   jit?.attach(cpu);
   final program = words ?? _words();
   for (var i = 0; i < program.length; i++) {
@@ -138,8 +140,17 @@ void _compare(Ps2Jit? jit, String name,
   }
   expect(cpu.facc, expected.facc, reason: '$name facc');
   expect(cpu.fcr31, expected.fcr31, reason: '$name fcr31');
-  for (var a = _data; a < _data + 48; a += 8) {
+  for (var a = _data; a < _data + 96; a += 8) {
     expect(bus.read64(a), expectedBus.read64(a), reason: '$name 0x$a');
+  }
+  final vu = cpu.vu0!, expectedVu = expected.vu0!;
+  for (var w = 0; w < 128; w++) {
+    expect(vu.vf[w], expectedVu.vf[w], reason: '$name vf word $w');
+  }
+  expect(vu.acc, expectedVu.acc, reason: '$name acc');
+  for (final n in [for (var r = 0; r < 16; r++) r, 16, 17, 18, 20, 21, 22]) {
+    expect(vu.readControl(n), expectedVu.readControl(n),
+        reason: '$name control $n');
   }
 }
 
@@ -223,6 +234,179 @@ final _cop1Program = [
   _r(0), // nop
 ];
 
+/// BC1 [kind] (0 BC1F, 1 BC1T, 2 BC1FL, 3 BC1TL) over [offset] words
+int _bc1(int kind, int offset) => _cop1(8, ft: kind) | (offset & 0xffff);
+
+/// A BC1 program: each form taken and not taken, and a compare in a delay
+/// slot, which the branch before it does not see.
+final _bc1Program = [
+  _i(15, 0, 1, _data >> 16), // lui r1, data
+  _i(49, 1, 1, 0), // lwc1 f1, 0(r1)
+  _i(49, 1, 2, 4), // lwc1 f2, 4(r1)
+  _s(0x34, fs: 1, ft: 2), // c.lt.s f1, f2: true
+  _bc1(1, 2), // bc1t +2: taken
+  _i(9, 0, 2, 1), // addiu r2, zero, 1 (delay slot)
+  _i(9, 0, 3, 1), // addiu r3, zero, 1 (skipped)
+  _bc1(0, 2), // bc1f +2: not taken
+  _i(9, 0, 4, 1), // addiu r4, zero, 1 (delay slot)
+  _i(9, 0, 5, 1), // addiu r5, zero, 1
+  _s(0x30), // c.f.s: false
+  _bc1(3, 2), // bc1tl +2: not taken
+  _i(9, 0, 6, 1), // addiu r6, zero, 1 (annulled)
+  _i(9, 0, 7, 1), // addiu r7, zero, 1
+  _bc1(2, 2), // bc1fl +2: taken
+  _i(9, 0, 8, 1), // addiu r8, zero, 1 (delay slot)
+  _i(9, 0, 9, 1), // addiu r9, zero, 1 (skipped)
+  _bc1(1, 2), // bc1t +2: not taken
+  _s(0x32, fs: 1, ft: 1), // c.eq.s f1, f1 (delay slot): true
+  _i(9, 0, 10, 1), // addiu r10, zero, 1
+  _bc1(1, 2), // bc1t +2: taken
+  _r(0), // nop
+  _i(9, 0, 11, 1), // addiu r11, zero, 1 (skipped)
+  _r(0), // nop: the end loop starts at an even clock
+  _i(4, 0, 0, -1), // end: beq zero, zero, end
+  _r(0), // nop
+];
+
+/// a COP2 macro instruction: [funct] of the upper encoding
+int _v(int funct, {int dest = 15, int ft = 0, int fs = 0, int fd = 0}) =>
+    18 << 26 | 1 << 25 | dest << 21 | ft << 16 | fs << 11 | fd << 6 | funct;
+
+/// a COP2 macro instruction of the special codes 0x3c to 0x3f
+int _vs(int code, {int dest = 15, int ft = 0, int fs = 0}) =>
+    _v(0x3c | (code & 3), dest: dest, ft: ft, fs: fs, fd: code >> 2);
+
+/// a COP2 move: QMFC2 (1), CFC2 (2), QMTC2 (5) or CTC2 (6)
+int _c2(int rs, int rt, int rd) => 18 << 26 | rs << 21 | rt << 16 | rd << 11;
+
+final _cop2Data = [
+  0x3fc00000, 0x40100000, 0xc0000000, 0x3f800000, // 1.5 2.25 -2 1
+  0x40400000, 0xbf000000, 0x00000000, 0x41200000, // 3 -0.5 0 10
+  0x7f000000, 0x00800000, 0x80800000, 0x7f7fffff, // 2^127 2^-126 -2^-126 max
+  0x00000005, 0xfffffff0, 0x00001234, 0x00010000, // integers
+];
+
+/// A COP2 program: the VU0 transfers, the upper, accumulator and integer
+/// macro forms, the flag paths (overflow, underflow, sticky status, CLIP
+/// history), the control registers, and a load that leaves the compiled
+/// memory mapping between two macro instructions (the side exit snapshot
+/// path).
+final _cop2Program = [
+  _i(15, 0, 1, _data >> 16), // lui r1, data
+  _i(54, 1, 1, 0), // lqc2 vf1, 0(r1)
+  _i(54, 1, 2, 16), // lqc2 vf2, 16(r1)
+  _i(54, 1, 3, 32), // lqc2 vf3, 32(r1)
+  _i(54, 1, 19, 48), // lqc2 vf19, 48(r1)
+  _i(15, 0, 2, 0x4040), // lui r2, 3.0
+  _c2(6, 2, 21), // ctc2 r2, I
+  _i(15, 0, 3, 0x3f00), // lui r3, 0.5
+  _c2(6, 3, 22), // ctc2 r3, Q
+  _v(0x28, ft: 2, fs: 1, fd: 4), // vadd vf4, vf1, vf2
+  _v(0x2c, dest: 10, ft: 2, fs: 1, fd: 5), // vsub.xz vf5, vf1, vf2
+  _v(0x19, dest: 1, ft: 3, fs: 1, fd: 6), // vmuly.w vf6, vf1, vf3y
+  _v(0x22, ft: 0, fs: 1, fd: 7), // vaddi vf7, vf1, I
+  _v(0x1c, ft: 0, fs: 2, fd: 8), // vmulq vf8, vf2, Q
+  _vs(0x2a, ft: 2, fs: 1), // vmula ACC, vf1, vf2
+  _v(0x29, ft: 2, fs: 1, fd: 9), // vmadd vf9, vf1, vf2
+  _v(0x0f, dest: 6, ft: 2, fs: 1, fd: 9), // vmsubw.yz vf9, vf1, vf2w
+  _vs(0x2e, dest: 14, ft: 2, fs: 1), // vopmula ACC, vf1, vf2
+  _v(0x2e, dest: 14, ft: 2, fs: 1, fd: 10), // vopmsub vf10, vf1, vf2
+  _v(0x2b, ft: 2, fs: 1, fd: 11), // vmax vf11, vf1, vf2
+  _v(0x1f, ft: 0, fs: 2, fd: 11), // vminii vf11, vf2, I
+  _vs(0x1d, ft: 12, fs: 5), // vabs vf12, vf5
+  _vs(0x10, ft: 13, fs: 19), // vitof0 vf13, vf19
+  _vs(0x15, ft: 14, fs: 2), // vftoi4 vf14, vf2
+  _v(0x2a, ft: 3, fs: 3, fd: 20), // vmul vf20, vf3, vf3: overflow, underflow
+  _c2(2, 4, 16), // cfc2 r4, status
+  _c2(2, 5, 17), // cfc2 r5, mac
+  _vs(0x1f, ft: 2, fs: 1), // vclipw vf1, vf2w
+  _vs(0x1f, ft: 1, fs: 3), // vclipw vf3, vf1w
+  _c2(2, 6, 18), // cfc2 r6, clip
+  _vs(0x30, dest: 13, ft: 15, fs: 1), // vmove.xyw vf15, vf1
+  _vs(0x31, ft: 16, fs: 1), // vmr32 vf16, vf1
+  _vs(0x3c, dest: 0, ft: 1, fs: 19), // vmtir vi1, vf19x
+  _vs(0x3c, dest: 1, ft: 7, fs: 19), // vmtir vi7, vf19y
+  _v(0x32, ft: 2, fs: 1, fd: 0x1d), // viaddi vi2, vi1, -3
+  _v(0x30, ft: 2, fs: 1, fd: 3), // viadd vi3, vi1, vi2
+  _v(0x34, ft: 7, fs: 3, fd: 4), // viand vi4, vi3, vi7
+  _v(0x35, ft: 7, fs: 3, fd: 5), // vior vi5, vi3, vi7
+  _v(0x31, ft: 3, fs: 1, fd: 6), // visub vi6, vi1, vi3
+  _vs(0x3d, dest: 5, ft: 17, fs: 6), // vmfir.xz vf17, vi6
+  _c2(2, 7, 6), // cfc2 r7, vi6
+  _c2(1, 8, 4), // qmfc2 r8, vf4
+  _i(15, 0, 9, 0x1f80), // lui r9, 0x1f80
+  _i(35, 9, 10, 0), // lw r10, 0(r9): the scratchpad, outside the mapping
+  _v(0x28, ft: 2, fs: 8, fd: 21), // vadd vf21, vf8, vf2
+  _r(45, rs: 8, rt: 8, rd: 11), // daddu r11, r8, r8
+  _c2(5, 11, 18), // qmtc2 r11, vf18
+  _c2(6, 0, 16), // ctc2 zero, status
+  _v(0x2c, ft: 2, fs: 2, fd: 22), // vsub vf22, vf2, vf2: zero
+  _c2(2, 12, 16), // cfc2 r12, status
+  _c2(6, 12, 1), // ctc2 r12, vi1
+  _i(62, 1, 9, 48), // sqc2 vf9, 48(r1)
+  _i(62, 1, 10, 64), // sqc2 vf10, 64(r1)
+  _i(62, 1, 18, 80), // sqc2 vf18, 80(r1)
+  _i(4, 0, 0, 2), // beq zero, zero, +2
+  _v(0x28, ft: 1, fs: 1, fd: 23), // vadd vf23, vf1, vf1 (delay slot)
+  _i(9, 0, 30, 1), // addiu r30, zero, 1 (skipped)
+  _i(4, 0, 0, -1), // end: beq zero, zero, end
+  _r(0), // nop
+];
+
+/// an MMI instruction of function [fn]
+int _mmi(int fn, {int rs = 0, int rt = 0, int rd = 0}) =>
+    28 << 26 | _r(fn, rs: rs, rt: rt, rd: rd);
+
+/// A program of the unaligned loads and stores at every byte offset of
+/// the word and doubleword forms, the multiplies of both pipes with the
+/// accumulating forms, and CVT.S.W.
+final _mixProgram = [
+  _i(15, 0, 1, _data >> 16), // lui r1, data
+  _i(55, 1, 2, 0), // ld r2, 0(r1)
+  _i(55, 1, 3, 8), // ld r3, 8(r1)
+  for (var k = 0; k < 8; k++) ...[
+    _r(45, rs: 2, rt: 0, rd: 4 + k), // daddu r(4+k), r2, zero
+    _i(26, 1, 4 + k, k), // ldl r(4+k), k(r1)
+    _i(27, 1, 4 + k, 8 + k), // ldr r(4+k), 8+k(r1)
+  ],
+  for (var k = 0; k < 4; k++) ...[
+    _r(45, rs: 3, rt: 0, rd: 12 + k), // daddu r(12+k), r3, zero
+    _i(34, 1, 12 + k, k), // lwl r(12+k), k(r1)
+    _r(45, rs: 3, rt: 0, rd: 16 + k), // daddu r(16+k), r3, zero
+    _i(38, 1, 16 + k, 4 + k), // lwr r(16+k), 4+k(r1)
+  ],
+  for (var k = 0; k < 8; k++) ...[
+    _i(44, 1, 3, 16 + k * 8 + k), // sdl r3, 16+9k(r1)
+  ],
+  _i(45, 1, 2, 19), // sdr r2, 19(r1)
+  _i(45, 1, 3, 80), // sdr r3, 80(r1)
+  _i(45, 1, 2, 87), // sdr r2, 87(r1)
+  _i(42, 1, 2, 89), // swl r2, 89(r1)
+  _i(42, 1, 3, 92), // swl r3, 92(r1)
+  _i(46, 1, 2, 94), // swr r2, 94(r1)
+  _i(46, 1, 3, 72), // swr r3, 72(r1)
+  _r(24, rs: 2, rt: 3, rd: 20), // mult r20, r2, r3
+  _r(16, rd: 21), // mfhi r21
+  _r(25, rs: 2, rt: 3, rd: 22), // multu r22, r2, r3
+  _r(16, rd: 23), // mfhi r23
+  _mmi(0x00, rs: 3, rt: 3, rd: 24), // madd r24, r3, r3
+  _r(16, rd: 25), // mfhi r25
+  _mmi(0x01, rs: 2, rt: 3, rd: 26), // maddu r26, r2, r3
+  _r(18, rd: 27), // mflo r27
+  _mmi(0x18, rs: 3, rt: 2, rd: 28), // mult1 r28, r3, r2
+  _mmi(0x10, rd: 29), // mfhi1 r29
+  _mmi(0x19, rs: 3, rt: 2), // multu1 zero, r3, r2
+  _mmi(0x12, rd: 30), // mflo1 r30
+  _cop1(4, ft: 2, fs: 1), // mtc1 r2, f1
+  _cop1(4, ft: 3, fs: 2), // mtc1 r3, f2
+  _cop1(20, fs: 1, fd: 3, fn: 0x20), // cvt.s.w f3, f1
+  _cop1(20, fs: 2, fd: 4, fn: 0x20), // cvt.s.w f4, f2
+  _cop1(20, fs: 0, fd: 5, fn: 0x20), // cvt.s.w f5, f0
+  _r(0), // nop
+  _i(4, 0, 0, -1), // end: beq zero, zero, end
+  _r(0), // nop
+];
+
 class _CaseSkip implements Exception {
   const _CaseSkip();
 }
@@ -279,6 +463,30 @@ void main() {
     addTearDown(jit.dispose);
     _compare(jit, 'reference cop1', _cop1Program, _cop1Data);
   });
+
+  for (final native in [false, true]) {
+    aggCase('compiled BC1 matches the interpreter (native: $native)', () {
+      final jit = Ps2Jit.create(native: native, compileThreshold: 1);
+      if (jit == null) return; // no little-endian host
+      addTearDown(jit.dispose);
+      _compare(jit, 'bc1 $native', _bc1Program, _cop1Data);
+    });
+    aggCase('compiled unaligned accesses, multiplies and CVT.S.W match the interpreter (native: $native)', () {
+      final jit = Ps2Jit.create(native: native, compileThreshold: 1);
+      if (jit == null) return; // no little-endian host
+      addTearDown(jit.dispose);
+      _compare(jit, 'mix $native', _mixProgram, [
+        0x89abcdef, 0x01234567, 0x7654321f, 0xfedcba98, //
+        for (var i = 0; i < 20; i++) 0x11111111 * (i & 15) ^ 0x5a5a5a5a,
+      ]);
+    });
+    aggCase('compiled COP2 matches the interpreter (native: $native)', () {
+      final jit = Ps2Jit.create(native: native, compileThreshold: 1);
+      if (jit == null) return; // no little-endian host
+      addTearDown(jit.dispose);
+      _compare(jit, 'cop2 $native', _cop2Program, _cop2Data);
+    });
+  }
 
 
   for (final native in [false, true]) {
