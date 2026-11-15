@@ -48,7 +48,9 @@ class _Pages {
 
   void clear() {
     if (!any) return;
-    bits.fillRange(0, 16, 0);
+    for (var i = 0; i < 16; i++) {
+      bits[i] = 0;
+    }
     any = false;
   }
 
@@ -421,18 +423,51 @@ class GsCompute implements GsResidentSink {
   int _stateAt = -1;
 
   int _state(int attrs) {
+    final gs = this.gs, last = _lastRegs;
     final c = gs.contexts[attrs >> 9 & 1];
-    final regs = [
-      c.frame, c.zbuf, c.test, c.alpha, c.fba, c.xyoffset, c.scissor, c.tex0,
-      c.tex1, c.clamp, c.miptbp1, c.miptbp2, gs.texa, gs.fogcol, gs.pabe,
-      gs.colclamp, gs.dthe, gs.dimx, attrs & 0x3f8, //
-    ];
-    var same = _stateAt >= 0 && _stateAt + stateWords <= _dataLength;
-    for (var i = 0; same && i < regs.length; i++) {
-      if (_lastRegs[i] != regs[i]) same = false;
+    if (_stateAt >= 0 &&
+        _stateAt + stateWords <= _dataLength &&
+        last[0] == c.frame &&
+        last[1] == c.zbuf &&
+        last[2] == c.test &&
+        last[3] == c.alpha &&
+        last[4] == c.fba &&
+        last[5] == c.xyoffset &&
+        last[6] == c.scissor &&
+        last[7] == c.tex0 &&
+        last[8] == c.tex1 &&
+        last[9] == c.clamp &&
+        last[10] == c.miptbp1 &&
+        last[11] == c.miptbp2 &&
+        last[12] == gs.texa &&
+        last[13] == gs.fogcol &&
+        last[14] == gs.pabe &&
+        last[15] == gs.colclamp &&
+        last[16] == gs.dthe &&
+        last[17] == gs.dimx &&
+        last[18] == attrs & 0x3f8) {
+      return _stateAt;
     }
-    if (same) return _stateAt;
-    _lastRegs.setAll(0, regs);
+    last
+      ..[0] = c.frame
+      ..[1] = c.zbuf
+      ..[2] = c.test
+      ..[3] = c.alpha
+      ..[4] = c.fba
+      ..[5] = c.xyoffset
+      ..[6] = c.scissor
+      ..[7] = c.tex0
+      ..[8] = c.tex1
+      ..[9] = c.clamp
+      ..[10] = c.miptbp1
+      ..[11] = c.miptbp2
+      ..[12] = gs.texa
+      ..[13] = gs.fogcol
+      ..[14] = gs.pabe
+      ..[15] = gs.colclamp
+      ..[16] = gs.dthe
+      ..[17] = gs.dimx
+      ..[18] = attrs & 0x3f8;
     final at = _allocData(stateWords);
     final s = _data;
     s.fillRange(at, at + stateWords, 0);

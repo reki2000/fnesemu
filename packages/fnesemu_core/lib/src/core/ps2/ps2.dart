@@ -56,6 +56,9 @@ class Ps2 extends Core {
 
   /// the VU1 recompiler, created with the EE one
   final VuJit? vuJit;
+
+  /// the recompiler of the VU0 micro programs, created with the EE one
+  final VuJit? vu0Jit;
   final Ps2Bus bus;
   late final R5900 cpu = R5900(bus,
       gpr: jit?.gpr,
@@ -69,11 +72,12 @@ class Ps2 extends Core {
 
   Ps2({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
       : this._(jit ? Ps2Jit.create() : null, jit ? IopJit.create() : null,
-            jit && _vuJit ? VuJit.create() : null);
+            jit && _vuJit ? VuJit.create() : null,
+            jit && _vuJit ? VuJit.create(index: 0) : null);
 
   static const _vuJit = bool.fromEnvironment('VU_JIT', defaultValue: true);
 
-  Ps2._(this.jit, this.iopJit, this.vuJit)
+  Ps2._(this.jit, this.iopJit, this.vuJit, this.vu0Jit)
       : bus = Ps2Bus(ram: jit?.ram, scratch: jit?.scratch) {
     jit?.attach(cpu);
     iopJit?.attach(iop, iopMemory);
@@ -89,19 +93,22 @@ class Ps2 extends Core {
   bool get jitEnabled =>
       (jit?.native ?? false) ||
       (iopJit?.native ?? false) ||
-      (vuJit?.native ?? false);
+      (vuJit?.native ?? false) ||
+      (vu0Jit?.native ?? false);
 
   @override
   bool get jitSuspended =>
       (jit?.suspended ?? false) ||
       (iopJit?.suspended ?? false) ||
-      (vuJit?.suspended ?? false);
+      (vuJit?.suspended ?? false) ||
+      (vu0Jit?.suspended ?? false);
 
   @override
   set jitSuspended(bool value) {
     jit?.suspended = value;
     iopJit?.suspended = value;
     vuJit?.suspended = value;
+    vu0Jit?.suspended = value;
   }
 
   @override
@@ -114,6 +121,7 @@ class Ps2 extends Core {
     jit?.dispose();
     iopJit?.dispose();
     vuJit?.dispose();
+    vu0Jit?.dispose();
   }
 
   late final IopMemory iopMemory = IopMemory(bus.bios, ram: iopJit?.ram);
@@ -179,7 +187,7 @@ class Ps2 extends Core {
   }
 
   EeIo _newIo() {
-    final io = EeIo(bus, vu1: vuJit?.newVu());
+    final io = EeIo(bus, vu0: jit?.newVu0(vu0Jit), vu1: vuJit?.newVu());
     bus.io = io;
     cpu
       ..vu0 = io.vu0
@@ -288,6 +296,7 @@ class Ps2 extends Core {
     jit?.reset();
     iopJit?.reset();
     vuJit?.reset();
+    vu0Jit?.reset();
     cpu.reset();
     // the new GS takes the sink; the old one releases its program
     _releaseCompute();
@@ -375,6 +384,7 @@ class Ps2 extends Core {
     jit?.reset();
     iopJit?.reset();
     vuJit?.reset();
+    vu0Jit?.reset();
     io.intc.dirty = io.dmac.dirty = true;
     _updateInterruptLines();
     iop.setInterrupt(iopIo.asserted);

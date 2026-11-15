@@ -82,6 +82,9 @@ final class VuTranslator {
 
   late IrBuilder b;
 
+  /// the tag of the block being translated, which its exits keep
+  int _tag = 0;
+
   /// the pair index in the block being translated
   int _p = 0;
 
@@ -171,8 +174,9 @@ final class VuTranslator {
 
   (int, int) _words(int pc) => (fetch(pc * 2), fetch(pc * 2 + 1));
 
-  IrBlock? translate(int pc) {
-    b = IrBuilder(pc);
+  IrBlock? translate(int pc, {int tag = 0}) {
+    _tag = tag;
+    b = IrBuilder(pc, tag: tag);
     _reset();
     var at = pc;
     while (true) {
@@ -212,6 +216,7 @@ final class VuTranslator {
           b.exitIf(
               loop ? b.eq(term.cond, _c(0)) : term.cond,
               IrExit(reasonEnd, loop ? term.pcFalse : term.pcTrue,
+                  tag: tag,
                   link: true, spent: _p, stores: _exitStores()));
           if (loop) _iterations++;
           at = loop ? pc : term.pcFalse;
@@ -227,13 +232,14 @@ final class VuTranslator {
         _flush();
         if (_kickPrevious != null) b.ctxStore(VuCtx.kick, _kickPrevious!);
         final after = (next + 1) & (pairCount - 1);
-        return b.finish(IrExitTerm(IrExit(reasonEnd, after)), cost: _p);
+        return b.finish(IrExitTerm(IrExit(reasonEnd, after, tag: tag)),
+            cost: _p);
       }
       at = next;
     }
     if (_p == 0) return null;
     _flush();
-    return b.finish(IrJump(at), cost: _p);
+    return b.finish(IrJump(at, tag: tag), cost: _p);
   }
 
   void _reset() {
@@ -991,9 +997,9 @@ final class VuTranslator {
     IrTerm term;
     switch (op) {
       case 0x20 || 0x21: // B, BAL
-        term = IrJump(target);
+        term = IrJump(target, tag: _tag);
       case 0x24 || 0x25: // JR, JALR
-        term = IrJumpDyn(b.and(isv, _c(pairCount - 1)));
+        term = IrJumpDyn(b.and(isv, _c(pairCount - 1)), tag: _tag);
       case _:
         final signed = b.sext16(isv);
         final cond = switch (op) {
@@ -1004,7 +1010,8 @@ final class VuTranslator {
           0x2e => b.ltS(signed, _c(1)),
           _ => b.ltS(_c(-1), signed),
         };
-        term = IrBranch(cond, target, next);
+        term =
+            IrBranch(cond, target, next, tagTrue: _tag, tagFalse: _tag);
     }
     // the branch pair itself, with the link written by its lower word
     _pairWithLower(pc, ir, () {
