@@ -411,6 +411,14 @@ class Allegrex extends AllegrexState {
       case 0x13: // MTLO
         lo = r[rs];
         return true;
+      case 0x1c: // MADD accumulates the signed product into hi:lo
+        final (h, l) = _mulS32(r[rs], r[rt]);
+        _accumulate(h, l);
+        return true;
+      case 0x1d: // MADDU
+        final (h, l) = _mulU32(_u(r[rs]), _u(r[rt]));
+        _accumulate(_s(h), _s(l));
+        return true;
       case 0x18: // MULT
         final (h, l) = _mulS32(r[rs], r[rt]);
         hi = h;
@@ -440,6 +448,14 @@ class Allegrex extends AllegrexState {
         return true;
       case 0x2d: // MIN keeps the smaller signed operand
         _set(rd, r[rs] < r[rt] ? r[rs] : r[rt]);
+        return true;
+      case 0x2e: // MSUB subtracts the signed product from hi:lo
+        final (h, l) = _mulS32(r[rs], r[rt]);
+        _accumulate(_s(l == 0 ? -h : ~h), _s(-l));
+        return true;
+      case 0x2f: // MSUBU
+        final (h, l) = _mulU32(_u(r[rs]), _u(r[rt]));
+        _accumulate(_s(l == 0 ? -h : ~h), _s(-l));
         return true;
       case 0x24: // AND
         _set(rd, r[rs] & r[rt]);

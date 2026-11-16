@@ -96,6 +96,30 @@ void main() {
       expect(cpu.r[Reg.t5], 0);
     });
 
+    test('madd and msub in the special encoding the toolchain emits',
+        () {
+      final (cpu, _) = run((a) {
+        a.li(Reg.t0, 0x10000);
+        a.li(Reg.t1, 0x10000);
+        a.r(Reg.t0, Reg.t1, 0, 0, 0x18); // mult: hi 1, lo 0
+        a.r(Reg.t0, Reg.t1, 0, 0, 0x1c); // madd: hi 2, lo 0
+        a.r(0, 0, Reg.t3, 0, 0x10); // mfhi
+        a.r(Reg.t0, Reg.t1, 0, 0, 0x2e); // msub: hi 1, lo 0
+        a.r(0, 0, Reg.t4, 0, 0x10);
+        a.r(0, 0, Reg.t5, 0, 0x12);
+        a.li(Reg.t6, -1);
+        a.r(Reg.t6, Reg.t6, 0, 0, 0x1d); // maddu of -1 * -1: lo += 1
+        a.r(0, 0, Reg.t7, 0, 0x12); // mflo
+        a.r(Reg.t6, Reg.t6, 0, 0, 0x2f); // msubu: lo -= 1
+        a.r(0, 0, Reg.s0, 0, 0x12);
+      });
+      expect(cpu.r[Reg.t3], 2);
+      expect(cpu.r[Reg.t4], 1);
+      expect(cpu.r[Reg.t5], 0);
+      expect(cpu.r[Reg.t7], 1);
+      expect(cpu.r[Reg.s0], 0);
+    });
+
     test('shifts and rotates', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x80000001);

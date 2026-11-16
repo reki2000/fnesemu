@@ -1,20 +1,25 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../types.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
+import 'disc.dart';
 import 'elf.dart';
 import 'kernel.dart';
 import 'memory.dart';
 
 /// The handheld core: a MIPS32r2 processor with 32 MiB of memory, a
 /// frame buffer display of 480 by 272 pixels and a high-level kernel that
-/// runs ELF and PBP executables. The graphics processor is emulated in
-/// software (see the graphics engine's own notes for its coverage) and
-/// the audio channels are mixed to the framework output; the multimedia
-/// coprocessor (VFPU) is not emulated.
+/// runs ELF and PBP executables. A disc in the drive is mounted as an
+/// ISO 9660 file system: the kernel serves its files to the guest, and
+/// with no executable set the core boots the disc's boot file instead.
+/// The graphics processor is emulated in software (see the graphics
+/// engine's own notes for its coverage), the audio channels are mixed
+/// to the framework output and the multimedia coprocessor (VFPU) is
+/// emulated with a few documented accuracy limits.
 class Psp extends Core {
   static const _stateVersion = 4;
   static const _cpuHz = 222000000;
@@ -24,6 +29,8 @@ class Psp extends Core {
   late Allegrex cpu;
   PspKernel? _kernel;
   Uint8List? _rom;
+  CdromDrive? _drive;
+  PspDisc? _disc;
   int _mediaId = 0;
   int _line = 0;
   int _nextLineAt = 0;
@@ -99,12 +106,34 @@ class Psp extends Core {
   @override
   void setRom(Uint8List body) {
     _rom = body;
+    _mediaId = _mediaIdOf(body);
+    _load();
+  }
+
+  static int _mediaIdOf(Uint8List body) {
     var hash = 0x811c9dc5;
     for (final byte in body) {
       hash = ((hash ^ byte) * 0x01000193) & 0xffffffff;
     }
-    _mediaId = hash;
-    _load();
+    return hash;
+  }
+
+  /// Mounts the disc in [drive] as the kernel's file system. When no
+  /// executable was set, the disc's boot file becomes the executable;
+  /// with one set, the running program simply gains the disc's files.
+  @override
+  void setCdromDrive(CdromDrive drive) {
+    _drive = drive;
+    PspDisc.mount(drive).then((disc) {
+      if (!identical(_drive, drive) || disc == null) return;
+      _disc = disc;
+      _kernel?.disc = disc;
+      if (_rom == null && disc.bootBytes != null) {
+        _rom = disc.bootBytes;
+        _mediaId = _mediaIdOf(_rom!);
+        _load();
+      }
+    });
   }
 
   void _load() {
@@ -115,6 +144,7 @@ class Psp extends Core {
     final kernel = PspKernel(mem, padPort, image.end);
     kernel.audioSink = (samples) =>
         _audioOut?.call(AudioBuffer(44100, 2, samples));
+    kernel.disc = _disc;
     _kernel = kernel;
     final main = kernel.startModule(image);
     cpu.copyFrom(main.state);

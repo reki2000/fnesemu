@@ -2,8 +2,10 @@ import 'dart:typed_data';
 
 import '../../pad_button.dart';
 import '../../pad_source.dart';
+import '../../util/iso9660.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
+import 'disc.dart';
 import 'elf.dart';
 import 'ge.dart';
 import 'memory.dart';
@@ -20,6 +22,7 @@ class PspThreadStatus {
   static const dead = 7;
   static const dormant = 8; // created, not started
   static const waitLwMutex = 9;
+  static const waitDisc = 10;
 }
 
 class PspThread {
@@ -65,13 +68,38 @@ class _Block {
   _Block(this.addr, this.size);
 }
 
-/// One reserved audio channel: a fixed block of samples per output call,
-/// queued on the mix timeline at [nextAt] (an absolute sample index).
+/// One open file. A memory file holds its bytes in [content]; a disc
+/// file points at a node of the mounted disc and reads through it.
 class _OpenFile {
   final String path;
   final content = <int>[];
+  final PspDiscNode? node;
   int position = 0;
-  _OpenFile(this.path);
+  _OpenFile(this.path) : node = null;
+  _OpenFile.disc(this.path, this.node);
+
+  int get size => node?.entry.size ?? content.length;
+}
+
+/// One open directory on the mounted disc: the entries to hand out, in
+/// order, each with the name the guest sees (`.` and `..` included).
+class _OpenDir {
+  final List<(PspDiscNode, String)> entries;
+  int index = 0;
+  _OpenDir(this.entries);
+}
+
+/// A disc read waiting for the drive to load a sector: the descriptor,
+/// the guest buffer and the requested length of the suspended call,
+/// plus how many times its completion has been attempted. The waits
+/// live outside the save state, like the open files themselves; a wait
+/// restored without its entry completes as a zero-length read.
+class _DiscWait {
+  final int fd;
+  final int at;
+  final int length;
+  int attempts = 0;
+  _DiscWait(this.fd, this.at, this.length);
 }
 
 class _AudioChannel {
@@ -89,9 +117,10 @@ class _AudioChannel {
 ///
 /// Only the services a first core needs are implemented: threads,
 /// semaphores, mutexes, memory blocks, the display frame buffer, the
-/// controller, the graphics engine's display lists, the audio channels
-/// and a few utility calls. Unknown calls return zero, which most
-/// software treats as success or as an idle dialog state.
+/// controller, the graphics engine's display lists, the audio channels,
+/// file access (in-memory files and the mounted disc) and a few utility
+/// calls. Unknown calls return zero, which most software treats as
+/// success or as an idle dialog state.
 class PspKernel {
   final PspMemory mem;
   final PadPort pad;
@@ -121,7 +150,21 @@ class PspKernel {
   /// guests writing reports to files (a common test-harness pattern)
   /// work unchanged.
   final _files = <int, _OpenFile>{};
+  final _dirs = <int, _OpenDir>{};
+
+  /// The result of the last asynchronous file call of a descriptor,
+  /// collected through the poll and wait calls; asynchronous calls
+  /// complete at once in this kernel.
+  final _async = <int, int>{};
   int _nextFd = 3;
+
+  /// Disc reads suspended until the drive loads their sectors, by
+  /// thread id.
+  final _discWaits = <int, _DiscWait>{};
+
+  /// The mounted disc, attached by the core; its files are served on
+  /// the `disc0:` and `umd0:` devices.
+  PspDisc? disc;
 
   int _nextId = 1;
   PspThread? current;
@@ -244,6 +287,7 @@ class PspKernel {
         }
       }
     }
+    _retryDiscWaits(cpu);
     _preempt(cpu);
   }
 
@@ -271,7 +315,13 @@ class PspKernel {
     if (cur != null && cur.status == PspThreadStatus.running) {
       cur.state.copyFrom(cpu);
       cur.status = PspThreadStatus.ready;
-    } else if (cur != null && cur.status != PspThreadStatus.dead) {
+    } else if (cur != null &&
+        cur.status != PspThreadStatus.dead &&
+        cur.status != PspThreadStatus.ready) {
+      // A thread that just blocked still has its live state in the
+      // processor; a ready thread already has its state saved, and
+      // copying over it would undo the return address the dispatcher
+      // fixed up when the thread blocked.
       cur.state.copyFrom(cpu);
     }
     PspThread? best;
@@ -304,6 +354,7 @@ class PspKernel {
     final cur = current!;
     cur.exitStatus = status;
     cur.status = PspThreadStatus.dead;
+    _discWaits.remove(cur.id);
     for (final thread in threads.values) {
       if (thread.status == PspThreadStatus.waitJoin &&
           thread.waitJoin == cur.id) {
@@ -363,6 +414,13 @@ class PspKernel {
       caller.state.pc = returnAt;
       caller.state.nextPc = returnAt + 4;
       if (result != null) caller.state.r[2] = result;
+      if (identical(current, caller)) {
+        // The blocked caller is still the loaded thread: move the
+        // processor past the stub as well, so a later reschedule that
+        // saves the processor into the thread cannot undo the fix.
+        cpu.pc = returnAt;
+        cpu.nextPc = returnAt + 4;
+      }
     }
   }
 
@@ -594,45 +652,47 @@ class PspKernel {
     });
     on(0xc663b3b9, (cpu, _) => 1000000);
 
-    // IoFileMgrForUser: files live in memory; writes to the standard
-    // streams go to the kernel log.
-    on(0x109f50bc, (cpu, _) {
-      final path = mem.readString(_arg(cpu, 0), 256);
-      final fd = _nextFd++;
-      _files[fd] = _OpenFile(path);
-      return fd;
+    // IoFileMgrForUser: the standard streams and in-memory files, plus
+    // the mounted disc served read-only on its devices. The
+    // asynchronous forms complete at once and report through the poll
+    // and wait calls.
+    on(0x109f50bc, _ioOpen);
+    on(0x89aa9906, _ioOpenAsync);
+    on(0x6a638d83, _ioRead);
+    on(0xa0b5a7c2, _ioReadAsync);
+    on(0x42ec03ac, _ioWrite);
+    on(0x0facab19, _ioWriteAsync);
+    on(0x810c4bc3, _ioClose);
+    on(0xff5940b6, _ioClose);
+    on(0x27eb27b8, _ioLseek);
+    on(0x68963324, _ioLseek32);
+    on(0x71b19e77, _ioLseekAsync);
+    on(0x1b385d8f, _ioLseek32Async);
+    on(0xace946e8, _ioGetstat);
+    on(0xb29ddf9c, _ioDopen);
+    on(0xe3eb004c, _ioDread);
+    on(0xeb092469, _ioDclose);
+    on(0x63632449, (cpu, _) {
+      final fd = _arg(cpu, 0);
+      return _files.containsKey(fd) || _dirs.containsKey(fd)
+          ? 0
+          : 0x80010002;
     });
-    on(0x6a638d83, (cpu, _) {
-      final file = _files[_arg(cpu, 0)];
-      if (file == null) return 0;
-      final at = _arg(cpu, 1), length = _arg(cpu, 2);
-      var read = 0;
-      while (read < length && file.position < file.content.length) {
-        mem.write8(at + read, file.content[file.position++]);
-        read++;
-      }
-      return read;
-    });
-    on(0x42ec03ac, (cpu, _) {
-      // sceIoWrite.
-      final fd = _arg(cpu, 0), at = _arg(cpu, 1), length = _arg(cpu, 2);
-      if (fd == 1 || fd == 2) {
-        log.write(mem.readString(at, length));
-        return length;
-      }
-      final file = _files[fd];
-      if (file == null) return 0x80010002;
-      for (var i = 0; i < length; i++) {
-        final byte = mem.read8(at + i);
-        if (file.position < file.content.length) {
-          file.content[file.position] = byte;
-        } else {
-          file.content.add(byte);
-        }
-        file.position++;
-      }
-      return length;
-    });
+    on(0x3251ea56, _ioPollAsync);
+    on(0x35dbd746, _ioPollAsync);
+    on(0xe8bc6571, (cpu, _) => 0);
+    on(0xb293727f, (cpu, _) => 0);
+    on(0xa12a0514, (cpu, _) => 0);
+
+    // sceUmdUser: a mounted disc is present and ready, and no disc
+    // reports itself as not present; activation is a formality.
+    on(0xc6183d47, (cpu, _) => 0);
+    on(0xe83742ba, (cpu, _) => 0);
+    on(0x8ef08fce, (cpu, _) => 0);
+    on(0x4a9e5e29, (cpu, _) => 0);
+    on(0x6b4a146c, (cpu, _) => disc != null ? 0x22 : 0x01);
+    on(0xaee7404d, (cpu, _) => 0);
+    on(0xbd2bde07, (cpu, _) => 0);
     on(0x54f5fb11, (cpu, _) {
       // sceIoDevctl: the "emulator:" device is how test harnesses
       // detect an emulator and deliver their output (command 2); the
@@ -641,6 +701,9 @@ class PspKernel {
       // Allegrex calling convention, so the output pointer for
       // command 1 is in t0.
       final device = mem.readString(_arg(cpu, 0), 32);
+      if (device == 'disc0:' || device == 'umd0:') {
+        return disc != null ? 0 : 0x80010002;
+      }
       if (device != 'emulator:' && device != 'kemulator:') {
         return 0x80010002;
       }
@@ -657,23 +720,6 @@ class PspKernel {
           return 0;
       }
     });
-    on(0x810c4bc3, (cpu, _) {
-      _files.remove(_arg(cpu, 0));
-      return 0;
-    });
-    on(0x27eb27b8, (cpu, _) {
-      final file = _files[_arg(cpu, 0)];
-      if (file == null) return 0x80010002;
-      final offset = _arg(cpu, 1), whence = _arg(cpu, 2);
-      file.position = switch (whence) {
-        0 => offset,
-        1 => file.position + offset,
-        _ => file.content.length + offset,
-      };
-      if (file.position < 0) file.position = 0;
-      return file.position;
-    });
-    on(0xace946e8, (cpu, _) => 0x80010002);
 
     // sceAudio: eight channels with fixed block sizes, mixed onto a
     // 44100 Hz stereo timeline and flushed by the core at each refresh.
@@ -1150,6 +1196,286 @@ class PspKernel {
       mem.write8(at + i, 0);
     }
     return 1;
+  }
+
+  /// The device prefix of a guest path, lowercased, or null.
+  static String? _deviceOf(String path) {
+    final colon = path.indexOf(':');
+    return colon < 0 ? null : path.substring(0, colon).toLowerCase();
+  }
+
+  /// The disc node a guest path names, or null when the path is not on
+  /// a disc device or names nothing on the mounted disc.
+  PspDiscNode? _discNode(String path) {
+    final device = _deviceOf(path);
+    if (device != 'disc0' && device != 'umd0') return null;
+    return disc?.lookup(path.substring(path.indexOf(':') + 1));
+  }
+
+  int? _ioOpen(Allegrex cpu, PspImport? _) {
+    final path = mem.readString(_arg(cpu, 0), 256);
+    final device = _deviceOf(path);
+    if (device == 'disc0' || device == 'umd0') {
+      // The disc is read-only: write modes and creation fail, as do
+      // missing files and directories opened as files.
+      final flags = _arg(cpu, 1);
+      if (flags & 3 == 2 || flags & 3 == 3 || flags & 0x0f00 != 0) {
+        return 0x80010002;
+      }
+      final node = _discNode(path);
+      if (node == null || node.isDirectory) return 0x80010002;
+      final fd = _nextFd++;
+      _files[fd] = _OpenFile.disc(path, node);
+      return fd;
+    }
+    final fd = _nextFd++;
+    _files[fd] = _OpenFile(path);
+    return fd;
+  }
+
+  int? _ioOpenAsync(Allegrex cpu, PspImport? _) {
+    final fd = _ioOpen(cpu, null);
+    if (fd != null && fd >= 0) _async[fd] = fd;
+    return fd;
+  }
+
+  int? _ioRead(Allegrex cpu, PspImport? _) => _readFile(cpu, true);
+
+  /// Reads from an open file. A disc read whose sectors the drive has
+  /// not loaded yet suspends the calling thread instead of reporting a
+  /// short read: the drive loads in the background, and the scheduler
+  /// retries the read as emulated time passes, the way a real read
+  /// waits for the disc. After about 200 ms of emulated time the read
+  /// gives up and reports zero bytes. Asynchronous reads never suspend;
+  /// they report what is available at once.
+  int? _readFile(Allegrex cpu, bool mayBlock) {
+    final fd = _arg(cpu, 0);
+    final file = _files[fd];
+    if (file == null) return 0;
+    final at = _arg(cpu, 1), length = _arg(cpu, 2);
+    final node = file.node;
+    if (node != null) {
+      final data = disc?.readBytes(node.entry, file.position, length);
+      if (data == null) {
+        if (!mayBlock || _inCallback || current == null) return 0;
+        _discWaits[current!.id] = _DiscWait(fd, at, length);
+        current!.status = PspThreadStatus.waitDisc;
+        current!.wakeAt = cpu.clocks + _cpuHz ~/ 1000;
+        if (current!.wakeAt < _nextDelayWake) {
+          _nextDelayWake = current!.wakeAt;
+        }
+        _schedule(cpu);
+        return null;
+      }
+      mem.writeBytes(at, data);
+      file.position += data.length;
+      return data.length;
+    }
+    var read = 0;
+    while (read < length && file.position < file.content.length) {
+      mem.write8(at + read, file.content[file.position++]);
+      read++;
+    }
+    return read;
+  }
+
+  /// Retries the suspended disc reads whose time has come; called from
+  /// [wakeDue] alongside the delay threads.
+  void _retryDiscWaits(Allegrex cpu) {
+    for (final thread in threads.values) {
+      if (thread.status != PspThreadStatus.waitDisc) continue;
+      if (thread.wakeAt > cpu.clocks) {
+        if (thread.wakeAt < _nextDelayWake) _nextDelayWake = thread.wakeAt;
+        continue;
+      }
+      final wait = _discWaits[thread.id];
+      final file = wait == null ? null : _files[wait.fd];
+      final node = file?.node;
+      final data = node == null
+          ? null
+          : disc?.readBytes(node.entry, file!.position, wait!.length);
+      if (data != null) {
+        mem.writeBytes(wait!.at, data);
+        file!.position += data.length;
+        thread.pendingResult = data.length;
+      } else if (wait != null && wait.attempts < 200) {
+        wait.attempts++;
+        thread.wakeAt = cpu.clocks + _cpuHz ~/ 1000;
+        if (thread.wakeAt < _nextDelayWake) _nextDelayWake = thread.wakeAt;
+        continue;
+      } else {
+        // The file is gone, the wait was restored from a save state
+        // without its entry, or the drive never delivered: the read
+        // completes with zero bytes.
+        thread.pendingResult = 0;
+      }
+      _discWaits.remove(thread.id);
+      thread.status = PspThreadStatus.ready;
+    }
+  }
+
+  int? _ioReadAsync(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    if (!_files.containsKey(fd)) return 0x80010002;
+    _async[fd] = _readFile(cpu, false) ?? 0;
+    return 0;
+  }
+
+  int? _ioWrite(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0), at = _arg(cpu, 1), length = _arg(cpu, 2);
+    if (fd == 1 || fd == 2) {
+      log.write(mem.readString(at, length));
+      return length;
+    }
+    final file = _files[fd];
+    if (file == null || file.node != null) return 0x80010002;
+    for (var i = 0; i < length; i++) {
+      final byte = mem.read8(at + i);
+      if (file.position < file.content.length) {
+        file.content[file.position] = byte;
+      } else {
+        file.content.add(byte);
+      }
+      file.position++;
+    }
+    return length;
+  }
+
+  int? _ioWriteAsync(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    if (!_files.containsKey(fd)) return 0x80010002;
+    _async[fd] = _ioWrite(cpu, null) ?? 0;
+    return 0;
+  }
+
+  int? _ioClose(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    _files.remove(fd);
+    _dirs.remove(fd);
+    _async.remove(fd);
+    return 0;
+  }
+
+  static int _seek(_OpenFile file, int offset, int whence) {
+    var position = switch (whence) {
+      0 => offset,
+      1 => file.position + offset,
+      _ => file.size + offset,
+    };
+    if (position < 0) position = 0;
+    file.position = position;
+    return position;
+  }
+
+  int? _ioLseek32(Allegrex cpu, PspImport? _) {
+    final file = _files[_arg(cpu, 0)];
+    if (file == null) return 0x80010002;
+    return _seek(file, _arg(cpu, 1), _arg(cpu, 2));
+  }
+
+  /// The 64-bit seek: the offset travels in the a2/a3 pair (a1 is the
+  /// alignment pad) and the whence in t0, and the result is returned
+  /// in the v0/v1 pair.
+  int? _ioLseek(Allegrex cpu, PspImport? _) {
+    final file = _files[_arg(cpu, 0)];
+    if (file == null) return 0x80010002;
+    final offset =
+        (cpu.r[7] & 0xffffffff) << 32 | (cpu.r[6] & 0xffffffff);
+    final position = _seek(file, offset, cpu.r[8]);
+    cpu.r[2] = position & 0xffffffff;
+    cpu.r[3] = (position >> 32) & 0xffffffff;
+    return null;
+  }
+
+  int? _ioLseek32Async(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    if (!_files.containsKey(fd)) return 0x80010002;
+    _async[fd] = _ioLseek32(cpu, null) ?? 0;
+    return 0;
+  }
+
+  int? _ioLseekAsync(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    final file = _files[fd];
+    if (file == null) return 0x80010002;
+    final offset =
+        (cpu.r[7] & 0xffffffff) << 32 | (cpu.r[6] & 0xffffffff);
+    _async[fd] = _seek(file, offset, cpu.r[8]);
+    return 0;
+  }
+
+  int? _ioPollAsync(Allegrex cpu, PspImport? _) {
+    final result = _async.remove(_arg(cpu, 0)) ?? 0;
+    final at = _arg(cpu, 1);
+    if (at != 0) {
+      mem.write32(at, result & 0xffffffff);
+      mem.write32(at + 4, (result >> 32) & 0xffffffff);
+    }
+    return 0;
+  }
+
+  int? _ioGetstat(Allegrex cpu, PspImport? _) {
+    final node = _discNode(mem.readString(_arg(cpu, 0), 256));
+    if (node == null) return 0x80010002;
+    _writeStat(_arg(cpu, 1), node.entry);
+    return 0;
+  }
+
+  /// Fills the 88-byte file status structure for [entry]: the mode and
+  /// attribute describe a read-only file or directory, and all three
+  /// timestamps are the recording date of the directory record.
+  void _writeStat(int at, Iso9660Entry entry) {
+    if (at == 0) return;
+    for (var i = 0; i < 88; i += 4) {
+      mem.write32(at + i, 0);
+    }
+    mem.write32(at, entry.isDirectory ? 0x1000 | 0x16d : 0x2000 | 0x124);
+    mem.write32(at + 4, entry.isDirectory ? 0x10 : 0x20);
+    mem.write32(at + 8, entry.size & 0xffffffff);
+    mem.write32(at + 12, (entry.size >> 32) & 0xffffffff);
+    for (final base in [16, 32, 48]) {
+      mem.write16(at + base, entry.year);
+      mem.write8(at + base + 2, entry.month);
+      mem.write8(at + base + 3, entry.day);
+      mem.write8(at + base + 4, entry.hour);
+      mem.write8(at + base + 5, entry.minute);
+      mem.write8(at + base + 6, entry.second);
+    }
+  }
+
+  int? _ioDopen(Allegrex cpu, PspImport? _) {
+    final node = _discNode(mem.readString(_arg(cpu, 0), 256));
+    if (node == null || !node.isDirectory) return 0x80010002;
+    final fd = _nextFd++;
+    _dirs[fd] = _OpenDir([
+      (node, '.'),
+      (node.parent ?? node, '..'),
+      for (final child in node.children) (child, child.entry.name),
+    ]);
+    return fd;
+  }
+
+  int? _ioDread(Allegrex cpu, PspImport? _) {
+    final dir = _dirs[_arg(cpu, 0)];
+    if (dir == null) return 0x80010002;
+    if (dir.index >= dir.entries.length) return 0;
+    final (node, name) = dir.entries[dir.index++];
+    final at = _arg(cpu, 1);
+    if (at != 0) {
+      _writeStat(at, node.entry);
+      for (var i = 0; i < 256; i++) {
+        mem.write8(
+            at + 88 + i, i < name.length ? name.codeUnitAt(i) & 0xff : 0);
+      }
+      mem.write32(at + 344, 0);
+      mem.write32(at + 348, 0);
+    }
+    return 1;
+  }
+
+  int? _ioDclose(Allegrex cpu, PspImport? _) {
+    _dirs.remove(_arg(cpu, 0));
+    return 0;
   }
 
   /// Writes the kernel section of a saved state. The running thread's
