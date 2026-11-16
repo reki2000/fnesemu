@@ -373,9 +373,10 @@ Uint8List _opsProgram() {
     a.lb(Reg.v0, 12, Reg.t0);
     store(124);
 
-    // 8. An in-memory file still round-trips.
+    // 8. A memory stick file round-trips (the relative path resolves
+    // against the stick root, the default current directory).
     a.li(Reg.a0, 0x09101400);
-    a.li(Reg.a1, 0x0201);
+    a.li(Reg.a1, 0x0203);
     a.li(Reg.a2, 0);
     a.jal(stub(_io, _nidOpen));
     a.nop();

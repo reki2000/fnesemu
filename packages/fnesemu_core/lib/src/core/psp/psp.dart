@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
+import '../../sram.dart';
 import '../../types.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
@@ -10,12 +11,15 @@ import 'disc.dart';
 import 'elf.dart';
 import 'kernel.dart';
 import 'memory.dart';
+import 'memstick.dart';
 
 /// The handheld core: a MIPS32r2 processor with 32 MiB of memory, a
 /// frame buffer display of 480 by 272 pixels and a high-level kernel that
 /// runs ELF and PBP executables. A disc in the drive is mounted as an
 /// ISO 9660 file system: the kernel serves its files to the guest, and
 /// with no executable set the core boots the disc's boot file instead.
+/// The memory stick is a writable file tree persisted through the
+/// framework's backup storage, so saved data survives restarts.
 /// The graphics processor is emulated in software (see the graphics
 /// engine's own notes for its coverage), the audio channels are mixed
 /// to the framework output and the multimedia coprocessor (VFPU) is
@@ -31,6 +35,13 @@ class Psp extends Core {
   Uint8List? _rom;
   CdromDrive? _drive;
   PspDisc? _disc;
+
+  /// The memory stick the kernel serves on ms0:; [setSram] binds it
+  /// to the persistent storage.
+  final memStick = PspMemStick();
+
+  @override
+  void setSram(Sram sram) => memStick.attach(sram);
   int _mediaId = 0;
   int _line = 0;
   int _nextLineAt = 0;
@@ -145,6 +156,7 @@ class Psp extends Core {
     kernel.audioSink = (samples) =>
         _audioOut?.call(AudioBuffer(44100, 2, samples));
     kernel.disc = _disc;
+    kernel.memStick = memStick;
     _kernel = kernel;
     final main = kernel.startModule(image);
     cpu.copyFrom(main.state);

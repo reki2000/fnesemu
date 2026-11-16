@@ -2,13 +2,13 @@ import 'dart:typed_data';
 
 import '../../pad_button.dart';
 import '../../pad_source.dart';
-import '../../util/iso9660.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
 import 'disc.dart';
 import 'elf.dart';
 import 'ge.dart';
 import 'memory.dart';
+import 'memstick.dart';
 
 /// Thread states of the kernel scheduler.
 class PspThreadStatus {
@@ -74,17 +74,68 @@ class _OpenFile {
   final String path;
   final content = <int>[];
   final PspDiscNode? node;
-  int position = 0;
-  _OpenFile(this.path) : node = null;
-  _OpenFile.disc(this.path, this.node);
+  final PspMsNode? msNode;
 
-  int get size => node?.entry.size ?? content.length;
+  /// The access the file was opened with (1 read, 2 write, 3 both),
+  /// enforced for memory stick files; the other kinds restrict access
+  /// at open time instead.
+  final int access;
+
+  /// Appending opens write at the end of the file, wherever the
+  /// position was moved to.
+  final bool append;
+
+  /// A memory stick file whose contents changed since it was opened;
+  /// closing it persists the stick.
+  bool dirty = false;
+  int position = 0;
+  _OpenFile(this.path)
+      : node = null,
+        msNode = null,
+        access = 3,
+        append = false;
+  _OpenFile.disc(this.path, this.node)
+      : msNode = null,
+        access = 1,
+        append = false;
+  _OpenFile.stick(this.path, this.msNode, this.access, this.append)
+      : node = null;
+
+  int get size => node?.entry.size ?? msNode?.content.length ?? content.length;
 }
 
-/// One open directory on the mounted disc: the entries to hand out, in
-/// order, each with the name the guest sees (`.` and `..` included).
+/// One directory entry as the guest sees it, from either file system.
+class _DirEnt {
+  final String name;
+  final bool isDirectory;
+  final int size;
+  final int year, month, day, hour, minute, second;
+  const _DirEnt(this.name, this.isDirectory, this.size, this.year,
+      this.month, this.day, this.hour, this.minute, this.second);
+
+  factory _DirEnt.disc(PspDiscNode node, String name) => _DirEnt(
+      name,
+      node.entry.isDirectory,
+      node.entry.size,
+      node.entry.year,
+      node.entry.month,
+      node.entry.day,
+      node.entry.hour,
+      node.entry.minute,
+      node.entry.second);
+
+  factory _DirEnt.stick(PspMsNode node, String name) {
+    final (year, month, day, hour, minute, second) =
+        PspMemStick.dateOf(node.modified);
+    return _DirEnt(name, node.isDirectory, node.size, year, month, day,
+        hour, minute, second);
+  }
+}
+
+/// One open directory: the entries to hand out, in order (`.` and
+/// `..` included).
 class _OpenDir {
-  final List<(PspDiscNode, String)> entries;
+  final List<_DirEnt> entries;
   int index = 0;
   _OpenDir(this.entries);
 }
@@ -118,8 +169,8 @@ class _AudioChannel {
 /// Only the services a first core needs are implemented: threads,
 /// semaphores, mutexes, memory blocks, the display frame buffer, the
 /// controller, the graphics engine's display lists, the audio channels,
-/// file access (in-memory files and the mounted disc) and a few utility
-/// calls. Unknown calls return zero, which most software treats as
+/// file access (in-memory files, the mounted disc and the memory
+/// stick) and a few utility calls. Unknown calls return zero, which most software treats as
 /// success or as an idle dialog state.
 class PspKernel {
   final PspMemory mem;
@@ -165,6 +216,25 @@ class PspKernel {
   /// The mounted disc, attached by the core; its files are served on
   /// the `disc0:` and `umd0:` devices.
   PspDisc? disc;
+
+  /// The memory stick, attached by the core; its files are served on
+  /// the `ms0:` device, and relative paths resolve against it through
+  /// [_cwd]. A kernel the core did not attach one to uses a volatile
+  /// stick of its own.
+  PspMemStick _memStick = PspMemStick();
+  PspMemStick get memStick => _memStick;
+  set memStick(PspMemStick stick) {
+    _memStick = stick;
+    stick.clock = () => _nowSeconds;
+  }
+
+  /// The current directory relative paths resolve against, always
+  /// device-qualified with a trailing slash.
+  String _cwd = 'ms0:/';
+
+  /// Emulated seconds since boot, refreshed on every system call;
+  /// the memory stick stamps its files with it.
+  int _nowSeconds = 0;
 
   int _nextId = 1;
   PspThread? current;
@@ -378,6 +448,7 @@ class PspKernel {
 
   /// The syscall entry point wired to the processor.
   void dispatch(Allegrex cpu, int code) {
+    _nowSeconds = cpu.clocks ~/ _cpuHz;
     if (code == 0) {
       _exitThread(cpu, cpu.r[2]);
       return;
@@ -652,10 +723,10 @@ class PspKernel {
     });
     on(0xc663b3b9, (cpu, _) => 1000000);
 
-    // IoFileMgrForUser: the standard streams and in-memory files, plus
-    // the mounted disc served read-only on its devices. The
-    // asynchronous forms complete at once and report through the poll
-    // and wait calls.
+    // IoFileMgrForUser: the standard streams and in-memory files, the
+    // mounted disc served read-only on its devices and the memory
+    // stick served writable on ms0:. The asynchronous forms complete
+    // at once and report through the poll and wait calls.
     on(0x109f50bc, _ioOpen);
     on(0x89aa9906, _ioOpenAsync);
     on(0x6a638d83, _ioRead);
@@ -672,6 +743,11 @@ class PspKernel {
     on(0xb29ddf9c, _ioDopen);
     on(0xe3eb004c, _ioDread);
     on(0xeb092469, _ioDclose);
+    on(0x06a70004, _ioMkdir);
+    on(0xf27a9c51, _ioRemove);
+    on(0x779103a0, _ioRename);
+    on(0x55f4717d, _ioChdir);
+    on(0xab96437f, _ioSync);
     on(0x63632449, (cpu, _) {
       final fd = _arg(cpu, 0);
       return _files.containsKey(fd) || _dirs.containsKey(fd)
@@ -704,6 +780,7 @@ class PspKernel {
       if (device == 'disc0:' || device == 'umd0:') {
         return disc != null ? 0 : 0x80010002;
       }
+      if (device == 'ms0:') return 0;
       if (device != 'emulator:' && device != 'kemulator:') {
         return 0x80010002;
       }
@@ -1204,28 +1281,58 @@ class PspKernel {
     return colon < 0 ? null : path.substring(0, colon).toLowerCase();
   }
 
-  /// The disc node a guest path names, or null when the path is not on
-  /// a disc device or names nothing on the mounted disc.
-  PspDiscNode? _discNode(String path) {
+  /// Splits a guest path into the device it lives on and the path
+  /// relative to that device's root. Relative paths resolve against
+  /// the current directory, which is itself device-qualified.
+  (String, String) _resolve(String path) {
     final device = _deviceOf(path);
-    if (device != 'disc0' && device != 'umd0') return null;
-    return disc?.lookup(path.substring(path.indexOf(':') + 1));
+    if (device != null) {
+      return (device, path.substring(path.indexOf(':') + 1));
+    }
+    final joined = '$_cwd$path';
+    final colon = joined.indexOf(':');
+    return (joined.substring(0, colon).toLowerCase(),
+        joined.substring(colon + 1));
   }
 
   int? _ioOpen(Allegrex cpu, PspImport? _) {
     final path = mem.readString(_arg(cpu, 0), 256);
-    final device = _deviceOf(path);
+    final flags = _arg(cpu, 1);
+    final (device, rel) = _resolve(path);
     if (device == 'disc0' || device == 'umd0') {
       // The disc is read-only: write modes and creation fail, as do
       // missing files and directories opened as files.
-      final flags = _arg(cpu, 1);
       if (flags & 3 == 2 || flags & 3 == 3 || flags & 0x0f00 != 0) {
         return 0x80010002;
       }
-      final node = _discNode(path);
+      final node = disc?.lookup(rel);
       if (node == null || node.isDirectory) return 0x80010002;
       final fd = _nextFd++;
       _files[fd] = _OpenFile.disc(path, node);
+      return fd;
+    }
+    if (device == 'ms0') {
+      var node = memStick.lookup(rel);
+      if (node == null) {
+        // Without the creation flag a missing file fails; with it,
+        // the file appears as long as its directory exists.
+        if (flags & 0x0200 == 0) return 0x80010002;
+        node = memStick.createFile(rel);
+        if (node == null) return 0x80010002;
+        memStick.flush();
+      } else {
+        if (node.isDirectory) return 0x80010002;
+        if (flags & 0x0a00 == 0x0a00) return 0x80010002;
+        if (flags & 0x0400 != 0 && flags & 3 != 1) {
+          node.content.clear();
+          node.modified = _nowSeconds;
+        }
+      }
+      final fd = _nextFd++;
+      final file = _OpenFile.stick(
+          path, node, flags & 3 == 0 ? 1 : flags & 3, flags & 0x0100 != 0);
+      if (file.append) file.position = node.content.length;
+      _files[fd] = file;
       return fd;
     }
     final fd = _nextFd++;
@@ -1270,6 +1377,16 @@ class PspKernel {
       mem.writeBytes(at, data);
       file.position += data.length;
       return data.length;
+    }
+    final msNode = file.msNode;
+    if (msNode != null) {
+      if (file.access == 2) return 0x80010002;
+      var read = 0;
+      while (read < length && file.position < msNode.content.length) {
+        mem.write8(at + read, msNode.content[file.position++]);
+        read++;
+      }
+      return read;
     }
     var read = 0;
     while (read < length && file.position < file.content.length) {
@@ -1329,6 +1446,27 @@ class PspKernel {
     }
     final file = _files[fd];
     if (file == null || file.node != null) return 0x80010002;
+    final msNode = file.msNode;
+    if (msNode != null) {
+      if (file.access == 1) return 0x80010002;
+      if (file.append) file.position = msNode.content.length;
+      final bytes = mem.readBytes(at, length);
+      while (msNode.content.length < file.position) {
+        msNode.content.add(0);
+      }
+      for (var i = 0; i < length; i++) {
+        final at = file.position + i;
+        if (at < msNode.content.length) {
+          msNode.content[at] = bytes[i];
+        } else {
+          msNode.content.add(bytes[i]);
+        }
+      }
+      file.position += length;
+      file.dirty = true;
+      msNode.modified = _nowSeconds;
+      return length;
+    }
     for (var i = 0; i < length; i++) {
       final byte = mem.read8(at + i);
       if (file.position < file.content.length) {
@@ -1350,7 +1488,8 @@ class PspKernel {
 
   int? _ioClose(Allegrex cpu, PspImport? _) {
     final fd = _arg(cpu, 0);
-    _files.remove(fd);
+    final file = _files.remove(fd);
+    if (file != null && file.dirty) memStick.flush();
     _dirs.remove(fd);
     _async.remove(fd);
     return 0;
@@ -1415,62 +1554,152 @@ class PspKernel {
   }
 
   int? _ioGetstat(Allegrex cpu, PspImport? _) {
-    final node = _discNode(mem.readString(_arg(cpu, 0), 256));
-    if (node == null) return 0x80010002;
-    _writeStat(_arg(cpu, 1), node.entry);
-    return 0;
+    final (device, rel) = _resolve(mem.readString(_arg(cpu, 0), 256));
+    final at = _arg(cpu, 1);
+    if (device == 'disc0' || device == 'umd0') {
+      final node = disc?.lookup(rel);
+      if (node == null) return 0x80010002;
+      _writeStatEnt(at, _DirEnt.disc(node, node.entry.name), false);
+      return 0;
+    }
+    if (device == 'ms0') {
+      final node = memStick.lookup(rel);
+      if (node == null) return 0x80010002;
+      _writeStatEnt(at, _DirEnt.stick(node, node.name), true);
+      return 0;
+    }
+    return 0x80010002;
   }
 
-  /// Fills the 88-byte file status structure for [entry]: the mode and
-  /// attribute describe a read-only file or directory, and all three
-  /// timestamps are the recording date of the directory record.
-  void _writeStat(int at, Iso9660Entry entry) {
+  /// Fills the 88-byte file status structure for [ent]: the mode and
+  /// attribute describe the kind, read-only on the disc and writable
+  /// on the stick, and all three timestamps are the entry's date.
+  void _writeStatEnt(int at, _DirEnt ent, bool writable) {
     if (at == 0) return;
     for (var i = 0; i < 88; i += 4) {
       mem.write32(at + i, 0);
     }
-    mem.write32(at, entry.isDirectory ? 0x1000 | 0x16d : 0x2000 | 0x124);
-    mem.write32(at + 4, entry.isDirectory ? 0x10 : 0x20);
-    mem.write32(at + 8, entry.size & 0xffffffff);
-    mem.write32(at + 12, (entry.size >> 32) & 0xffffffff);
+    mem.write32(
+        at,
+        ent.isDirectory
+            ? 0x1000 | (writable ? 0x1ed : 0x16d)
+            : 0x2000 | (writable ? 0x1a4 : 0x124));
+    mem.write32(at + 4, ent.isDirectory ? 0x10 : 0x20);
+    mem.write32(at + 8, ent.size & 0xffffffff);
+    mem.write32(at + 12, (ent.size >> 32) & 0xffffffff);
     for (final base in [16, 32, 48]) {
-      mem.write16(at + base, entry.year);
-      mem.write8(at + base + 2, entry.month);
-      mem.write8(at + base + 3, entry.day);
-      mem.write8(at + base + 4, entry.hour);
-      mem.write8(at + base + 5, entry.minute);
-      mem.write8(at + base + 6, entry.second);
+      mem.write16(at + base, ent.year);
+      mem.write8(at + base + 2, ent.month);
+      mem.write8(at + base + 3, ent.day);
+      mem.write8(at + base + 4, ent.hour);
+      mem.write8(at + base + 5, ent.minute);
+      mem.write8(at + base + 6, ent.second);
     }
   }
 
   int? _ioDopen(Allegrex cpu, PspImport? _) {
-    final node = _discNode(mem.readString(_arg(cpu, 0), 256));
-    if (node == null || !node.isDirectory) return 0x80010002;
-    final fd = _nextFd++;
-    _dirs[fd] = _OpenDir([
-      (node, '.'),
-      (node.parent ?? node, '..'),
-      for (final child in node.children) (child, child.entry.name),
-    ]);
-    return fd;
+    final (device, rel) = _resolve(mem.readString(_arg(cpu, 0), 256));
+    if (device == 'disc0' || device == 'umd0') {
+      final node = disc?.lookup(rel);
+      if (node == null || !node.isDirectory) return 0x80010002;
+      final fd = _nextFd++;
+      _dirs[fd] = _OpenDir([
+        _DirEnt.disc(node, '.'),
+        _DirEnt.disc(node.parent ?? node, '..'),
+        for (final child in node.children)
+          _DirEnt.disc(child, child.entry.name),
+      ]);
+      return fd;
+    }
+    if (device == 'ms0') {
+      final node = memStick.lookup(rel);
+      if (node == null || !node.isDirectory) return 0x80010002;
+      final fd = _nextFd++;
+      _dirs[fd] = _OpenDir([
+        _DirEnt.stick(node, '.'),
+        _DirEnt.stick(node.parent ?? node, '..'),
+        for (final child in node.children.values)
+          _DirEnt.stick(child, child.name),
+      ]);
+      return fd;
+    }
+    return 0x80010002;
   }
 
   int? _ioDread(Allegrex cpu, PspImport? _) {
     final dir = _dirs[_arg(cpu, 0)];
     if (dir == null) return 0x80010002;
     if (dir.index >= dir.entries.length) return 0;
-    final (node, name) = dir.entries[dir.index++];
+    final ent = dir.entries[dir.index++];
     final at = _arg(cpu, 1);
     if (at != 0) {
-      _writeStat(at, node.entry);
+      _writeStatEnt(at, ent, false);
       for (var i = 0; i < 256; i++) {
-        mem.write8(
-            at + 88 + i, i < name.length ? name.codeUnitAt(i) & 0xff : 0);
+        mem.write8(at + 88 + i,
+            i < ent.name.length ? ent.name.codeUnitAt(i) & 0xff : 0);
       }
       mem.write32(at + 344, 0);
       mem.write32(at + 348, 0);
     }
     return 1;
+  }
+
+  int? _ioMkdir(Allegrex cpu, PspImport? _) {
+    final (device, rel) = _resolve(mem.readString(_arg(cpu, 0), 256));
+    if (device != 'ms0') return 0x80010002;
+    if (memStick.mkdir(rel) == null) return 0x80010002;
+    memStick.flush();
+    return 0;
+  }
+
+  int? _ioRemove(Allegrex cpu, PspImport? _) {
+    final (device, rel) = _resolve(mem.readString(_arg(cpu, 0), 256));
+    if (device != 'ms0') return 0x80010002;
+    final node = memStick.lookup(rel);
+    if (node == null || !memStick.remove(node)) return 0x80010002;
+    memStick.flush();
+    return 0;
+  }
+
+  int? _ioRename(Allegrex cpu, PspImport? _) {
+    final (oldDevice, oldRel) = _resolve(mem.readString(_arg(cpu, 0), 256));
+    final (newDevice, newRel) = _resolve(mem.readString(_arg(cpu, 1), 256));
+    if (oldDevice != 'ms0' || newDevice != 'ms0') return 0x80010002;
+    final node = memStick.lookup(oldRel);
+    if (node == null || !memStick.rename(node, newRel)) {
+      return 0x80010002;
+    }
+    memStick.flush();
+    return 0;
+  }
+
+  int? _ioChdir(Allegrex cpu, PspImport? _) {
+    final path = mem.readString(_arg(cpu, 0), 256);
+    final (device, rel) = _resolve(path);
+    String? canonical;
+    if (device == 'disc0' || device == 'umd0') {
+      final node = disc?.lookup(rel);
+      if (node != null && node.isDirectory) {
+        final parts = <String>[];
+        var walk = node;
+        while (walk.parent != null) {
+          parts.add(walk.entry.name);
+          walk = walk.parent!;
+        }
+        canonical = parts.reversed.join('/');
+      }
+    } else if (device == 'ms0') {
+      final node = memStick.lookup(rel);
+      if (node != null && node.isDirectory) canonical = node.path;
+    }
+    if (canonical == null) return 0x80010002;
+    _cwd = canonical.isEmpty ? '$device:/' : '$device:/$canonical/';
+    return 0;
+  }
+
+  int? _ioSync(Allegrex cpu, PspImport? _) {
+    memStick.flush();
+    return 0;
   }
 
   int? _ioDclose(Allegrex cpu, PspImport? _) {
