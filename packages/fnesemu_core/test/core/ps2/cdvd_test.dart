@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/src/cdrom_drive.dart';
 import 'package:fnesemu_core/src/core/ps2/iop/cdvd.dart';
 import 'package:fnesemu_core/src/core/ps2/ps2.dart';
 import 'package:test/test.dart';
@@ -12,6 +14,60 @@ Uint8List _sector(int fill) {
   raw[15] = 1;
   raw.fillRange(16, 16 + 2048, fill);
   return raw;
+}
+
+/// a CD with a SYSTEM.CNF which boots [id]
+FakeCdromDrive _discOf(String id) {
+  final sectors = List.generate(32, (_) => _sector(0));
+  void put(int lba, Uint8List data) => sectors[lba].setAll(16, data);
+  final pvd = Uint8List(2048)..setRange(1, 6, ascii.encode('CD001'));
+  ByteData.sublistView(pvd)
+    ..setUint32(156 + 2, 20, Endian.little)
+    ..setUint32(156 + 10, 2048, Endian.little);
+  put(16, pvd);
+  put(17, Uint8List(2048)..[0] = 0xff);
+  final cnf = ascii.encode('BOOT2 = cdrom0:\\$id;1\r\n');
+  final dir = Uint8List(2048);
+  const name = 'SYSTEM.CNF;1';
+  dir[0] = 33 + name.length;
+  ByteData.sublistView(dir)
+    ..setUint32(2, 30, Endian.little)
+    ..setUint32(10, cnf.length, Endian.little);
+  dir[32] = name.length;
+  dir.setRange(33, 33 + name.length, ascii.encode(name));
+  put(20, dir);
+  put(30, cnf);
+  return FakeCdromDrive(sectors);
+}
+
+/// a drive whose disc is changed through the tray
+class _TrayDrive implements CdromDrive {
+  CdromDrive disc;
+  int discId = 1;
+  final events = CdromDriveEvents();
+  _TrayDrive(this.disc);
+
+  void change(CdromDrive next) {
+    events.add(CdromDriveState.trayOpen, ++discId);
+    disc = next;
+    events.add(CdromDriveState.ready, ++discId);
+  }
+
+  @override
+  CdromDriveStatus get status =>
+      CdromDriveStatus(disc.status.state, discId, disc.status.toc);
+
+  @override
+  CdromDriveEvent? takeEvent() => events.take();
+
+  @override
+  void clearEvents() => events.clear();
+
+  @override
+  void seek(int lba) => disc.seek(lba);
+
+  @override
+  Uint8List? read(int lba) => disc.read(lba);
 }
 
 void _write(Cdvd cdvd, int command, List<int> params) {
@@ -167,6 +223,21 @@ void main() {
     expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
     ps2.reset();
     expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
+  });
+
+  aggCase('a disc changed through the tray is looked up again', () async {
+    final ps2 = Ps2();
+    addTearDown(ps2.dispose);
+    final drive = _TrayDrive(_discOf('ABCD_123.45'));
+    ps2.setCdromDrive(drive);
+    await ps2.discLookup;
+    expect(ps2.iopIo.cdvd.discId, 'ABCD_123.45');
+    drive.change(_discOf('EFGH_678.90'));
+    ps2.iopIo.cdvd.advance(1); // the tray opened
+    expect(ps2.iopIo.cdvd.discId, isNull);
+    ps2.iopIo.cdvd.advance(1); // the new disc is ready
+    await ps2.discLookup;
+    expect(ps2.iopIo.cdvd.discId, 'EFGH_678.90');
   });
 
   /// the IOP clocks until the N command finishes

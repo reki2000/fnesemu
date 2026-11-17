@@ -61,6 +61,9 @@ class Cdvd {
   /// called when the CDVD interrupt is raised
   void Function()? onInterrupt;
 
+  /// called when the tray opens or a new disc becomes ready in [drive]
+  void Function()? onDiscChange;
+
   /// the inserted disc, or null
   CdromDrive? drive;
 
@@ -361,8 +364,21 @@ class Cdvd {
     onInterrupt?.call();
   }
 
+  void _driveEvent(CdromDriveEvent event) {
+    switch (event.type) {
+      case CdromDriveEventType.trayOpened:
+        onDiscChange?.call();
+      case CdromDriveEventType.discReady:
+        if (event.discId == drive!.status.discId) onDiscChange?.call();
+      case CdromDriveEventType.trayClosed || CdromDriveEventType.discError:
+        break;
+    }
+  }
+
   /// advances the drive by [cycles] IOP clocks
   void advance(int cycles) {
+    final event = drive?.takeEvent();
+    if (event != null) _driveEvent(event);
     _sticky |= _driveStatusValue;
     if (_busyCycles > 0) {
       _busyCycles -= cycles;
