@@ -9,6 +9,7 @@ import 'elf.dart';
 import 'ge.dart';
 import 'memory.dart';
 import 'memstick.dart';
+import 'rtc.dart';
 
 /// Thread states of the kernel scheduler.
 class PspThreadStatus {
@@ -170,7 +171,7 @@ class _AudioChannel {
 /// semaphores, mutexes, memory blocks, the display frame buffer, the
 /// controller, the graphics engine's display lists, the audio channels,
 /// file access (in-memory files, the mounted disc and the memory
-/// stick) and a few utility calls. Unknown calls return zero, which most software treats as
+/// stick), the real-time clock and a few utility calls. Unknown calls return zero, which most software treats as
 /// success or as an idle dialog state.
 class PspKernel {
   final PspMemory mem;
@@ -235,6 +236,17 @@ class PspKernel {
   /// Emulated seconds since boot, refreshed on every system call;
   /// the memory stick stamps its files with it.
   int _nowSeconds = 0;
+
+  /// The real-time clock's anchor: the host wall-clock tick taken on
+  /// first use, and the processor clock at that moment. Later readings
+  /// advance from the anchor by the emulated time elapsed, so delays
+  /// measured by the guest match the clock it reads.
+  int? _rtcAnchorTick;
+  int _rtcAnchorClocks = 0;
+
+  /// The host's offset from UTC in minutes, taken with the anchor;
+  /// it is the local time zone of the emulated clock.
+  int _rtcLocalOffset = 0;
 
   int _nextId = 1;
   PspThread? current;
@@ -497,6 +509,59 @@ class PspKernel {
 
   int _arg(Allegrex cpu, int i) => cpu.r[4 + i];
 
+  /// A 64-bit argument whose first word is argument [i]; 64-bit
+  /// arguments sit in an even-odd register pair, so a call whose first
+  /// argument is a pointer passes its 64-bit second argument at index 2.
+  int _arg64(Allegrex cpu, int i) =>
+      (_arg(cpu, i) & 0xffffffff) | ((_arg(cpu, i + 1) & 0xffffffff) << 32);
+
+  int _readTick(int at) =>
+      mem.read32(at) | (mem.read32(at + 4) << 32);
+
+  void _writeTick(int at, int tick) {
+    mem.write32(at, tick & 0xffffffff);
+    mem.write32(at + 4, (tick >> 32) & 0xffffffff);
+  }
+
+  RtcDateTime _readDateTime(int at) => RtcDateTime(
+        mem.read16(at),
+        mem.read16(at + 2),
+        mem.read16(at + 4),
+        mem.read16(at + 6),
+        mem.read16(at + 8),
+        mem.read16(at + 10),
+        mem.read32(at + 12),
+      );
+
+  void _writeDateTime(int at, RtcDateTime time) {
+    mem.write16(at, time.year);
+    mem.write16(at + 2, time.month);
+    mem.write16(at + 4, time.day);
+    mem.write16(at + 6, time.hour);
+    mem.write16(at + 8, time.minute);
+    mem.write16(at + 10, time.second);
+    mem.write32(at + 12, time.microsecond);
+  }
+
+  /// The current real-time clock tick: the host wall clock anchored on
+  /// first use, advanced by the emulated time elapsed since then.
+  int _nowTick(Allegrex cpu) {
+    final anchor = _rtcAnchorTick;
+    if (anchor == null) {
+      final now = DateTime.now();
+      _rtcLocalOffset = now.timeZoneOffset.inMinutes;
+      final tick = now.toUtc().microsecondsSinceEpoch + rtcUnixEpochTick;
+      _rtcAnchorTick = tick;
+      _rtcAnchorClocks = cpu.clocks;
+      return tick;
+    }
+    return anchor + (cpu.clocks - _rtcAnchorClocks) * 1000000 ~/ 222000000;
+  }
+
+  void _writeRtcString(int at, String text) {
+    mem.writeBytes(at, [...text.codeUnits, 0]);
+  }
+
   void _registerHandlers() {
     void on(int nid, int? Function(Allegrex, PspImport?) fn) =>
         _handlers[nid] = fn;
@@ -711,17 +776,187 @@ class PspKernel {
       return _rng & 0xffffffff;
     });
 
-    // sceRtc
+    // sceRtc: the current time comes from [_nowTick], the conversions
+    // and calendar arithmetic from rtc.dart.
+    on(0xc41c2853, (cpu, _) => 1000000);
     on(0x3f7ad767, (cpu, _) {
       final at = _arg(cpu, 0);
-      final micros = cpu.clocks * 1000000 ~/ 222000000;
-      if (at != 0) {
-        mem.write32(at, micros & 0xffffffff);
-        mem.write32(at + 4, micros >>> 32);
-      }
+      if (at != 0) _writeTick(at, _nowTick(cpu));
       return 0;
     });
-    on(0xc663b3b9, (cpu, _) => 1000000);
+    on(0x4cfa57b0, (cpu, _) {
+      final tick = _nowTick(cpu) + _arg(cpu, 1) * 60000000;
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromTick(tick));
+      return 0;
+    });
+    on(0xe7c27d1b, (cpu, _) {
+      final tick = _nowTick(cpu) + _rtcLocalOffset * 60000000;
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromTick(tick));
+      return 0;
+    });
+    on(0x34885e0d, (cpu, _) {
+      _nowTick(cpu);
+      final tick = _readTick(_arg(cpu, 0)) + _rtcLocalOffset * 60000000;
+      _writeTick(_arg(cpu, 1), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0x779242a2, (cpu, _) {
+      _nowTick(cpu);
+      final tick = _readTick(_arg(cpu, 0)) - _rtcLocalOffset * 60000000;
+      _writeTick(_arg(cpu, 1), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0x42307a17, (cpu, _) => rtcIsLeapYear(_arg(cpu, 0)) ? 1 : 0);
+    on(0x05ef322c,
+        (cpu, _) => rtcDaysInMonth(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0x57726bc1, (cpu, _) =>
+        rtcDayOfWeek(_arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2)));
+    on(0x4b1b5e82,
+        (cpu, _) => rtcCheckValid(_readDateTime(_arg(cpu, 0))));
+    on(0x7ed29e40, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1));
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromTick(tick));
+      return 0;
+    });
+    on(0x6ff40acc, (cpu, _) {
+      final time = _readDateTime(_arg(cpu, 0));
+      if (time.year < 1 || time.year > 9999) return 0x800001fe;
+      _writeTick(_arg(cpu, 1), rtcTickFromDateTime(time));
+      return 0;
+    });
+    on(0x9ed0ae87, (cpu, _) {
+      final a = _readTick(_arg(cpu, 0));
+      final b = _readTick(_arg(cpu, 1));
+      return a == b ? 0 : (a > b ? 1 : -1);
+    });
+    on(0x44f45e05, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg64(cpu, 2);
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0x26d25a5d, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg64(cpu, 2);
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0xf2a4afe5, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg64(cpu, 2) * 1000000;
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0xe6605bca, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg64(cpu, 2) * 60000000;
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0x26d7a24a, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg(cpu, 2) * 3600000000;
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0xe51b4b7a, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg(cpu, 2) * 86400000000;
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0xcf3a2ca8, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1)) + _arg(cpu, 2) * 604800000000;
+      _writeTick(_arg(cpu, 0), tick & 0xffffffffffffffff);
+      return 0;
+    });
+    on(0xdbf74f1b, (cpu, _) {
+      final tick = rtcTickAddMonths(_readTick(_arg(cpu, 1)), _arg(cpu, 2));
+      _writeTick(_arg(cpu, 0), tick);
+      return 0;
+    });
+    on(0x42842c77, (cpu, _) {
+      final tick = rtcTickAddYears(_readTick(_arg(cpu, 1)), _arg(cpu, 2));
+      _writeTick(_arg(cpu, 0), tick);
+      return 0;
+    });
+    on(0x3a807cc8, (cpu, _) {
+      final tick = rtcUnixEpochTick + _arg(cpu, 1) * 1000000;
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromTick(tick));
+      return 0;
+    });
+    on(0x1909c99b, (cpu, _) {
+      final seconds = _arg64(cpu, 2);
+      final tick = rtcUnixEpochTick +
+          (seconds.toSigned(64)) * 1000000;
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromTick(tick));
+      return 0;
+    });
+    on(0x27c4594c, (cpu, _) {
+      final tick = rtcTickFromDateTime(_readDateTime(_arg(cpu, 0)));
+      mem.write32(
+          _arg(cpu, 1), (tick - rtcUnixEpochTick) ~/ 1000000 & 0xffffffff);
+      return 0;
+    });
+    on(0xe1c93e47, (cpu, _) {
+      final tick = rtcTickFromDateTime(_readDateTime(_arg(cpu, 0)));
+      _writeTick(_arg(cpu, 1), (tick - rtcUnixEpochTick) ~/ 1000000);
+      return 0;
+    });
+    on(0xf006f264, (cpu, _) {
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromDos(_arg(cpu, 1)));
+      return 0;
+    });
+    on(0x36075567, (cpu, _) {
+      final dos = rtcDosFromDateTime(_readDateTime(_arg(cpu, 0)));
+      if (dos == null) return -1;
+      mem.write32(_arg(cpu, 1), dos);
+      return 0;
+    });
+    on(0x7ace4c04, (cpu, _) {
+      final tick = rtcWin32EpochTick + _arg64(cpu, 2) ~/ 10;
+      _writeDateTime(_arg(cpu, 0), rtcDateTimeFromTick(tick));
+      return 0;
+    });
+    on(0xcf561893, (cpu, _) {
+      final at = _arg(cpu, 1);
+      if (at == 0) return 0x800001fe;
+      final tick = rtcTickFromDateTime(_readDateTime(_arg(cpu, 0)));
+      if (tick < rtcWin32EpochTick) {
+        _writeTick(at, 0);
+        return 0x800001fe;
+      }
+      _writeTick(at, (tick - rtcWin32EpochTick) * 10);
+      return 0;
+    });
+    on(0xc663b3b9, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1));
+      _writeRtcString(_arg(cpu, 0), rtcFormatRfc2822(tick, _arg(cpu, 2)));
+      return 0;
+    });
+    on(0x7de6711b, (cpu, _) {
+      _nowTick(cpu);
+      final tick = _readTick(_arg(cpu, 1));
+      _writeRtcString(
+          _arg(cpu, 0), rtcFormatRfc2822(tick, _rtcLocalOffset));
+      return 0;
+    });
+    on(0x0498fb3c, (cpu, _) {
+      final tick = _readTick(_arg(cpu, 1));
+      _writeRtcString(_arg(cpu, 0), rtcFormatRfc3339(tick, _arg(cpu, 2)));
+      return 0;
+    });
+    on(0x27f98543, (cpu, _) {
+      _nowTick(cpu);
+      final tick = _readTick(_arg(cpu, 1));
+      _writeRtcString(
+          _arg(cpu, 0), rtcFormatRfc3339(tick, _rtcLocalOffset));
+      return 0;
+    });
+    on(0xdfbc5f16, (cpu, _) {
+      final tick = rtcParseDateTime(mem.readString(_arg(cpu, 1), 256));
+      _writeTick(_arg(cpu, 0), tick ?? 0);
+      return tick == null ? -1 : 0;
+    });
+    on(0x28e1e988, (cpu, _) {
+      final tick = rtcParseRfc3339(mem.readString(_arg(cpu, 1), 256));
+      _writeTick(_arg(cpu, 0), tick ?? 0);
+      return tick == null ? -1 : 0;
+    });
 
     // IoFileMgrForUser: the standard streams and in-memory files, the
     // mounted disc served read-only on its devices and the memory
