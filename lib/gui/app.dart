@@ -443,11 +443,14 @@ class MainPageState extends State<MainPage> {
 
   /// replaces the running core with [system] booted with its BIOS and [rom].
   /// without [rom], the system boots its BIOS (and the disc in the drive).
+  /// the game runs after the boot if [run], by default unless the app was
+  /// started for debugging.
   Future<bool> _boot(CoreSystem system,
       {Uint8List? rom,
       required String name,
       String? folder,
-      String? path}) async {
+      String? path,
+      bool? run}) async {
     final watch = Stopwatch()..start();
     final bios = await _storage.bios(system.id);
     _log.infoc(() => "loaded the BIOS of ${system.id} "
@@ -469,6 +472,7 @@ class MainPageState extends State<MainPage> {
         "in ${watch.elapsedMilliseconds}ms");
 
     _keyHandler.init();
+    _nextDisc = null;
     _romName = name;
     // a disc boot gets its identity from _insertItem, which records the
     // recent entry of the disc
@@ -482,14 +486,17 @@ class MainPageState extends State<MainPage> {
 
     AppSnackBar.show("loaded: $name");
 
-    if (!widget.config.debug) {
-      if (_menuBusy) {
-        _resumeAfterAction = true;
-      } else {
-        await _resumeFromMenu();
-      }
-    }
+    if (run ?? !widget.config.debug) await _runGame();
     return true;
+  }
+
+  /// runs the game when the menu action in progress ends, or now
+  Future<void> _runGame() async {
+    if (_menuBusy) {
+      _resumeAfterAction = true;
+    } else {
+      await _resumeFromMenu();
+    }
   }
 
   Future<void> _prepareCompute() async {
@@ -591,28 +598,47 @@ class MainPageState extends State<MainPage> {
           initialDirectory: _storage.setting(_lastBiosDirKey),
           onDirectory: (dir) => _storage.setSetting(_lastBiosDirKey, dir));
 
-  /// plays the disc in the drive. the running system keeps running if it
-  /// plays the disc (the disc is changed as on the real console), otherwise
-  /// the system of the disc boots.
-  Future<bool> _startDisc(String name, {CoreSystem? system}) async {
+  /// plays the disc in the drive, whose game identity is [gameId]. a disc
+  /// change never resets the running system: a system with a drive keeps
+  /// running with the disc inserted, as on the real console, and a disc of
+  /// another system boots on the next [_reset]. otherwise the system of the
+  /// disc boots. returns the system of the disc, null if it is not played.
+  Future<CoreSystem?> _startDisc(String name,
+      {CoreSystem? system, required String Function(CoreSystem) gameId}) async {
     final watch = Stopwatch()..start();
     system ??= await CoreFactory.systemOfDisc(_drive);
     _log.infoc(() => "identified $name as ${system?.id} "
         "in ${watch.elapsedMilliseconds}ms");
     if (system == null) {
+      _nextDisc = null;
       AppSnackBar.show("unknown disc: $name");
-      return false;
+      return null;
     }
 
-    if (_controller.acceptsDisc(system)) {
-      AppSnackBar.show("inserted: $name");
+    final accepted = _controller.acceptsDisc(system);
+    final running = CoreFactory.systemOrNull(_controller.system);
+    if (accepted || running?.disc != null) {
+      _nextDisc = accepted
+          ? null
+          : (_drive.status.discId, system, name, gameId(system));
+      if (accepted) _gameId = gameId(system);
+      AppSnackBar.show(accepted
+          ? "inserted: $name"
+          : "inserted: $name (${system.name} starts on reset)");
       _romName = name;
       _resumeAfterAction = !widget.config.debug;
-      return true;
+      return system;
     }
 
-    return await _boot(system, name: name);
+    if (!await _boot(system, name: name)) return null;
+    _gameId = gameId(system);
+    return system;
   }
+
+  /// the disc of another system inserted into the running system, with its
+  /// drive disc id: the system boots on the next [_reset] while the disc
+  /// stays in the drive
+  (int, CoreSystem, String, String)? _nextDisc;
 
   static const _lastDiscDirKey = "disc_dir";
 
@@ -775,11 +801,13 @@ class MainPageState extends State<MainPage> {
       return;
     }
 
-    if (await _startDisc(item.path, system: system)) {
-      await _storage.recordRecent(_controller.system, item.path,
-          folder: _folderHistoryKey(scan));
-      _gameId = Storage.gameId(_controller.system, item.path,
-          folder: _folderHistoryKey(scan));
+    final folder = _folderHistoryKey(scan);
+    final played = await _startDisc(item.path,
+        system: system,
+        gameId: (system) =>
+            Storage.gameId(system.id, item.path, folder: folder));
+    if (played != null) {
+      await _storage.recordRecent(played.id, item.path, folder: folder);
     }
   }
 
@@ -987,8 +1015,26 @@ class MainPageState extends State<MainPage> {
     });
   }
 
+  /// resets the running system, or boots the system of the disc of another
+  /// system inserted while it ran, if the disc is still in the drive. the
+  /// game runs after the reset unless the debug mode is on.
   _reset() async {
+    final run = !_debugRequested;
+    final next = _nextDisc;
+    _nextDisc = null;
+    if (next != null &&
+        _drive.status.isReady &&
+        _drive.status.discId == next.$1 &&
+        !_controller.acceptsDisc(next.$2)) {
+      if (await _boot(next.$2, name: next.$3, run: run)) {
+        _gameId = next.$4;
+      } else {
+        _nextDisc = next; // kept to boot when the BIOS is set
+      }
+      return;
+    }
     await _controller.reset();
+    if (run) await _runGame();
   }
 
   _debug(bool onoff) {

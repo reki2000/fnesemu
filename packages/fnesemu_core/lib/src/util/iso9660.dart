@@ -36,6 +36,9 @@ class Iso9660 {
   Iso9660(this.readUser);
 
   Future<Iso9660Entry?>? _root;
+
+  /// the size of the volume in blocks, from the primary volume descriptor
+  int _volumeBlocks = 0;
   final _listings = <int, Future<List<Iso9660Entry>>>{};
 
   /// The root directory of the volume, or null when sector 16 holds no
@@ -47,12 +50,27 @@ class Iso9660 {
     if (pvd.length < 190 || String.fromCharCodes(pvd, 1, 6) != 'CD001') {
       return null;
     }
-    return _parseRecord(pvd, 156);
+    _volumeBlocks = ByteData.sublistView(pvd).getUint32(80, Endian.little);
+    final root = _parseRecord(pvd, 156);
+    // a root outside the volume is not this track's file system, such as on
+    // a multi-session disc which addresses an earlier session
+    return root != null && _inVolume(root) ? root : null;
   }
 
-  static Iso9660Entry _parseRecord(Uint8List sector, int at) {
+  bool _inVolume(Iso9660Entry entry) =>
+      entry.lba + (entry.size + 2047) ~/ 2048 <= _volumeBlocks;
+
+  /// the record at [at] of [sector], or null if it does not fit: a record
+  /// has 33 fixed bytes and the name within its length (ECMA-119 9.1)
+  static Iso9660Entry? _parseRecord(Uint8List sector, int at) {
+    if (at + 34 > sector.length) return null;
+    final length = sector[at], nameLength = sector[at + 32];
+    if (length < 34 ||
+        at + length > sector.length ||
+        33 + nameLength > length) {
+      return null;
+    }
     final view = ByteData.sublistView(sector);
-    final nameLength = sector[at + 32];
     final String name;
     if (nameLength == 1 && sector[at + 33] == 0) {
       name = '.';
@@ -90,7 +108,11 @@ class Iso9660 {
       while (at < sector.length) {
         final length = sector[at];
         if (length == 0) break;
-        entries.add(_parseRecord(sector, at));
+        final entry = _parseRecord(sector, at);
+        // a broken record ends the directory; an extent outside the volume
+        // is left out
+        if (entry == null) return entries;
+        if (_inVolume(entry)) entries.add(entry);
         at += length;
       }
     }

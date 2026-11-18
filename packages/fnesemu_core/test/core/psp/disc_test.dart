@@ -81,6 +81,13 @@ class _Iso {
 
   List<Uint8List> rawSectors() {
     final maxLba = user.keys.reduce((a, b) => a > b ? a : b);
+    // the volume space size of the descriptor, in both byte orders
+    final descriptor = user[16];
+    if (descriptor != null) {
+      ByteData.sublistView(descriptor)
+        ..setUint32(80, maxLba + 1, Endian.little)
+        ..setUint32(84, maxLba + 1, Endian.big);
+    }
     final sectors = <Uint8List>[];
     for (var lba = 0; lba <= maxLba; lba++) {
       final raw = Uint8List(2352);

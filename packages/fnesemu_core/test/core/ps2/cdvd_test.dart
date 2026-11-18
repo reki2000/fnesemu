@@ -22,8 +22,11 @@ FakeCdromDrive _discOf(String id) {
   void put(int lba, Uint8List data) => sectors[lba].setAll(16, data);
   final pvd = Uint8List(2048)..setRange(1, 6, ascii.encode('CD001'));
   ByteData.sublistView(pvd)
+    ..setUint32(80, 32, Endian.little)
     ..setUint32(156 + 2, 20, Endian.little)
     ..setUint32(156 + 10, 2048, Endian.little);
+  pvd[156] = 34; // the root record, with a 1-byte name
+  pvd[156 + 32] = 1;
   put(16, pvd);
   put(17, Uint8List(2048)..[0] = 0xff);
   final cnf = ascii.encode('BOOT2 = cdrom0:\\$id;1\r\n');

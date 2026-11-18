@@ -39,8 +39,11 @@ void main() {
     final pvd = Uint8List(2048);
     pvd.setRange(1, 6, ascii.encode('CD001'));
     ByteData.sublistView(pvd)
+      ..setUint32(80, 40, Endian.little)
       ..setUint32(156 + 2, 20, Endian.little)
       ..setUint32(156 + 10, 2048, Endian.little);
+    pvd[156] = 34; // the root record, with a 1-byte name
+    pvd[156 + 32] = 1;
     sectors[16] = pvd;
     final dir = Uint8List(2048);
     const name = 'SYSTEM.CNF;1';
