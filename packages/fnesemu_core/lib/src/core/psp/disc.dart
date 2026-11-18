@@ -47,12 +47,15 @@ class PspDisc {
     final rootEntry = await iso.root;
     if (rootEntry == null) return null;
     final root = PspDiscNode(rootEntry, null);
+    // a directory is walked once, so a record which points back to a
+    // directory above it does not loop
+    final walked = {rootEntry.lba};
     Future<void> walk(PspDiscNode node) async {
       for (final entry in await iso.list(node.entry)) {
         if (entry.name == '.' || entry.name == '..') continue;
         final child = PspDiscNode(entry, node);
         node.children.add(child);
-        if (entry.isDirectory) await walk(child);
+        if (entry.isDirectory && walked.add(entry.lba)) await walk(child);
       }
     }
 
