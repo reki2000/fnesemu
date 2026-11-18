@@ -122,7 +122,8 @@ class _SlowDrive extends FakeCdromDrive {
   }
 }
 
-_Iso _gameIso(Uint8List bootElf) {
+/// a game disc with [bootElf] as BOOT.BIN, and [eboot] as EBOOT.BIN
+_Iso _gameIso(Uint8List bootElf, {List<int>? eboot}) {
   final iso = _Iso();
   iso.pvd(20);
   iso.directory(20, [
@@ -135,6 +136,7 @@ _Iso _gameIso(Uint8List bootElf) {
   ]);
   iso.directory(22, [
     (30, bootElf.length, false, 'BOOT.BIN;1'.codeUnits),
+    if (eboot != null) (60, eboot.length, false, 'EBOOT.BIN;1'.codeUnits),
   ]);
   iso.directory(23, [
     (40, _hello.length, false, 'HELLO.TXT;1'.codeUnits),
@@ -144,6 +146,7 @@ _Iso _gameIso(Uint8List bootElf) {
   iso.data(40, _hello.codeUnits);
   iso.data(41, [for (var i = 0; i < _bigSize; i++) _bigByte(i)]);
   iso.data(50, 'top-level\n'.codeUnits);
+  if (eboot != null) iso.data(60, eboot);
   return iso;
 }
 
@@ -464,6 +467,29 @@ void main() {
         0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
     _runToEnd(core);
     expect(core.kernelLog, contains(_hello));
+  });
+
+  test('a boot file of zeros leaves the boot to EBOOT.BIN', () async {
+    final boot = _bootProgram();
+    final core = Psp();
+    addTearDown(core.dispose);
+    await core.setCdromDrive(
+        _gameIso(Uint8List(boot.length), eboot: boot).drive());
+    core.mem.writeBytes(
+        0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
+    _runToEnd(core);
+    expect(core.kernelLog, contains(_hello));
+  });
+
+  test('an encrypted boot file is reported as not supported', () async {
+    final encrypted = [...'~PSP'.codeUnits, ...List.filled(400, 1)];
+    final core = Psp();
+    addTearDown(core.dispose);
+    await expectLater(
+        core.setCdromDrive(
+            _gameIso(Uint8List(64), eboot: encrypted).drive()),
+        throwsA(isA<FormatException>()
+            .having((e) => e.message, 'message', contains('encrypted'))));
   });
 
   test('a read waits for a sector the drive is still loading', () async {

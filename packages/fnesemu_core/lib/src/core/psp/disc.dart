@@ -78,7 +78,8 @@ class PspDisc {
         if (boot == null || boot.isDirectory) continue;
         final bytes =
             await iso.readFile((lba: boot.entry.lba, size: boot.entry.size));
-        if (bytes != null && bytes.isNotEmpty) {
+        // a boot file of zeros is a placeholder for the encrypted one
+        if (bytes != null && bytes.any((byte) => byte != 0)) {
           disc.bootBytes = bytes;
           break;
         }
