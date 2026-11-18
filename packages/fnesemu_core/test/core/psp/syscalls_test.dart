@@ -19,6 +19,11 @@ const _moduleByAddress = 0xd8b73127;
 const _displayFps = 0xdba6c4c4;
 const _createThread = 0x446d8de6;
 const _allocBlock = 0x237dbd4f;
+const _createFpl = 0xc07bb470;
+const _deleteFpl = 0xed1410e0;
+const _allocateFpl = 0xd979e9bf;
+const _tryAllocateFpl = 0x623ae665;
+const _freeFpl = 0xf6414a71;
 
 void main() {
   late PspMemory mem;
@@ -38,7 +43,17 @@ void main() {
       ),
       ('ModuleMgrForUser', [_moduleId, _moduleByAddress]),
       ('sceDisplay', [_displayFps]),
-      ('ThreadManForUser', [_createThread]),
+      (
+        'ThreadManForUser',
+        [
+          _createThread,
+          _createFpl,
+          _deleteFpl,
+          _allocateFpl,
+          _tryAllocateFpl,
+          _freeFpl
+        ]
+      ),
     ]);
     mem = PspMemory();
     image = PspElf.load(mem, rom);
@@ -63,6 +78,25 @@ void main() {
     expect(call(_moduleByAddress, [image.end]).toUnsigned(32), 0x8002012e);
     call(_displayFps);
     expect(cpu.f[0], 60.0);
+    expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('a fixed-size pool hands out and takes back its blocks', () {
+    const out = 0x09000000;
+    // two blocks of 6 bytes, rounded up to a word each
+    final pool = call(_createFpl, [0, 2, 0, 6, 2, 0]);
+    expect(pool, greaterThan(0));
+    expect(call(_allocateFpl, [pool, out, 0]), 0);
+    final first = mem.read32(out);
+    expect(call(_tryAllocateFpl, [pool, out + 4]), 0);
+    expect(mem.read32(out + 4), first + 8);
+    expect(call(_tryAllocateFpl, [pool, out + 8]).toUnsigned(32), 0x800200d9);
+    expect(call(_freeFpl, [pool, first + 4]), isNot(0));
+    expect(call(_freeFpl, [pool, first]), 0);
+    expect(call(_tryAllocateFpl, [pool, out + 8]), 0);
+    expect(mem.read32(out + 8), first);
+    expect(call(_deleteFpl, [pool]), 0);
+    expect(call(_allocateFpl, [pool, out, 0]), isNot(0));
     expect(kernel.unknownCalls, isEmpty);
   });
 

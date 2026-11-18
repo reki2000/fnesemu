@@ -71,6 +71,16 @@ class _Block {
   _Block(this.addr, this.size);
 }
 
+/// A fixed-size pool: [count] blocks of [blockSize] bytes from [addr],
+/// with a flag per block that is in use.
+class _Fpl {
+  final int addr;
+  final int blockSize;
+  final List<bool> used;
+  _Fpl(this.addr, this.blockSize, int count)
+      : used = List.filled(count, false);
+}
+
 /// One open file. A memory file holds its bytes in [content]; a disc
 /// file points at a node of the mounted disc and reads through it.
 class _OpenFile {
@@ -199,6 +209,7 @@ class PspKernel {
   final _semas = <int, _Sema>{};
   final _lwMutexes = <int, _LwMutex>{};
   final _blocks = <int, _Block>{};
+  final _fpls = <int, _Fpl>{};
   final unknownCalls = <int, int>{};
 
   /// one line per entry of [unknownCalls]: the library, the NID and the
@@ -624,13 +635,16 @@ class PspKernel {
     on(0xceadeb47, _delayThread);
     on(0x68da9e36, _delayThread); // the CB form shares the delay
     on(0xea748e31, (cpu, _) => current?.id ?? 0);
-    on(0x9ace131e, (cpu, _) {
+    int? sleepThread(Allegrex cpu, PspImport? _) {
       // SleepThread: wakes only through WakeupThread.
       if (_inCallback) return 0;
       current!.status = PspThreadStatus.waitSleep;
       _schedule(cpu);
       return null;
-    });
+    }
+
+    on(0x9ace131e, sleepThread);
+    on(0x82826f70, sleepThread); // the CB form shares the sleep
     on(0x1d17decf, (cpu, _) {
       final thread = threads[_arg(cpu, 0)];
       if (thread != null && thread.status == PspThreadStatus.waitSleep) {
@@ -666,6 +680,16 @@ class PspKernel {
     // SysMemUserForUser: partition memory blocks over a heap arena.
     on(0x237dbd4f, _allocBlock);
     on(0x9d9a5ba1, (cpu, _) => _blocks[_arg(cpu, 0)]?.addr ?? 0);
+
+    // ThreadManForUser: fixed-size pools. An allocation does not wait
+    // for a free block: a full pool returns the no-memory error.
+    on(0xc07bb470, _createFpl);
+    on(0xed1410e0, (cpu, _) =>
+        _fpls.remove(_arg(cpu, 0)) == null ? _unknownFpl : 0);
+    on(0xd979e9bf, _allocateFpl);
+    on(0xe7282cb6, _allocateFpl); // the CB form shares the allocation
+    on(0x623ae665, _allocateFpl);
+    on(0xf6414a71, _freeFpl);
     on(0xb6d61d02, (cpu, _) {
       _blocks.remove(_arg(cpu, 0));
       return 0;
@@ -1529,12 +1553,59 @@ class PspKernel {
     return 0;
   }
 
+  // kernel error codes of the pools, as recalled from the public SDK
+  // error list; only the success paths are checked against games
+  static const _unknownFpl = 0x8002019d;
+  static const _noMemory = 0x800200d9;
+
+  /// sceKernelCreateFpl(name, partition, attr, blockSize, count, option):
+  /// the blocks come from the heap arena, each rounded up to a word.
+  int? _createFpl(Allegrex cpu, PspImport? _) {
+    final blockSize = (_arg(cpu, 3) + 3) & ~3;
+    final count = _arg(cpu, 4);
+    if (blockSize <= 0 || count <= 0) return 0x800201bc;
+    final size = (blockSize * count + 0xff) & ~0xff;
+    if (_heapAt + size > _stackAt) return _noMemory;
+    final id = _nextId++;
+    _fpls[id] = _Fpl(_heapAt, blockSize, count);
+    _heapAt += size;
+    return id;
+  }
+
+  /// sceKernelAllocateFpl(uid, data, timeout) and its CB and try forms:
+  /// writes the address of a free block to data
+  int? _allocateFpl(Allegrex cpu, PspImport? _) {
+    final fpl = _fpls[_arg(cpu, 0)];
+    if (fpl == null) return _unknownFpl;
+    final index = fpl.used.indexOf(false);
+    if (index < 0) return _noMemory;
+    fpl.used[index] = true;
+    mem.write32(_arg(cpu, 1), fpl.addr + index * fpl.blockSize);
+    return 0;
+  }
+
+  /// sceKernelFreeFpl(uid, data)
+  int? _freeFpl(Allegrex cpu, PspImport? _) {
+    final fpl = _fpls[_arg(cpu, 0)];
+    if (fpl == null) return _unknownFpl;
+    final offset = _arg(cpu, 1) - fpl.addr;
+    final index = offset ~/ fpl.blockSize;
+    if (offset < 0 ||
+        offset % fpl.blockSize != 0 ||
+        index >= fpl.used.length ||
+        !fpl.used[index]) {
+      return 0x800201bd;
+    }
+    fpl.used[index] = false;
+    return 0;
+  }
+
   int? _allocBlock(Allegrex cpu, PspImport? _) {
     final size = (_arg(cpu, 3) + 0xffff) & ~0xffff;
     // Heap blocks and thread stacks share the user partition: blocks
     // grow up from the module image, stacks grow down from its top,
     // and a block may not cross the current stack frontier.
-    if (_heapAt + size > _stackAt) return 0x800200d9;
+    if (_heapAt + size > _stackAt) return _noMemory;
     final id = _nextId++;
     _blocks[id] = _Block(_heapAt, size);
     _heapAt += size;
@@ -2068,6 +2139,16 @@ class PspKernel {
       writer.int32(entry.value.addr);
       writer.int32(entry.value.size);
     }
+    writer.int32(_fpls.length);
+    for (final MapEntry(key: id, value: fpl) in _fpls.entries) {
+      writer.int32(id);
+      writer.int32(fpl.addr);
+      writer.int32(fpl.blockSize);
+      writer.int32(fpl.used.length);
+      for (final used in fpl.used) {
+        writer.boolean(used);
+      }
+    }
     for (final channel in _audioChannels) {
       writer.boolean(channel.reserved);
       writer.int32(channel.sampleCount);
@@ -2151,6 +2232,16 @@ class PspKernel {
     for (var i = 0; i < blockCount; i++) {
       final id = reader.int32();
       _blocks[id] = _Block(reader.int32(), reader.int32());
+    }
+    _fpls.clear();
+    final fplCount = reader.version >= 6 ? reader.int32() : 0;
+    for (var i = 0; i < fplCount; i++) {
+      final id = reader.int32();
+      final fpl = _Fpl(reader.int32(), reader.int32(), reader.int32());
+      for (var j = 0; j < fpl.used.length; j++) {
+        fpl.used[j] = reader.boolean();
+      }
+      _fpls[id] = fpl;
     }
     for (final channel in _audioChannels) {
       channel.reserved = reader.boolean();

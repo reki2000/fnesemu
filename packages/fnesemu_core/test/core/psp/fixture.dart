@@ -133,13 +133,16 @@ class TestElfLayout {
 /// The module info and stub tables follow the documented on-disk layout
 /// the loader parses. With [prx] the file is a relocatable module (type
 /// 0xffa0) linked at address zero, and [relocs] (segment offset, MIPS
-/// relocation type) pairs are emitted in a relocation section.
+/// relocation info) pairs are emitted in a relocation section. With
+/// [secondSegmentAt] an empty second segment at that address follows,
+/// for relocations relative to it.
 (Uint8List, TestElfLayout) buildTestElf({
   required List<int> code,
   List<(String, List<int>)> imports = const [],
   bool prx = false,
   List<(int, int)> relocs = const [],
   String moduleName = 'test',
+  int? secondSegmentAt,
 }) {
   final base = prx ? 0 : 0x08800000;
   final seg = BytesBuilder();
@@ -255,7 +258,8 @@ class TestElfLayout {
   }
   final relocData = relBytes.toBytes();
 
-  final headerSize = 52 + 32;
+  final phnum = secondSegmentAt == null ? 1 : 2;
+  final headerSize = 52 + 32 * phnum;
   final segOff = headerSize;
   final relOff = segOff + segBytes.length;
   final shstrOff = relOff + relocData.length;
@@ -278,7 +282,7 @@ class TestElfLayout {
   eh.setUint32(32, shoff, Endian.little);
   eh.setUint16(40, 52, Endian.little);
   eh.setUint16(42, 32, Endian.little);
-  eh.setUint16(44, 1, Endian.little);
+  eh.setUint16(44, phnum, Endian.little);
   eh.setUint16(46, 40, Endian.little);
   final shnum = relocs.isEmpty ? 4 : 5;
   eh.setUint16(48, shnum, Endian.little);
@@ -294,6 +298,16 @@ class TestElfLayout {
   ph.setUint32(24, 7, Endian.little);
   ph.setUint32(28, 0x1000, Endian.little);
   out.add(ph.buffer.asUint8List());
+  if (secondSegmentAt != null) {
+    final second = ByteData(32);
+    second.setUint32(0, 1, Endian.little); // PT_LOAD, empty
+    second.setUint32(4, segOff, Endian.little);
+    second.setUint32(8, secondSegmentAt, Endian.little);
+    second.setUint32(12, secondSegmentAt, Endian.little);
+    second.setUint32(24, 6, Endian.little);
+    second.setUint32(28, 0x10, Endian.little);
+    out.add(second.buffer.asUint8List());
+  }
   out.add(segBytes);
   out.add(relocData);
   out.add(shstrBytes);

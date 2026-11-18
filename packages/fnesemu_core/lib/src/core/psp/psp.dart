@@ -302,8 +302,13 @@ class Psp extends Core {
     final kernel = _kernel;
     if (kernel == null) return 'psp: no media';
     final thread = kernel.current;
+    final failed = cpu.failedAt < 0
+        ? ''
+        : 'failed at 0x${cpu.failedAt.toRadixString(16)} word '
+            '0x${cpu.failedWord.toRadixString(16).padLeft(8, '0')}\n';
     return 'pc 0x${cpu.pc.toRadixString(16)} thread ${thread?.name ?? '-'} '
         'vcount ${kernel.vcount} unknown ${kernel.unknownCalls.length}\n'
+        '$failed'
         '${kernel.unknownCallLines.map((line) => '  $line\n').join()}'
         '${kernel.log.toString()}';
   }
