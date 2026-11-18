@@ -94,8 +94,19 @@ class PspElf {
     return Uint8List.sublistView(body, at, end);
   }
 
+  /// True if [body] starts with the header of an encrypted executable.
+  static bool isEncrypted(Uint8List body) =>
+      body.length >= 4 &&
+      body[0] == 0x7e &&
+      body[1] == 0x50 &&
+      body[2] == 0x53 &&
+      body[3] == 0x50;
+
   static PspModuleImage load(PspMemory mem, Uint8List body) {
     if (isPbp(body)) body = pbpExecutable(body);
+    if (isEncrypted(body)) {
+      throw const FormatException('encrypted executables are not supported');
+    }
     if (!isElf(body) || body.length < 52) {
       throw const FormatException('not an ELF executable');
     }
