@@ -362,7 +362,7 @@ class CompiledApp {
         return new DataView(dst);
       },
       SJ: (x0,x1) => x0.copyTo(x1),
-      SK: (wasmFunction,f) => finalizeWrapper(f, function(x0,x1,x2) { return wasmFunction(f,arguments.length,x0,x1,x2) }),
+      SK: (x0,x1) => x0.push(x1),
       SL: x0 => x0.name,
       T: x0 => new Promise(x0),
       TB: (b, o) => new DataView(b, o),
@@ -374,7 +374,7 @@ class CompiledApp {
       TH: () => 1000 * performance.now(),
       TI: (a, s, e) => a.slice(s, e),
       TJ: (x0,x1) => { x0.height = x1 },
-      TK: x0 => globalThis.WebAssembly.validate(x0),
+      TK: (wasmFunction,f) => finalizeWrapper(f, function(x0,x1,x2) { return wasmFunction(f,arguments.length,x0,x1,x2) }),
       TL: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       U: (x0,x1,x2) => x0.call(x1,x2),
       UB: (b, o, l) => new DataView(b, o, l),
@@ -413,11 +413,7 @@ class CompiledApp {
       UH: x0 => new Uint8Array(x0),
       UI: () => globalThis.AudioStream,
       UJ: (x0,x1) => { x0.width = x1 },
-      UK: (o) => {
-        const typeofValue = typeof o;
-        return (typeofValue === 'object') ||
-            typeofValue === 'function';
-      },
+      UK: x0 => globalThis.WebAssembly.validate(x0),
       UL: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       V: (constructor, args) => {
         const factoryFunction = constructor.bind.apply(
@@ -438,7 +434,11 @@ class CompiledApp {
       VH: (x0,x1,x2) => x0.slice(x1,x2),
       VI: x0 => x0.uninit(),
       VJ: (x0,x1) => x0.toDataURL(x1),
-      VK: (x0,x1) => x0.push(x1),
+      VK: (o) => {
+        const typeofValue = typeof o;
+        return (typeofValue === 'object') ||
+            typeofValue === 'function';
+      },
       VL: (x0,x1) => x0.append(x1),
       W: x0 => new Array(x0),
       WB: o => {
@@ -520,7 +520,7 @@ class CompiledApp {
       bH: (x0,x1) => new Intl.v8BreakIterator(x0,x1),
       bI: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       bJ: (x0,x1) => x0.revokeObjectURL(x1),
-      bK: x0 => x0.size,
+      bK: x0 => x0.values(),
       bL: (x0,x1,x2,x3) => x0.removeEventListener(x1,x2,x3),
       c: o => o,
       cB: o => {
@@ -536,7 +536,7 @@ class CompiledApp {
       cH: x0 => x0.v8BreakIterator,
       cI: (x0,x1) => { x0.oncomplete = x1 },
       cJ: (x0,x1) => { x0.src = x1 },
-      cK: (x0,x1) => x0.getDirectoryHandle(x1),
+      cK: x0 => x0.next(),
       cL: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       d: (o, p) => o[p],
       dB: Function.prototype.call.bind(DataView.prototype.setUint32),
@@ -553,7 +553,7 @@ class CompiledApp {
       dH: () => globalThis.Intl,
       dI: (x0,x1) => { x0.onabort = x1 },
       dJ: (x0,x1,x2,x3,x4) => globalThis.createImageBitmap(x0,x1,x2,x3,x4),
-      dK: (x0,x1) => x0.getFileHandle(x1),
+      dK: x0 => x0.kind,
       dL: (x0,x1) => ({keyPath: x0,autoIncrement: x1}),
       e: () => globalThis,
       eB: Function.prototype.call.bind(DataView.prototype.getUint32),
@@ -565,7 +565,7 @@ class CompiledApp {
       eH: (x0,x1) => x0.segment(x1),
       eI: (x0,x1) => { x0.onerror = x1 },
       eJ: x0 => x0.naturalHeight,
-      eK: x0 => x0.getFile(),
+      eK: x0 => x0.name,
       eL: (x0,x1,x2) => x0.createObjectStore(x1,x2),
       f: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       fB: o => {
@@ -581,7 +581,7 @@ class CompiledApp {
       fH: x0 => x0.index,
       fI: x0 => x0.message,
       fJ: x0 => x0.naturalWidth,
-      fK: (x0,x1,x2) => x0.slice(x1,x2),
+      fK: x0 => x0.value,
       fL: x0 => x0.target,
       g: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       gB: Function.prototype.call.bind(DataView.prototype.setInt32),
@@ -593,7 +593,7 @@ class CompiledApp {
       gH: x0 => x0.next(),
       gI: x0 => x0.name,
       gJ: x0 => x0.decode(),
-      gK: x0 => x0.arrayBuffer(),
+      gK: x0 => x0.done,
       gL: x0 => x0.oldVersion,
       h: (x0,x1) => ({addView: x0,removeView: x1}),
       hB: Function.prototype.call.bind(DataView.prototype.getInt32),
@@ -605,7 +605,7 @@ class CompiledApp {
       hH: x0 => x0.value,
       hI: x0 => x0.error,
       hJ: (x0,x1) => { x0.decoding = x1 },
-      hK: x0 => x0.values(),
+      hK: x0 => x0.size,
       hL: x0 => x0.persist(),
       i: (l, r) => l === r,
       iB: o => {
@@ -621,7 +621,7 @@ class CompiledApp {
       iH: x0 => x0.done,
       iI: x0 => x0.message,
       iJ: (x0,x1) => { x0.crossOrigin = x1 },
-      iK: x0 => x0.next(),
+      iK: (x0,x1) => x0.getDirectoryHandle(x1),
       iL: x0 => x0.storage,
       j: x0 => x0.random(),
       jB: o => o instanceof Uint16Array,
@@ -633,7 +633,7 @@ class CompiledApp {
       jH: (o, m, a) => o[m].apply(o, a),
       jI: x0 => x0.name,
       jJ: (x0,x1) => x0.createObjectURL(x1),
-      jK: x0 => x0.kind,
+      jK: (x0,x1) => x0.getFileHandle(x1),
       jL: x0 => x0.navigator,
       k: o => o,
       kB: Function.prototype.call.bind(DataView.prototype.setUint16),
@@ -645,7 +645,7 @@ class CompiledApp {
       kH: x0 => x0.iterator,
       kI: (x0,x1) => x0.objectStore(x1),
       kJ: x0 => x0.URL,
-      kK: x0 => x0.name,
+      kK: x0 => x0.getFile(),
       kL: x0 => x0.canvasKitMaximumSurfaces,
       l: o => {
         if (o === undefined || o === null) return 0;
@@ -661,7 +661,7 @@ class CompiledApp {
       lH: () => globalThis.Symbol,
       lI: x0 => x0.autoIncrement,
       lJ: x0 => new Blob(x0),
-      lK: x0 => x0.value,
+      lK: (x0,x1,x2) => x0.slice(x1,x2),
       lL: x0 => x0.hostElement,
       m: () => globalThis.Math,
       mB: o => o instanceof Int16Array,
@@ -673,7 +673,7 @@ class CompiledApp {
       mH: (x0,x1) => new Intl.Segmenter(x0,x1),
       mI: (o, t) => typeof o === t,
       mJ: (x0,x1,x2,x3,x4) => ({type: x0,data: x1,premultiplyAlpha: x2,colorSpaceConversion: x3,preferAnimation: x4}),
-      mK: x0 => x0.done,
+      mK: x0 => x0.arrayBuffer(),
       mL: x0 => x0.location,
       n: (x0,x1) => x0.prepend(x1),
       nB: Function.prototype.call.bind(DataView.prototype.setInt16),
