@@ -352,6 +352,7 @@ class PspKernel {
     final main =
         _newThread('main', image.entry, 0x20, _mainStackTop, _mainStackSize);
     main.status = PspThreadStatus.running;
+    _prepareK0Area(main);
     main.state.r[29] = _mainStackTop - 0x100;
     main.state.r[31] = _exitStubAt;
     main.state.r[28] = image.gp;
@@ -368,6 +369,18 @@ class PspKernel {
     thread.state.r[28] = current?.state.r[28] ?? 0;
     threads[thread.id] = thread;
     return thread;
+  }
+
+  /// Clears the 0x100 bytes at the top of the stack of [thread] and points
+  /// its k0 register there. User code keeps per-thread data in this area
+  /// through k0, such as the C library finding its reentrancy structure;
+  /// the fields the kernel itself writes there are not filled in.
+  void _prepareK0Area(PspThread thread) {
+    final at = thread.stackTop - 0x100;
+    for (var i = 0; i < 0x100; i += 4) {
+      mem.write32(at + i, 0);
+    }
+    thread.state.r[26] = at;
   }
 
   /// Whether the current thread can execute right now.
@@ -1294,6 +1307,7 @@ class PspKernel {
       return 0x80020198;
     }
     final argSize = _arg(cpu, 1), argAt = _arg(cpu, 2);
+    _prepareK0Area(thread);
     final sp = thread.stackTop - 0x100;
     thread.state.pc = thread.entry;
     thread.state.nextPc = thread.entry + 4;

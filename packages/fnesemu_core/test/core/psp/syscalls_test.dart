@@ -18,6 +18,7 @@ const _moduleId = 0xf0a26395;
 const _moduleByAddress = 0xd8b73127;
 const _displayFps = 0xdba6c4c4;
 const _createThread = 0x446d8de6;
+const _startThread = 0xf475845d;
 const _allocBlock = 0x237dbd4f;
 const _createFpl = 0xc07bb470;
 const _deleteFpl = 0xed1410e0;
@@ -47,6 +48,7 @@ void main() {
         'ThreadManForUser',
         [
           _createThread,
+          _startThread,
           _createFpl,
           _deleteFpl,
           _allocateFpl,
@@ -79,6 +81,17 @@ void main() {
     call(_displayFps);
     expect(cpu.f[0], 60.0);
     expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('k0 of a thread points at the cleared top of its stack', () {
+    final main = kernel.current!;
+    expect(main.state.r[26], main.stackTop - 0x100);
+    final id = call(_createThread, [0, image.entry, 32, 0x10000]);
+    final thread = kernel.threads[id]!;
+    mem.write32(thread.stackTop - 0x100 + 4, 0x12345678);
+    expect(call(_startThread, [id, 0, 0]), 0);
+    expect(thread.state.r[26], thread.stackTop - 0x100);
+    expect(mem.read32(thread.stackTop - 0x100 + 4), 0);
   });
 
   test('a fixed-size pool hands out and takes back its blocks', () {
