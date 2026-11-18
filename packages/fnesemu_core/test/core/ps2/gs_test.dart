@@ -637,6 +637,22 @@ void main() {
       expect(interrupts, 1);
     });
 
+    aggCase('FIELD of CSR toggles at the vblank and reads ahead of it', () {
+      final gs = _gs();
+      var upcoming = false;
+      gs.vblankUpcoming = () => upcoming;
+      int field() => (gs.readPrivileged(0x12001000) >> 13) & 1;
+      expect(field(), 0);
+      gs.vblank();
+      expect(field(), 1);
+      // a read that ends after the vblank starts sees the next field
+      upcoming = true;
+      expect(field(), 0);
+      upcoming = false;
+      gs.vblank();
+      expect(field(), 0);
+    });
+
     aggCase('FINISH sets its flag', () {
       final gs = _gs();
       gs.writePrivileged(0x12001010, 0);

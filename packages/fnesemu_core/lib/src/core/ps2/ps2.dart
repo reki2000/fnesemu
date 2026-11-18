@@ -194,6 +194,7 @@ class Ps2 extends Core {
       ..cpCond0 = () => io.dmac.cpCond0;
     io.iopRam = iopMemory.ram;
     io.intc.upcoming = _upcomingIntc;
+    io.gs.vblankUpcoming = () => _upcomingIntc() == 1 << Intc.vblankStart;
     io.gs.computeSink = _computeSink;
     return io;
   }
