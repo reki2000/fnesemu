@@ -24,8 +24,10 @@ class PspModuleImage {
   /// The first address past the loaded segments, in user memory.
   final int end;
   final List<PspImport> imports;
+  final List<({int start, int end})> segments;
   const PspModuleImage(
-      this.name, this.entry, this.gp, this.base, this.end, this.imports);
+      this.name, this.entry, this.gp, this.base, this.end, this.imports,
+      this.segments);
 }
 
 /// Loads the executable formats of the handheld: plain 32-bit little-endian
@@ -124,6 +126,7 @@ class PspElf {
       throw const FormatException('ELF has no loadable segments');
     }
     final base = type == 0xffa0 || minVaddr < PspMemory.ramAt ? _userBase : 0;
+    final segments = <({int start, int end})>[];
 
     for (var i = 0; i < phnum; i++) {
       final at = phoff + i * 32;
@@ -135,6 +138,7 @@ class PspElf {
           phys < PspMemory.ramAt || phys + memsz > PspMemory.ramEnd) {
         throw const FormatException('Invalid ELF load segment');
       }
+      segments.add((start: phys, end: phys + memsz));
       mem.writeBytes(
           vaddr, Uint8List.sublistView(body, offset, offset + filesz));
       for (var j = filesz; j < memsz; j++) {
@@ -203,7 +207,7 @@ class PspElf {
       at += (words >= 5 ? words : 5) * 4;
     }
     return PspModuleImage(
-        moduleName, entry + base, gp, base, maxEnd + base, imports);
+        moduleName, entry + base, gp, base, maxEnd + base, imports, segments);
   }
 
   static void _relocate(PspMemory mem, Uint8List body, int offset,

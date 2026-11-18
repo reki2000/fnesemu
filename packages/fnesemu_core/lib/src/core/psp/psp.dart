@@ -25,7 +25,7 @@ import 'memstick.dart';
 /// to the framework output and the multimedia coprocessor (VFPU) is
 /// emulated with a few documented accuracy limits.
 class Psp extends Core {
-  static const _stateVersion = 5;
+  static const _stateVersion = 6;
   static const _visibleLines = 272;
 
   final mem = PspMemory();
@@ -58,7 +58,8 @@ class Psp extends Core {
   @override
   int get scanlinesInFrame => 286;
   @override
-  int get clocksInScanline => systemClockHz ~/ 60 ~/ scanlinesInFrame;
+  int get clocksInScanline =>
+      systemClockHz ~/ PspKernel.displayHz ~/ scanlinesInFrame;
   @override
   int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
 
@@ -277,7 +278,7 @@ class Psp extends Core {
     final kernel = _kernel;
     if (kernel == null) throw StateError('no media loaded');
     final reader = StateReader(state, 'psp', _stateVersion, _mediaId,
-        previousVersion: 4);
+        minimumVersion: 4);
     reader.section('mem');
     reader.bytesInto(mem.ram);
     reader.bytesInto(mem.vram);
@@ -288,7 +289,7 @@ class Psp extends Core {
     cpu.clocks = legacy ? reader.int32().toUnsigned(32) : reader.int64();
     _line = reader.int32();
     _nextLineAt = legacy ? reader.int32().toUnsigned(32) : reader.int64();
-    kernel.loadState(reader, legacy: legacy);
+    kernel.loadState(reader);
     reader.end();
   }
 
@@ -303,6 +304,7 @@ class Psp extends Core {
     final thread = kernel.current;
     return 'pc 0x${cpu.pc.toRadixString(16)} thread ${thread?.name ?? '-'} '
         'vcount ${kernel.vcount} unknown ${kernel.unknownCalls.length}\n'
+        '${kernel.unknownCallLines.map((line) => '  $line\n').join()}'
         '${kernel.log.toString()}';
   }
 }
