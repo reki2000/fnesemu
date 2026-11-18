@@ -253,7 +253,7 @@ class Session {
       if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
     }
     // the md cdrom core needs the disc before the bios
-    if (name == "mdcd" && drive != null) core.setCdromDrive(drive);
+    if (name == "mdcd" && drive != null) await core.setCdromDrive(drive);
     if (core is Dc) {
       final path = files[0].toLowerCase();
       if (path.endsWith('.dc') || path.endsWith('.dc.zip')) {
@@ -279,7 +279,7 @@ class Session {
     }
     // a boot after a disc-less bios state attaches the disc at the boot
     if (name != "mdcd" && drive != null && dcBootFrame == null) {
-      core.setCdromDrive(drive);
+      await core.setCdromDrive(drive);
     }
     // ps2 looks up the media type and the disc ID in the background. Wait for
     // the lookups, so that the result does not depend on how soon the first
@@ -350,7 +350,7 @@ class Session {
     await drive?.settle();
     final core = this.core;
     if (core is Dc && frame == dcBootFrame) {
-      core.setCdromDrive(drive!);
+      await core.setCdromDrive(drive!);
       final boot = await core.bootUnscrambledDisc(waitForSector: drive!.settle);
       stderr.writeln("booted ${boot.name} (${boot.program.length} bytes) "
           "after frame $frame");

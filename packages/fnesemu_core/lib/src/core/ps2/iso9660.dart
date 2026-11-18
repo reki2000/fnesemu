@@ -13,7 +13,8 @@ Future<String?> readSystemCnf(CdromDrive drive) async {
       Iso9660((lba) async => userData(await drive.readWhenReady(start + lba)));
   final file = await iso.findRootFile('SYSTEM.CNF');
   if (file == null) return null;
-  return utf8.decode(await iso.readFile(file), allowMalformed: true);
+  final bytes = await iso.readFile(file);
+  return bytes == null ? null : utf8.decode(bytes, allowMalformed: true);
 }
 
 /// the sectors of the longest CD (99 minutes); a larger disc is a DVD
