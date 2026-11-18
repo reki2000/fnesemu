@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
@@ -10,6 +11,7 @@ import 'package:fnesemu_core/src/core/md/md.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/ps2/ps2.dart';
+import 'package:fnesemu_core/src/core/psp/psp.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/pad_source.dart';
@@ -54,7 +56,8 @@ const mediaAliases = {
 
 const mediaUsage = """
   <core> <rom|bios> [disc]   the core (nes fds pce md mdcd 32x ps ps2 ss snes gb gba n64
-                             sms mk3 smstms gg ws wsc dc) and its media
+                             sms mk3 smstms gg ws wsc dc psp) and its media;
+                             psp takes an executable, or a disc image alone
   -i, --input SEQ    the button presses, in the syntax of tool/input_sequence.dart
   -b, --bios FILE    gba / fds: BIOS; dc: flash image (positional media is boot ROM)
   -3, --boot A,B,C   32x: the boot roms (main 256B, master 2048B, slave 1024B)
@@ -246,11 +249,16 @@ class Session {
       (core as Md)
           .setExpansionBootRoms(main: roms[0], master: roms[1], slave: roms[2]);
     }
+    // psp boots the boot file of a disc given alone, without an executable
+    final discOnly = core is Psp &&
+        files.length == 1 &&
+        DiscFileKind.of(files[0]) == DiscFileKind.image;
+    final discFile = discOnly ? files[0] : files.length > 1 ? files[1] : null;
     SimpleCdromDrive? drive;
-    if (files.length > 1) {
+    if (discFile != null) {
       drive = SimpleCdromDrive();
-      await drive.insert(localDisc(files[1]));
-      if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
+      await drive.insert(localDisc(discFile));
+      if (!drive.status.isReady) throw "cannot read disc: $discFile";
     }
     // the md cdrom core needs the disc before the bios
     if (name == "mdcd" && drive != null) await core.setCdromDrive(drive);
@@ -273,7 +281,7 @@ class Session {
     } else if (core is Ps2) {
       if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
       core.setBiosFiles([loadRom(files[0])]);
-    } else {
+    } else if (!discOnly) {
       if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
       core.setRom(loadRom(files[0]));
     }
