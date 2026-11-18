@@ -82,6 +82,7 @@ class CoreController {
       if (rom != null) {
         core.setRom(rom);
       }
+      if (drive != null) await core.setCdromDrive(drive);
     } catch (_) {
       created?.dispose();
       _restoreSram(sramId, sramData);
@@ -89,10 +90,6 @@ class CoreController {
         run();
       }
       rethrow;
-    }
-
-    if (drive != null) {
-      core.setCdromDrive(drive);
     }
 
     _core.dispose();

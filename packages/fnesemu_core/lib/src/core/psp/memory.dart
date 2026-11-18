@@ -106,9 +106,9 @@ class PspMemory {
     return out;
   }
 
-  void writeBytes(int addr, List<int> bytes, [int offset = 0]) {
+  void writeBytes(int addr, List<int> bytes) {
     for (var i = 0; i < bytes.length; i++) {
-      write8(addr + i, bytes[offset + i]);
+      write8(addr + i, bytes[i]);
     }
   }
 

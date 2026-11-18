@@ -35,8 +35,9 @@ class PspModule extends CoreModule {
     if (start == null) return null;
     final iso = Iso9660(
         (lba) async => userData(await drive.readWhenReady(start + lba)));
-    final boot = await iso.find('PSP_GAME/SYSDIR/BOOT.BIN') ??
-        await iso.find('PSP_GAME/SYSDIR/EBOOT.BIN');
-    return boot != null ? system : null;
+    final boot = await iso.find('PSP_GAME/SYSDIR/BOOT.BIN');
+    if (boot != null && !boot.isDirectory) return system;
+    final eboot = await iso.find('PSP_GAME/SYSDIR/EBOOT.BIN');
+    return eboot != null && !eboot.isDirectory ? system : null;
   }
 }

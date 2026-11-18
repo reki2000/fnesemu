@@ -59,12 +59,14 @@ class PspElf {
     final shoff = data.getUint32(32, Endian.little);
     final shnum = data.getUint16(48, Endian.little);
     final shstrndx = data.getUint16(50, Endian.little);
-    if (shoff == 0 || shstrndx >= shnum) return false;
+    if (shoff == 0 || shstrndx >= shnum || shoff + shnum * 40 > body.length) {
+      return false;
+    }
     final strOff = data.getUint32(shoff + shstrndx * 40 + 16, Endian.little);
     const wanted = '.rodata.sceModuleInfo';
     for (var i = 0; i < shnum; i++) {
       final nameAt = strOff + data.getUint32(shoff + i * 40, Endian.little);
-      if (nameAt + wanted.length > body.length) continue;
+      if (nameAt + wanted.length >= body.length) continue;
       var match = true;
       for (var j = 0; j < wanted.length; j++) {
         if (body[nameAt + j] != wanted.codeUnitAt(j)) {
@@ -79,11 +81,12 @@ class PspElf {
 
   /// The executable bytes inside a PBP package.
   static Uint8List pbpExecutable(Uint8List body) {
+    if (body.length < 40) throw const FormatException('Truncated PBP header');
     final data = ByteData.sublistView(body);
     final at = data.getUint32(32, Endian.little);
     final next = data.getUint32(36, Endian.little);
     final end = next > at ? next : body.length;
-    if (at >= end || end > body.length) {
+    if (at < 40 || at >= end || end > body.length) {
       throw const FormatException('PBP has no executable section');
     }
     return Uint8List.sublistView(body, at, end);
@@ -91,7 +94,7 @@ class PspElf {
 
   static PspModuleImage load(PspMemory mem, Uint8List body) {
     if (isPbp(body)) body = pbpExecutable(body);
-    if (!isElf(body)) {
+    if (!isElf(body) || body.length < 52) {
       throw const FormatException('not an ELF executable');
     }
     final data = ByteData.sublistView(body);
@@ -104,6 +107,10 @@ class PspElf {
     final entry = u32(24);
     final phoff = u32(28), shoff = u32(32);
     final phnum = u16(44), shnum = u16(48), shstrndx = u16(50);
+    if (phoff + phnum * 32 > body.length ||
+        shoff + shnum * 40 > body.length) {
+      throw const FormatException('Truncated ELF header table');
+    }
 
     var minVaddr = 0x7fffffff, maxEnd = 0;
     for (var i = 0; i < phnum; i++) {
@@ -123,6 +130,11 @@ class PspElf {
       if (u32(at) != 1) continue;
       final offset = u32(at + 4), vaddr = u32(at + 8) + base;
       final filesz = u32(at + 16), memsz = u32(at + 20);
+      final phys = PspMemory.physical(vaddr);
+      if (filesz > memsz || offset + filesz > body.length ||
+          phys < PspMemory.ramAt || phys + memsz > PspMemory.ramEnd) {
+        throw const FormatException('Invalid ELF load segment');
+      }
       mem.writeBytes(
           vaddr, Uint8List.sublistView(body, offset, offset + filesz));
       for (var j = filesz; j < memsz; j++) {

@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/core_controller.dart';
 import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core/psp/module.dart';
 import 'package:fnesemu_core/src/core/psp/psp.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -443,14 +445,21 @@ void main() {
     expect(await module.identifyDisc(other.drive()), isNull);
   });
 
+  test('controller initialization waits for the disc boot executable',
+      () async {
+    final disc = _gameIso(_bootProgram());
+    final drive = _SlowDrive(disc.rawSectors(), 16, 5);
+    final controller = CoreController((_) {}, (_) {}, (_) {}, Sram());
+    addTearDown(controller.stop);
+    await controller.init('psp', drive: drive);
+    expect(await controller.saveState(), isNotEmpty);
+    expect(drive.hold, 0);
+  });
+
   test('boots the disc boot file and reads through it', () async {
     final core = Psp();
     addTearDown(core.dispose);
-    core.setCdromDrive(_gameIso(_bootProgram()).drive());
-    for (var i = 0; i < 400 && core.dump().startsWith('psp: no media'); i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    expect(core.dump().startsWith('psp: no media'), isFalse);
+    await core.setCdromDrive(_gameIso(_bootProgram()).drive());
     core.mem.writeBytes(
         0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
     _runToEnd(core);
@@ -464,11 +473,7 @@ void main() {
     // first five reads; the mount never touches it, only the guest's
     // read does, and that read must wait instead of coming back empty.
     final drive = _SlowDrive(_gameIso(_bootProgram()).rawSectors(), 40, 5);
-    core.setCdromDrive(drive);
-    for (var i = 0; i < 400 && core.dump().startsWith('psp: no media'); i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    expect(core.dump().startsWith('psp: no media'), isFalse);
+    await core.setCdromDrive(drive);
     core.mem.writeBytes(
         0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
     _runToEnd(core);
@@ -480,10 +485,7 @@ void main() {
     final core = Psp();
     addTearDown(core.dispose);
     core.setRom(_opsProgram());
-    core.setCdromDrive(_gameIso(_bootProgram()).drive());
-    // The mount attaches the drive to the already created kernel; it
-    // completes on its own because the fake drive answers at once.
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await core.setCdromDrive(_gameIso(_bootProgram()).drive());
     void putString(int at, String text) =>
         core.mem.writeBytes(at, [...text.codeUnits, 0]);
     putString(0x09101000, 'disc0:/PSP_GAME/DATA/HELLO.TXT');

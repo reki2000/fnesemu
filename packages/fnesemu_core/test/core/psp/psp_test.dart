@@ -33,7 +33,7 @@ const _imports = [
 /// results around a delay, and exits after joining it. Stub addresses
 /// depend on the code size, so the program is assembled twice: a probe
 /// pass yields the layout, the second pass calls the real stubs.
-Uint8List buildProgram() {
+Uint8List buildProgram({int workerDelay = 1000}) {
   List<int> assemble(Map<String, int> stubs) {
     int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
     final a = Asm(0x08800000);
@@ -85,7 +85,7 @@ Uint8List buildProgram() {
     a.li(Reg.t0, 0x08900000);
     a.li(Reg.t1, 0xcafebabe);
     a.sw(Reg.t1, 0, Reg.t0);
-    a.li(Reg.a0, 1000);
+    a.li(Reg.a0, workerDelay);
     a.jal(stub('ThreadManForUser', _nidDelayThread));
     a.nop();
     a.li(Reg.t1, 0x0d15ea5e);
@@ -118,6 +118,39 @@ void main() {
     final core = Psp();
     expect(core.buttons.length, 20);
     expect(core.axes, [PadAxis.leftX, PadAxis.leftY]);
+  });
+
+  test('instruction stepping preserves the scanline deadline', () {
+    final a = Asm(0x08800000);
+    a.nop();
+    a.j(2, 0x08800004);
+    a.nop();
+    final (rom, _) = buildTestElf(code: a.finish());
+    final core = Psp()..setRom(rom);
+    final pc = core.cpu.pc;
+    final step = core.exec(true);
+    expect(step.elapsedClocks, 1);
+    expect(step.scanlineRendered, isFalse);
+    expect(core.cpu.pc, pc + 4);
+    final line = core.exec(false);
+    expect(line.scanlineRendered, isTrue);
+    expect(line.elapsedClocks, core.clocksInScanline);
+  });
+
+  test('a saved delay wakes after the 32-bit clock range', () {
+    final rom = buildProgram(workerDelay: 22000000);
+    final core = Psp()..setRom(rom);
+    for (var frame = 0; frame < 1200; frame++) {
+      expect(core.runFrame(core.scanlinesInFrame).stopped, isFalse);
+    }
+    expect(core.cpu.clocks, greaterThan(1 << 32));
+    final restored = Psp()..setRom(rom);
+    restored.loadState(core.saveState());
+    expect(restored.cpu.clocks, core.cpu.clocks);
+    for (var frame = 0; frame < 200; frame++) {
+      if (restored.runFrame(restored.scanlinesInFrame).stopped) break;
+    }
+    expect(restored.mem.read32(0x08900008), 0x0d15ea5e);
   });
 
   group('homebrew run', () {

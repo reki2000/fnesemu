@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'cdrom_drive.dart';
@@ -53,8 +54,8 @@ class Core extends CoreDebug {
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio) {}
 
-  /// connects the CD-ROM drive. cores without a CD-ROM ignore it
-  void setCdromDrive(CdromDrive drive) {}
+  /// Connects the drive and completes any media loading needed before boot.
+  FutureOr<void> setCdromDrive(CdromDrive drive) {}
 
   /// sets the BIOS (system ROM) images supplied by the user. called before
   /// [setRom], or instead of it to boot the BIOS without a cartridge.

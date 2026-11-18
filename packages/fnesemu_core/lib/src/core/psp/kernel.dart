@@ -555,7 +555,7 @@ class PspKernel {
       _rtcAnchorClocks = cpu.clocks;
       return tick;
     }
-    return anchor + (cpu.clocks - _rtcAnchorClocks) * 1000000 ~/ 222000000;
+    return anchor + (cpu.clocks - _rtcAnchorClocks) ~/ _clocksPerMicrosecond;
   }
 
   void _writeRtcString(int at, String text) {
@@ -760,7 +760,7 @@ class PspKernel {
     // UtilsForUser
     on(0x27cc57f0, (cpu, _) {
       // GetSystemTimeWide returns the 64-bit time in v0:v1.
-      final micros = cpu.clocks * 1000000 ~/ 222000000;
+      final micros = cpu.clocks ~/ _clocksPerMicrosecond;
       cpu.r[2] = micros & 0xffffffff;
       cpu.r[3] = micros >>> 32;
       return null;
@@ -1001,7 +1001,7 @@ class PspKernel {
     on(0xe83742ba, (cpu, _) => 0);
     on(0x8ef08fce, (cpu, _) => 0);
     on(0x4a9e5e29, (cpu, _) => 0);
-    on(0x6b4a146c, (cpu, _) => disc != null ? 0x22 : 0x01);
+    on(0x6b4a146c, (cpu, _) => disc?.isMounted == true ? 0x22 : 0x01);
     on(0xaee7404d, (cpu, _) => 0);
     on(0xbd2bde07, (cpu, _) => 0);
     on(0x54f5fb11, (cpu, _) {
@@ -1013,7 +1013,7 @@ class PspKernel {
       // command 1 is in t0.
       final device = mem.readString(_arg(cpu, 0), 32);
       if (device == 'disc0:' || device == 'umd0:') {
-        return disc != null ? 0 : 0x80010002;
+        return disc?.isMounted == true ? 0 : 0x80010002;
       }
       if (device == 'ms0:') return 0;
       if (device != 'emulator:' && device != 'kemulator:') {
@@ -1060,7 +1060,8 @@ class PspKernel {
   }
 
   static const _audioRate = 44100;
-  static const _cpuHz = 222000000;
+  static const _cpuHz = Allegrex.clockHz;
+  static const _clocksPerMicrosecond = _cpuHz ~/ 1000000;
 
   /// The playhead: how many samples the output has consumed so far.
   int _audioAt(Allegrex cpu) => cpu.clocks * _audioRate ~/ _cpuHz;
@@ -1244,7 +1245,7 @@ class PspKernel {
       _schedule(cpu);
       return null;
     }
-    final clocks = micros * 222000000 ~/ 1000000;
+    final clocks = micros * _clocksPerMicrosecond;
     current!.status = PspThreadStatus.waitDelay;
     current!.wakeAt = cpu.clocks + clocks;
     if (current!.wakeAt < _nextDelayWake) _nextDelayWake = current!.wakeAt;
@@ -1498,7 +1499,7 @@ class PspKernel {
         (0x80 + pad.axis(0, PadAxis.leftX).clamp(-1.0, 1.0) * 127).round();
     final ly =
         (0x80 + pad.axis(0, PadAxis.leftY).clamp(-1.0, 1.0) * 127).round();
-    mem.write32(at, cpu.clocks * 1000000 ~/ 222000000);
+    mem.write32(at, cpu.clocks ~/ _clocksPerMicrosecond);
     mem.write32(at + 4, buttons);
     mem.write8(at + 8, lx);
     mem.write8(at + 9, ly);
@@ -1970,7 +1971,7 @@ class PspKernel {
       writer.int32(thread.status);
       writer.int32(thread.stackTop);
       writer.int32(thread.stackSize);
-      writer.int32(thread.wakeAt);
+      writer.int64(thread.wakeAt);
       writer.int32(thread.waitSema);
       writer.int32(thread.waitCount);
       writer.int32(thread.waitJoin);
@@ -1978,7 +1979,7 @@ class PspKernel {
       writer.int32(thread.exitStatus);
       writer.boolean(thread.pendingResult != null);
       writer.int32(thread.pendingResult ?? 0);
-      _writeThreadState(writer, thread.state);
+      thread.state.saveState(writer);
     }
     writer.int32(_semas.length);
     for (final entry in _semas.entries) {
@@ -2004,14 +2005,19 @@ class PspKernel {
       writer.boolean(channel.reserved);
       writer.int32(channel.sampleCount);
       writer.int32(channel.format);
-      writer.int32(channel.nextAt);
+      writer.int64(channel.nextAt);
     }
-    writer.int32(_mixBase);
+    writer.int64(_mixBase);
     writer.floats(_mix);
     ge.saveState(writer);
+    writer.boolean(_rtcAnchorTick != null);
+    writer.int64(_rtcAnchorTick ?? 0);
+    writer.int64(_rtcAnchorClocks);
+    writer.int32(_rtcLocalOffset);
+    writer.int64(_rng);
   }
 
-  void loadState(StateReader reader) {
+  void loadState(StateReader reader, {required bool legacy}) {
     reader.section('kernel');
     vcount = reader.int32();
     fbAddr = reader.int32();
@@ -2036,7 +2042,7 @@ class PspKernel {
       final stackSize = reader.int32();
       final thread = PspThread(id, name, entry, priority, stackTop, stackSize);
       thread.status = status;
-      thread.wakeAt = reader.int32();
+      thread.wakeAt = legacy ? reader.int32().toUnsigned(32) : reader.int64();
       thread.waitSema = reader.int32();
       thread.waitCount = reader.int32();
       thread.waitJoin = reader.int32();
@@ -2045,7 +2051,7 @@ class PspKernel {
       final hasPending = reader.boolean();
       final pending = reader.int32();
       thread.pendingResult = hasPending ? pending : null;
-      _readThreadState(reader, thread.state);
+      thread.state.loadState(reader, hasVfpu: !legacy);
       threads[id] = thread;
     }
     _semas.clear();
@@ -2073,48 +2079,28 @@ class PspKernel {
       channel.reserved = reader.boolean();
       channel.sampleCount = reader.int32();
       channel.format = reader.int32();
-      channel.nextAt = reader.int32();
+      channel.nextAt = legacy ? reader.int32() : reader.int64();
     }
-    _mixBase = reader.int32();
+    _mixBase = legacy ? reader.int32() : reader.int64();
     _mix
       ..clear()
       ..addAll(reader.floats());
     ge.loadState(reader);
+    final hasRtcAnchor = !legacy && reader.boolean();
+    final rtcAnchor = legacy ? 0 : reader.int64();
+    _rtcAnchorTick = hasRtcAnchor ? rtcAnchor : null;
+    _rtcAnchorClocks = legacy ? 0 : reader.int64();
+    _rtcLocalOffset = legacy ? 0 : reader.int32();
+    _rng = legacy ? 0x2545f491 : reader.int64();
+    _discWaits.clear();
     current = threads[currentId];
     _nextDelayWake = 0x7fffffffffffffff;
     for (final thread in threads.values) {
-      if (thread.status == PspThreadStatus.waitDelay &&
+      if ((thread.status == PspThreadStatus.waitDelay ||
+              thread.status == PspThreadStatus.waitDisc) &&
           thread.wakeAt < _nextDelayWake) {
         _nextDelayWake = thread.wakeAt;
       }
     }
-  }
-
-  static void _writeThreadState(StateWriter writer, AllegrexState state) {
-    writer.ints(state.r);
-    writer.bytes(state.f.buffer
-        .asUint8List(state.f.offsetInBytes, state.f.lengthInBytes));
-    writer.ints(state.cop0);
-    writer.int32(state.hi);
-    writer.int32(state.lo);
-    writer.int32(state.pc);
-    writer.int32(state.nextPc);
-    writer.int32(state.fcr31);
-    writer.int32(state.fcc);
-    writer.boolean(state.linked);
-  }
-
-  static void _readThreadState(StateReader reader, AllegrexState state) {
-    reader.intsInto(state.r);
-    reader.bytesInto(state.f.buffer
-        .asUint8List(state.f.offsetInBytes, state.f.lengthInBytes));
-    reader.intsInto(state.cop0);
-    state.hi = reader.int32();
-    state.lo = reader.int32();
-    state.pc = reader.int32();
-    state.nextPc = reader.int32();
-    state.fcr31 = reader.int32();
-    state.fcc = reader.int32();
-    state.linked = reader.boolean();
   }
 }
