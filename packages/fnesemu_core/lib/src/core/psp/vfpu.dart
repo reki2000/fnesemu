@@ -66,28 +66,26 @@ extension PspVfpuExec on Allegrex {
   ///
   /// The operand names an anchor element by its matrix, its row (bits
   /// 6-5) and its column (bits 1-0); bit 5 also gives the direction,
-  /// down a column when clear and along a row when set. A pair's
-  /// anchor sits in the half of the matrix bit 6 selects (rows or
-  /// columns 0-1 or 2-3), a triple's anchor is offset by bit 6 alone,
-  /// and a quad starts at the edge.
+  /// down a column when clear and along a row when set. A vector's
+  /// bits 1-0 name the column it runs down, or the row it runs along.
+  /// Bit 6 places its first lane: a pair starts at lane 0 or 2, a
+  /// triple at lane 0 or 1, and a quad at lane 0.
   List<int> _elems(int operand, int count) {
     final matrix = (operand >> 2) & 7;
     final base = matrix * 16;
-    final column = operand & 3;
+    final line = operand & 3;
     if (count == 1) {
-      return [base + ((operand >> 5) & 3) * 4 + column];
+      return [base + ((operand >> 5) & 3) * 4 + line];
     }
     final half = (operand >> 6) & 1;
+    final start = count == 2 ? half * 2 : (count == 3 ? half : 0);
     if (operand & 0x20 == 0) {
-      final row = count == 2 ? half * 2 : (count == 3 ? half : 0);
       return [
-        for (var i = 0; i < count; i++) base + (row + i) * 4 + column
+        for (var i = 0; i < count; i++) base + (start + i) * 4 + line
       ];
     }
-    final row = count == 2 ? half * 2 : (count == 3 ? half : column);
-    final start = count == 4 ? 0 : column;
     return [
-      for (var i = 0; i < count; i++) base + row * 4 + start + i
+      for (var i = 0; i < count; i++) base + line * 4 + start + i
     ];
   }
 

@@ -102,6 +102,22 @@ void main() {
       expect(pixel(10, 20), 0xff0000ff);
     });
 
+    test('alpha blending mixes by the source alpha', () {
+      mem.write32(0x04000000 + (20 * 512 + 10) * 4, 0xff0000ff); // red
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0x21, 1), // blending on
+            _cmd(0xdf, 0x032), // add, source alpha, one minus source alpha
+            _cmd(0x04, 0x60002),
+          ],
+          0x80ff0000); // blue at half alpha
+      ge.enqueue(cpu, list, 0);
+      final pixel10 = pixel(10, 20);
+      expect(pixel10 & 0xff, closeTo(0x7f, 1));
+      expect((pixel10 >> 16) & 0xff, closeTo(0x80, 1));
+    });
+
     test('a textured sprite samples the texture', () {
       // A 2x2 texture at VRAM offset 0x10000: red, green, blue, white.
       const texAt = 0x10000;
@@ -145,7 +161,7 @@ void main() {
             _cmd(0xb8, 0x001), // texture size 2x1
             _cmd(0xc3, 5), // texture format T8
             _cmd(0xb0, clutAt & 0xffffff), // CLUT pointer, low bits
-            _cmd(0xb1, clutAt >> 24), // CLUT pointer, high bits
+            _cmd(0xb1, (clutAt >> 24) << 16), // CLUT pointer, high bits
             _cmd(0xc5, 0xff03), // CLUT format 8888, mask 0xff
             _cmd(0xc4, 1), // load one CLUT block
             _cmd(0x48, 0x3f8000),
