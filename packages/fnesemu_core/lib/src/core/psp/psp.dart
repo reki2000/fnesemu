@@ -309,6 +309,9 @@ class Psp extends Core {
     return 'pc 0x${cpu.pc.toRadixString(16)} thread ${thread?.name ?? '-'} '
         'vcount ${kernel.vcount} unknown ${kernel.unknownCalls.length}\n'
         '$failed'
+        '${kernel.threads.values.map((t) => '  thread ${t.id} ${t.name} '
+            'status ${t.status} pc 0x${t.state.pc.toRadixString(16)} '
+            'ra 0x${t.state.r[31].toRadixString(16)}\n').join()}'
         '${kernel.unknownCallLines.map((line) => '  $line\n').join()}'
         '${kernel.log.toString()}';
   }
