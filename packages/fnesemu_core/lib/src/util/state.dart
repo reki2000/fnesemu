@@ -76,9 +76,10 @@ class StateReader {
   late final int version;
 
   /// Reads and validates the header; throws [StateMismatch] when the core,
-  /// version or media identity differs.
+  /// version or media identity differs. Versions from [minimumVersion] up to
+  /// [currentVersion] are accepted, only [currentVersion] without it.
   StateReader(Uint8List state, String core, int currentVersion, int media,
-      {int? previousVersion})
+      {int? minimumVersion})
       : _data = ByteData.sublistView(state) {
     if (_tryString() != 'fnesemu-state') {
       throw const StateMismatch('not a fnesemu state');
@@ -88,7 +89,8 @@ class StateReader {
       throw StateMismatch('state of $savedCore, not $core');
     }
     version = int32();
-    if (version != currentVersion && version != previousVersion) {
+    if (version > currentVersion ||
+        version < (minimumVersion ?? currentVersion)) {
       throw StateMismatch('format version $version, expected $currentVersion');
     }
     if (int64() != media) throw const StateMismatch('different media');

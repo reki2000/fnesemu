@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import '../../pad_button.dart';
@@ -9,6 +10,7 @@ import 'elf.dart';
 import 'ge.dart';
 import 'memory.dart';
 import 'memstick.dart';
+import 'printf.dart';
 import 'rtc.dart';
 
 /// Thread states of the kernel scheduler.
@@ -182,6 +184,8 @@ class PspKernel {
   /// [_runGeCallback].
   late final PspGe ge;
   bool _inCallback = false;
+  bool _interruptsEnabled = true;
+  final _pendingGeCallbacks = Queue<(int, int, int)>();
 
   /// Receives mixed stereo samples at 44100 Hz from [flushAudio].
   void Function(Float32List samples)? audioSink;
@@ -196,6 +200,15 @@ class PspKernel {
   final _lwMutexes = <int, _LwMutex>{};
   final _blocks = <int, _Block>{};
   final unknownCalls = <int, int>{};
+
+  /// one line per entry of [unknownCalls]: the library, the NID and the
+  /// number of calls
+  Iterable<String> get unknownCallLines => unknownCalls.entries.map((e) {
+        final library =
+            _byCode.values.where((i) => i.nid == e.key).firstOrNull?.library;
+        return '$library 0x${e.key.toRadixString(16).padLeft(8, '0')} '
+            'x${e.value}';
+      });
   final log = StringBuffer();
 
   /// Files the guest opened through IoFileMgr, held in memory so that
@@ -248,7 +261,12 @@ class PspKernel {
   /// it is the local time zone of the emulated clock.
   int _rtcLocalOffset = 0;
 
+  late final PspModuleImage _mainModule;
+  int _compiledSdkVersion = 0;
+  int _compilerVersion = 0;
   int _nextId = 1;
+  static const _mainModuleId = 0x01000000;
+  static const displayHz = 60;
   PspThread? current;
   bool exited = false;
   int exitStatus = 0;
@@ -261,13 +279,14 @@ class PspKernel {
   int vcount = 0;
 
   int _heapAt;
-  int _stackAt = 0x09f00000;
+  int _stackAt = _mainStackTop - _mainStackSize;
   int _nextDelayWake = 0x7fffffffffffffff;
   int _rng = 0x2545f491;
 
   static const _exitStubAt = 0x08000000;
   static const _callbackSentinelAt = 0x08000020;
-  static const _mainStackTop = 0x0a000000;
+  static const _mainStackTop = PspMemory.ramEnd;
+  static const _mainStackSize = 256 * 1024;
 
   PspKernel(this.mem, this.pad, int heapStart)
       : _heapAt = (heapStart + 0xffff) & ~0xffff {
@@ -283,6 +302,10 @@ class PspKernel {
   /// from a callback return at once instead of switching threads.
   void _runGeCallback(Allegrex cpu, int func, int id, int arg) {
     if (_inCallback || func == 0) return;
+    if (!_interruptsEnabled) {
+      _pendingGeCallbacks.addLast((func, id, arg));
+      return;
+    }
     _inCallback = true;
     final saved = AllegrexState()..copyFrom(cpu);
     cpu.r[4] = id;
@@ -301,6 +324,7 @@ class PspKernel {
   /// Prepares a loaded module: patches its stubs, writes the thread exit
   /// stub and creates the main thread. Returns the main thread.
   PspThread startModule(PspModuleImage image) {
+    _mainModule = image;
     mem.write32(_exitStubAt, 0x0000000c); // syscall 0
     mem.write32(_exitStubAt + 4, 0x03e00008); // jr ra
     mem.write32(_exitStubAt + 8, 0); // nop
@@ -314,7 +338,8 @@ class PspKernel {
       mem.write32(import.stubAddr, 0x0000000c | (import.code << 6));
       mem.write32(import.stubAddr + 4, 0x03e00008);
     }
-    final main = _newThread('main', image.entry, 0x20, _mainStackTop, 0x100000);
+    final main =
+        _newThread('main', image.entry, 0x20, _mainStackTop, _mainStackSize);
     main.status = PspThreadStatus.running;
     main.state.r[29] = _mainStackTop - 0x100;
     main.state.r[31] = _exitStubAt;
@@ -375,6 +400,7 @@ class PspKernel {
 
   /// Switches to a ready thread of strictly higher priority, if any.
   void _preempt(Allegrex cpu) {
+    if (!_interruptsEnabled) return;
     final cur = current;
     if (cur == null || cur.status != PspThreadStatus.running) {
       _schedule(cpu);
@@ -466,8 +492,6 @@ class PspKernel {
       return;
     }
     final import = _byCode[code];
-    if (import != null && import.library == 'sceAudio') {
-    }
     final handler = import == null ? null : _handlers[import.nid];
     if (import == null) {
       // A syscall outside an import stub falls through with a zero.
@@ -566,6 +590,24 @@ class PspKernel {
     void on(int nid, int? Function(Allegrex, PspImport?) fn) =>
         _handlers[nid] = fn;
 
+    // Kernel_Library
+    on(0x092968f4, (cpu, _) {
+      final flags = _interruptsEnabled ? 1 : 0;
+      _interruptsEnabled = false;
+      return flags;
+    });
+    on(0x5f10d406, (cpu, _) {
+      _interruptsEnabled = _arg(cpu, 0) & 1 != 0;
+      if (!_inCallback) {
+        while (_interruptsEnabled && _pendingGeCallbacks.isNotEmpty) {
+          final (func, id, arg) = _pendingGeCallbacks.removeFirst();
+          _runGeCallback(cpu, func, id, arg);
+        }
+        _preempt(cpu);
+      }
+      return null;
+    });
+
     // ThreadManForUser
     on(0x446d8de6, _createThread);
     on(0x9fa03cd3, _deleteThread);
@@ -580,6 +622,7 @@ class PspKernel {
     });
     on(0x278c0df5, _waitThreadEnd);
     on(0xceadeb47, _delayThread);
+    on(0x68da9e36, _delayThread); // the CB form shares the delay
     on(0xea748e31, (cpu, _) => current?.id ?? 0);
     on(0x9ace131e, (cpu, _) {
       // SleepThread: wakes only through WakeupThread.
@@ -633,6 +676,19 @@ class PspKernel {
     });
     on(0xf919f628, (cpu, _) => 0x800000);
     on(0xa291f107, (cpu, _) => 0x800000);
+    on(0x7591c7db, (cpu, _) {
+      _compiledSdkVersion = _arg(cpu, 0);
+      return 0;
+    });
+    on(0xfc114573, (cpu, _) => _compiledSdkVersion);
+    on(0xf77d77cb, (cpu, _) {
+      _compilerVersion = _arg(cpu, 0);
+      return 0;
+    });
+    on(0x13a5abef, (cpu, _) {
+      log.write(formatKernelPrintf(cpu));
+      return null;
+    });
 
     // LoadExecForUser
     on(0x05572a5f, (cpu, _) {
@@ -647,6 +703,13 @@ class PspKernel {
     });
 
     // ModuleMgrForUser: further modules are accepted but not loaded.
+    on(0xf0a26395, (cpu, _) => _mainModuleId);
+    on(0xd8b73127, (cpu, _) {
+      final address = PspMemory.physical(_arg(cpu, 0));
+      final found = _mainModule.segments.any(
+          (segment) => address >= segment.start && address < segment.end);
+      return found ? _mainModuleId : 0x8002012e;
+    });
     on(0x977de386, (cpu, _) => 1);
     on(0x50f0c1ec, (cpu, _) => 0);
     on(0xd675ebb8, (cpu, _) => 0);
@@ -673,6 +736,10 @@ class PspKernel {
     on(0x984c27e7, _waitVblank);
     on(0x46f186c3, _waitVblank);
     on(0x9c6eaad7, (cpu, _) => vcount);
+    on(0xdba6c4c4, (cpu, _) {
+      cpu.f[0] = displayHz.toDouble();
+      return null;
+    });
     on(0xb4f378fa, (cpu, _) => 0);
     on(0x773dd3a3, (cpu, _) => 0);
 
@@ -2015,9 +2082,19 @@ class PspKernel {
     writer.int64(_rtcAnchorClocks);
     writer.int32(_rtcLocalOffset);
     writer.int64(_rng);
+    writer.int32(_compiledSdkVersion);
+    writer.int32(_compilerVersion);
+    writer.boolean(_interruptsEnabled);
+    writer.int32(_pendingGeCallbacks.length);
+    for (final (func, id, arg) in _pendingGeCallbacks) {
+      writer.int32(func);
+      writer.int32(id);
+      writer.int32(arg);
+    }
   }
 
-  void loadState(StateReader reader, {required bool legacy}) {
+  void loadState(StateReader reader) {
+    final legacy = reader.version == 4;
     reader.section('kernel');
     vcount = reader.int32();
     fbAddr = reader.int32();
@@ -2092,6 +2169,16 @@ class PspKernel {
     _rtcAnchorClocks = legacy ? 0 : reader.int64();
     _rtcLocalOffset = legacy ? 0 : reader.int32();
     _rng = legacy ? 0x2545f491 : reader.int64();
+    final hasStartupState = reader.version >= 6;
+    _compiledSdkVersion = hasStartupState ? reader.int32() : 0;
+    _compilerVersion = hasStartupState ? reader.int32() : 0;
+    _interruptsEnabled = !hasStartupState || reader.boolean();
+    _pendingGeCallbacks.clear();
+    final callbackCount = hasStartupState ? reader.int32() : 0;
+    for (var i = 0; i < callbackCount; i++) {
+      _pendingGeCallbacks
+          .addLast((reader.int32(), reader.int32(), reader.int32()));
+    }
     _discWaits.clear();
     current = threads[currentId];
     _nextDelayWake = 0x7fffffffffffffff;

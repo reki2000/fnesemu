@@ -161,7 +161,8 @@ class Iso9660 {
     final dir = await root;
     if (dir == null) return null;
     for (final entry in await list(dir)) {
-      if (!entry.isDirectory && entry.name.toUpperCase() == name.toUpperCase()) {
+      if (!entry.isDirectory &&
+          entry.name.toUpperCase() == name.toUpperCase()) {
         return (lba: entry.lba, size: entry.size);
       }
     }
