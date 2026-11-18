@@ -337,7 +337,9 @@ class PspGe {
   }
 
   void _loadClut(int arg) {
-    final addr = ((regs[0xb1] & 0xff) << 24) | regs[0xb0];
+    // The high address bits ride in bits 16-23 of the second command,
+    // as with the other buffer pointers.
+    final addr = (((regs[0xb1] >> 16) & 0xff) << 24) | regs[0xb0];
     final format = regs[0xc5] & 3;
     final blocks = (arg & 0x3f) == 0 ? 64 : arg & 0x3f;
     // One block holds 32 bytes of palette: 8 entries at 32 bits, 16 at 16.
@@ -1044,14 +1046,15 @@ extension PspGeRaster on PspGe {
 
   double _blendChannel(
       double src, double dst, double srcA, double dstA, int channel) {
+    // The source factor sits in bits 0-3, the destination factor in bits
+    // 4-7 and the equation in bits 8-11.
     final mode = regs[0xdf];
-    final op = mode & 7;
+    final op = (mode >> 8) & 7;
     if (op == 3) return math.min(src, dst);
     if (op == 4) return math.max(src, dst);
-    final sf =
-        _blendFactor((mode >> 8) & 0xf, dst, srcA, dstA, regs[0xe0], channel);
+    final sf = _blendFactor(mode & 0xf, dst, srcA, dstA, regs[0xe0], channel);
     final df =
-        _blendFactor((mode >> 12) & 0xf, src, srcA, dstA, regs[0xe1], channel);
+        _blendFactor((mode >> 4) & 0xf, src, srcA, dstA, regs[0xe1], channel);
     switch (op) {
       case 1:
         return (src * sf - dst * df).clamp(0.0, 1.0);

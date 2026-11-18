@@ -136,6 +136,28 @@ void main() {
       expect(cpu.v[12], floatBits(0.5));
     });
 
+    test('row pairs and triples run along the row their low bits name',
+        () {
+      final (cpu, _) = run((a) {
+        for (var i = 0; i < 3; i++) {
+          a.li(Reg.t0, floatBits(i + 1.0));
+          a.word(mtv(Reg.t0, reg(1, 0, i))); // C100 = 1, 2, 3
+        }
+        for (var c = 0; c < 4; c++) {
+          a.li(Reg.t0, floatBits(c + 5.0));
+          a.word(mtv(Reg.t0, reg(1, c, 3))); // R103 = 5, 6, 7, 8
+        }
+        a.word(0xd0008423); // vmov.t R003, C100: row 3, columns 0-2
+        a.word(0xd0008449); // vmov.t C211, C100: column 1, rows 1-3
+        a.word(0xd0006782); // vmov.p C020, R123: row 3, columns 2-3
+      });
+      expect([cpu.v[12], cpu.v[13], cpu.v[14]],
+          [floatBits(1), floatBits(2), floatBits(3)]);
+      expect([cpu.v[37], cpu.v[41], cpu.v[45]],
+          [floatBits(1), floatBits(2), floatBits(3)]);
+      expect([cpu.v[2], cpu.v[6]], [floatBits(7), floatBits(8)]);
+    });
+
     test('moves preserve denormals and NaN payloads', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x000116c2); // a positive denormal
