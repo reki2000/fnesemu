@@ -350,7 +350,7 @@ class Session {
     await drive?.settle();
     final core = this.core;
     if (core is Dc && frame == dcBootFrame) {
-      await core.setCdromDrive(drive!);
+      core.setCdromDrive(drive!);
       final boot = await core.bootUnscrambledDisc(waitForSector: drive!.settle);
       stderr.writeln("booted ${boot.name} (${boot.program.length} bytes) "
           "after frame $frame");
