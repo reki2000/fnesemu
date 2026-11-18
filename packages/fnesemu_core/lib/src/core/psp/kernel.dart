@@ -101,20 +101,27 @@ class _OpenFile {
   /// A memory stick file whose contents changed since it was opened;
   /// closing it persists the stick.
   bool dirty = false;
+
+  /// The bytes of the unit of [position], [size] and the lengths of reads:
+  /// a sector of 2048 bytes for the raw disc device, a byte otherwise.
+  final int unit;
   int position = 0;
   _OpenFile(this.path)
       : node = null,
         msNode = null,
         access = 3,
-        append = false;
-  _OpenFile.disc(this.path, this.node)
+        append = false,
+        unit = 1;
+  _OpenFile.disc(this.path, this.node, {this.unit = 1})
       : msNode = null,
         access = 1,
         append = false;
   _OpenFile.stick(this.path, this.msNode, this.access, this.append)
-      : node = null;
+      : node = null,
+        unit = 1;
 
-  int get size => node?.entry.size ?? msNode?.content.length ?? content.length;
+  int get size =>
+      (node?.entry.size ?? msNode?.content.length ?? content.length) ~/ unit;
 }
 
 /// One directory entry as the guest sees it, from either file system.
@@ -1693,6 +1700,15 @@ class PspKernel {
       if (flags & 3 == 2 || flags & 3 == 3 || flags & 0x0f00 != 0) {
         return 0x80010002;
       }
+      // the umd device without a path is the disc as a block device,
+      // addressed in sectors from the start of the file system
+      if (device == 'umd0' && (rel.isEmpty || rel == '/')) {
+        final whole = disc?.wholeDisc;
+        if (whole == null) return 0x80010002;
+        final fd = _nextFd++;
+        _files[fd] = _OpenFile.disc(path, whole, unit: 2048);
+        return fd;
+      }
       final node = disc?.lookup(rel);
       if (node == null || node.isDirectory) return 0x80010002;
       final fd = _nextFd++;
@@ -1736,6 +1752,12 @@ class PspKernel {
 
   int? _ioRead(Allegrex cpu, PspImport? _) => _readFile(cpu, true);
 
+  /// [length] units of [file] on the disc from its position, or null while
+  /// the drive has not loaded them
+  Uint8List? _readDisc(_OpenFile file, PspDiscNode node, int length) =>
+      disc?.readBytes(
+          node.entry, file.position * file.unit, length * file.unit);
+
   /// Reads from an open file. A disc read whose sectors the drive has
   /// not loaded yet suspends the calling thread instead of reporting a
   /// short read: the drive loads in the background, and the scheduler
@@ -1750,7 +1772,7 @@ class PspKernel {
     final at = _arg(cpu, 1), length = _arg(cpu, 2);
     final node = file.node;
     if (node != null) {
-      final data = disc?.readBytes(node.entry, file.position, length);
+      final data = _readDisc(file, node, length);
       if (data == null) {
         if (!mayBlock || _inCallback || current == null) return 0;
         _discWaits[current!.id] = _DiscWait(fd, at, length);
@@ -1763,8 +1785,8 @@ class PspKernel {
         return null;
       }
       mem.writeBytes(at, data);
-      file.position += data.length;
-      return data.length;
+      file.position += data.length ~/ file.unit;
+      return data.length ~/ file.unit;
     }
     final msNode = file.msNode;
     if (msNode != null) {
@@ -1796,13 +1818,11 @@ class PspKernel {
       final wait = _discWaits[thread.id];
       final file = wait == null ? null : _files[wait.fd];
       final node = file?.node;
-      final data = node == null
-          ? null
-          : disc?.readBytes(node.entry, file!.position, wait!.length);
+      final data = node == null ? null : _readDisc(file!, node, wait!.length);
       if (data != null) {
         mem.writeBytes(wait!.at, data);
-        file!.position += data.length;
-        thread.pendingResult = data.length;
+        file!.position += data.length ~/ file.unit;
+        thread.pendingResult = data.length ~/ file.unit;
       } else if (wait != null && wait.attempts < 200) {
         wait.attempts++;
         thread.wakeAt = cpu.clocks + _cpuHz ~/ 1000;

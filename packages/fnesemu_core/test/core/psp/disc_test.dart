@@ -190,6 +190,49 @@ Uint8List _bootProgram() {
   return buildTestElf(code: assemble(probe.$2.stubOf), imports: imports).$1;
 }
 
+/// The raw disc program: opens the umd device at 0x09101000, seeks to
+/// sector 40 and reads one sector into 0x09102000. The results of the
+/// open, the seek and the read go to 0x09100000.
+Uint8List _umdProgram() {
+  const imports = [
+    (_io, [_nidOpen, _nidLseek32, _nidRead, _nidClose]),
+    ('LoadExecForUser', [_nidExitGame]),
+  ];
+  List<int> assemble(Map<String, int> stubs) {
+    int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
+    final a = Asm(0x08800000);
+    a.li(Reg.s7, 0x09100000);
+    a.li(Reg.a0, 0x09101000);
+    a.li(Reg.a1, 1);
+    a.li(Reg.a2, 0);
+    a.jal(stub(_io, _nidOpen));
+    a.nop();
+    a.sw(Reg.v0, 0, Reg.s7);
+    a.addiu(Reg.s0, Reg.v0, 0);
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.li(Reg.a1, 40);
+    a.li(Reg.a2, 0);
+    a.jal(stub(_io, _nidLseek32));
+    a.nop();
+    a.sw(Reg.v0, 4, Reg.s7);
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.li(Reg.a1, 0x09102000);
+    a.li(Reg.a2, 1);
+    a.jal(stub(_io, _nidRead));
+    a.nop();
+    a.sw(Reg.v0, 8, Reg.s7);
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.jal(stub(_io, _nidClose));
+    a.nop();
+    a.jal(stub('LoadExecForUser', _nidExitGame));
+    a.nop();
+    return a.finish();
+  }
+
+  final probe = buildTestElf(code: assemble(const {}), imports: imports);
+  return buildTestElf(code: assemble(probe.$2.stubOf), imports: imports).$1;
+}
+
 /// The file operations program: it runs a fixed sequence of calls and
 /// stores every result in the array at 0x09100000, whose layout the
 /// test asserts. Paths are written by the test at 0x09101000 and on.
@@ -505,6 +548,22 @@ void main() {
     _runToEnd(core);
     expect(drive.hold, 0);
     expect(core.kernelLog, contains(_hello));
+  });
+
+  test('the umd device reads the disc by sectors', () async {
+    final core = Psp();
+    addTearDown(core.dispose);
+    core.setRom(_umdProgram());
+    await core.setCdromDrive(_gameIso(_bootProgram()).drive());
+    core.mem.writeBytes(0x09101000, [...'umd0:'.codeUnits, 0]);
+    _runToEnd(core);
+    expect(core.mem.read32(0x09100000), greaterThan(0));
+    expect(core.mem.read32(0x09100004), 40);
+    expect(core.mem.read32(0x09100008), 1);
+    final text = [
+      for (var i = 0; i < _hello.length; i++) core.mem.read8(0x09102000 + i)
+    ];
+    expect(String.fromCharCodes(text), _hello);
   });
 
   test('file operations on the mounted disc', () async {

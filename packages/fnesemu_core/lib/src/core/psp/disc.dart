@@ -38,6 +38,12 @@ class PspDisc {
 
   PspDisc._(this.drive, this.baseLba, this.root, this._discId);
 
+  /// A file of all the sectors from [baseLba] to the end of the disc.
+  late final wholeDisc = PspDiscNode(
+      Iso9660Entry(
+          '', 0, max(0, drive.status.toc.totalSectors - baseLba) * 2048, false),
+      null);
+
   /// Parses the file system of the disc in [drive], or returns null
   /// when the drive holds no ISO 9660 volume.
   static Future<PspDisc?> mount(CdromDrive drive,
