@@ -639,7 +639,15 @@ class Allegrex extends AllegrexState {
           case 0x02: // WSBH swaps the bytes inside each halfword
             _set(rd, ((v >>> 8) & 0x00ff00ff) | ((v << 8) & 0xff00ff00));
             return true;
-          case 0x0d: // BITREV reverses the bit order
+          case 0x03: // WSBW reverses the bytes of the word
+            _set(
+                rd,
+                ((v >>> 24) & 0xff) |
+                    ((v >>> 8) & 0xff00) |
+                    ((v << 8) & 0xff0000) |
+                    ((v << 24) & 0xff000000));
+            return true;
+          case 0x14: // BITREV reverses the bit order
             var rev = 0, x = v;
             for (var i = 0; i < 32; i++) {
               rev = (rev << 1) | (x & 1);

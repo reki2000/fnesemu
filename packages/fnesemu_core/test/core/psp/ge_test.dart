@@ -83,6 +83,25 @@ void main() {
       expect(pixel(0, 0), 0);
     });
 
+    test('a jump after ORIGIN is relative to the ORIGIN command', () {
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0x10, 0), // BASE 0: the jump target is the offset alone
+            _cmd(0x14, 0), // ORIGIN
+            _cmd(0x08, 0x10), // JUMP over the two ENDs
+            _cmd(0x0c, 0),
+            _cmd(0x0c, 0),
+            _cmd(0x13, 0), // OFFSETADDR 0: vertices are not list-relative
+            _cmd(0x10, 0x080000),
+            _cmd(0xd3, 0x101),
+            _cmd(0x04, 0x60002),
+          ],
+          0xff0000ff);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(10, 20), 0xff0000ff);
+    });
+
     test('a textured sprite samples the texture', () {
       // A 2x2 texture at VRAM offset 0x10000: red, green, blue, white.
       const texAt = 0x10000;

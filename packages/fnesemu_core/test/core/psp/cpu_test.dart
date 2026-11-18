@@ -198,7 +198,7 @@ void main() {
       expect(cpu.r[Reg.t2], 0x780);
     });
 
-    test('seb, seh, wsbh and bitrev', () {
+    test('seb, seh, wsbh, wsbw and bitrev', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x80);
         a.word(special3(0, Reg.t0, Reg.t1, 0x10, 0x20)); // seb
@@ -206,13 +206,16 @@ void main() {
         a.word(special3(0, Reg.t2, Reg.t3, 0x18, 0x20)); // seh
         a.li(Reg.t4, 0x11223344);
         a.word(special3(0, Reg.t4, Reg.t5, 0x02, 0x20)); // wsbh
-        a.li(Reg.t6, 0x80000001);
-        a.word(special3(0, Reg.t6, Reg.t7, 0x0d, 0x20)); // bitrev
+        a.li(Reg.t6, 0x00000003);
+        a.word(special3(0, Reg.t6, Reg.t7, 0x14, 0x20)); // bitrev
+        a.li(Reg.s0, 0x11223344);
+        a.word(special3(0, Reg.s0, Reg.s1, 0x03, 0x20)); // wsbw
       });
       expect(cpu.r[Reg.t1], -128);
       expect(cpu.r[Reg.t3], -32768);
       expect(cpu.r[Reg.t5], 0x22114433);
-      expect(cpu.r[Reg.t7], 0x80000001.toSigned(32));
+      expect(cpu.r[Reg.t7], 0xc0000000.toSigned(32));
+      expect(cpu.r[Reg.s1], 0x44332211);
     });
   });
 
