@@ -207,6 +207,15 @@ class Gs {
   int extbuf = 0, extdata = 0, extwrite = 0, bgcolor = 0;
   int csr = 0, imr = 0xff00, busdir = 0, siglblid = 0;
   int _field = 0;
+
+  /// Whether the vblank starts before a read of CSR ends, as for
+  /// the I_STAT read of the INTC. A VSync wait that polls I_STAT sees the vblank this
+  /// early and then reads FIELD to choose the field it draws next, so the
+  /// read sees the field after the vblank too.
+  bool Function() vblankUpcoming = _never;
+
+  static bool _never() => false;
+
   final _fields = FieldOutput();
 
   // The picture of the last vblank while the GPU draws it: the display
@@ -387,7 +396,8 @@ class Gs {
       case 0x00e0:
         return bgcolor;
       case 0x1000:
-        return csr | (_field << 13) | (0x55 << 24) | (0x1b << 16);
+        final field = vblankUpcoming() ? _field ^ 1 : _field;
+        return csr | (field << 13) | (0x55 << 24) | (0x1b << 16);
       case 0x1010:
         return imr;
       case 0x1040:
