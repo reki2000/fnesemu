@@ -135,6 +135,7 @@ class Ps2 extends Core {
       ..cdvd.drive = _drive
       ..cdvd.discId = _discId
       ..cdvd.dvd = _dvd
+      ..cdvd.onDiscChange = _lookUpDisc
       ..spu2.onAudio =
           (samples) => _onAudio(AudioBuffer(Spu2.sampleHz, 2, samples));
     io.cdvd = iopIo.cdvd;
@@ -261,26 +262,39 @@ class Ps2 extends Core {
   String? _discId;
   bool _dvd = false;
 
-  /// Inserts [drive] and looks up the game ID in its SYSTEM.CNF and the
-  /// media type in the background. The CDVD disc key carries this ID. The ID
-  /// of a disc inserted later through the tray is not looked up.
+  /// Inserts [drive] and looks up the disc in it with [_lookUpDisc]. The
+  /// CDVD looks up a disc changed later through the tray again.
   @override
   void setCdromDrive(CdromDrive drive) {
     _drive = drive;
+    drive.clearEvents();
+    iopIo.cdvd.drive = drive;
+    _lookUpDisc();
+  }
+
+  /// Looks up the game ID in SYSTEM.CNF and the media type of the disc in
+  /// the drive in the background. The CDVD disc key carries this ID. A
+  /// result that arrives after the disc changed again is dropped.
+  void _lookUpDisc() {
+    final drive = _drive;
+    if (drive == null) return;
     _discId = null;
     _dvd = false;
     iopIo.cdvd
-      ..drive = drive
       ..discId = null
       ..dvd = false;
+    final status = drive.status;
+    if (!status.isReady) return;
+    final disc = status.discId;
+    bool current() => _drive == drive && drive.status.discId == disc;
     discLookup = Future.wait([
       isDvd(drive).then((dvd) {
-        if (_drive != drive) return;
+        if (!current()) return;
         _dvd = dvd;
         iopIo.cdvd.dvd = dvd;
       }),
       readSystemCnf(drive).then((text) {
-        if (_drive != drive || text == null) return;
+        if (!current() || text == null) return;
         _discId = bootFileName(text);
         iopIo.cdvd.discId = _discId;
       }),
