@@ -14,7 +14,7 @@ class Ps2Module extends CoreModule {
   @override
   List<CoreSystem> get systems => [system];
   @override
-  int get order => 11;
+  int get order => 12;
 
   /// PS2 discs also carry the PS1 signature text, so they are checked first.
   @override

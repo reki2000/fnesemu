@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS/PS2/DC Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS/PS2/DC/PSP Emulator Built with Flutter
 
 This project is experimental.
 
@@ -36,6 +36,7 @@ This project is experimental.
 | SMS | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Pause |  |
 | GG | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Start |  |
 | DC | up / down / left / right | Y | X | A | B |  |  |  | L | R |  |  |  |  |  | Start |  |
+| PSP | up / down / left / right | ^ | # | x | o |  |  |  | L | R |  |  |  |  | Home | Start | Select |
 | WS | X1 / X3 / X4 / X2 | Y1 | Y4 | Y3 | Y2 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 | WS (vertical) | Y2 / Y4 / Y1 / Y3 | X2 | X1 | X4 | X3 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 
