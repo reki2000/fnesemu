@@ -65,6 +65,14 @@ class _LwMutex {
   _LwMutex(this.attr, this.uid);
 }
 
+/// A registered sub-interrupt handler, called with its sub-interrupt
+/// number and [arg].
+class _SubIntr {
+  final int func, arg;
+  bool enabled = false;
+  _SubIntr(this.func, this.arg);
+}
+
 class _Block {
   final int addr;
   final int size;
@@ -198,11 +206,19 @@ class PspKernel {
 
   /// The graphics engine; its lists run synchronously from the system
   /// calls below and its callbacks re-enter the processor through
-  /// [_runGeCallback].
+  /// [_runHandler].
   late final PspGe ge;
   bool _inCallback = false;
   bool _interruptsEnabled = true;
-  final _pendingGeCallbacks = Queue<(int, int, int)>();
+
+  /// Handlers called while interrupts were disabled, as (function, first
+  /// argument, second argument), run when they are enabled again.
+  final _pendingHandlers = Queue<(int, int, int)>();
+
+  /// The sub-interrupt handlers by (interrupt, sub-interrupt).
+  final _subIntrs = <(int, int), _SubIntr>{};
+  static const _vblankInterrupt = 30;
+  static const _volatileAt = 0x08400000, _volatileSize = 0x400000;
 
   /// Receives mixed stereo samples at 44100 Hz from [flushAudio].
   void Function(Float32List samples)? audioSink;
@@ -309,19 +325,19 @@ class PspKernel {
   PspKernel(this.mem, this.pad, int heapStart)
       : _heapAt = (heapStart + 0xffff) & ~0xffff {
     ge = PspGe(mem);
-    ge.callbackRunner = _runGeCallback;
+    ge.callbackRunner = _runHandler;
     _registerHandlers();
   }
 
-  /// Runs a graphics callback on the live processor with the caller's
-  /// state saved around it, the way the system software invokes the
-  /// signal and finish handlers from interrupt context. The callback
+  /// Runs a graphics callback or an interrupt handler on the live
+  /// processor with the caller's state saved around it, the way the
+  /// system software invokes them from interrupt context. The callback
   /// returns to a sentinel that loops on itself; blocking calls made
   /// from a callback return at once instead of switching threads.
-  void _runGeCallback(Allegrex cpu, int func, int id, int arg) {
+  void _runHandler(Allegrex cpu, int func, int id, int arg) {
     if (_inCallback || func == 0) return;
     if (!_interruptsEnabled) {
-      _pendingGeCallbacks.addLast((func, id, arg));
+      _pendingHandlers.addLast((func, id, arg));
       return;
     }
     _inCallback = true;
@@ -402,6 +418,12 @@ class PspKernel {
   /// threads become ready and may preempt.
   void onVblank(Allegrex cpu) {
     vcount++;
+    for (final MapEntry(key: (interrupt, sub), value: handler)
+        in _subIntrs.entries.toList()) {
+      if (interrupt == _vblankInterrupt && handler.enabled) {
+        _runHandler(cpu, handler.func, sub, handler.arg);
+      }
+    }
     for (final thread in threads.values) {
       if (thread.status == PspThreadStatus.waitVblank) {
         thread.status = PspThreadStatus.ready;
@@ -630,13 +652,56 @@ class PspKernel {
     on(0x5f10d406, (cpu, _) {
       _interruptsEnabled = _arg(cpu, 0) & 1 != 0;
       if (!_inCallback) {
-        while (_interruptsEnabled && _pendingGeCallbacks.isNotEmpty) {
-          final (func, id, arg) = _pendingGeCallbacks.removeFirst();
-          _runGeCallback(cpu, func, id, arg);
+        while (_interruptsEnabled && _pendingHandlers.isNotEmpty) {
+          final (func, id, arg) = _pendingHandlers.removeFirst();
+          _runHandler(cpu, func, id, arg);
         }
         _preempt(cpu);
       }
       return null;
+    });
+
+    // sceSuspendForUser: power locks do nothing. The volatile memory is
+    // taken to be the 4 MiB below the user module area, handed to the game
+    // whole; the address is as recalled from public descriptions of the
+    // memory map, not checked against hardware.
+    on(0xeadb1bd7, (cpu, _) => 0);
+    on(0x3aee7261, (cpu, _) => 0);
+    int? lockVolatile(Allegrex cpu, PspImport? _) {
+      if (_arg(cpu, 1) != 0) mem.write32(_arg(cpu, 1), _volatileAt);
+      if (_arg(cpu, 2) != 0) mem.write32(_arg(cpu, 2), _volatileSize);
+      return 0;
+    }
+
+    on(0x3e0271d3, lockVolatile);
+    on(0xa14f40b2, lockVolatile); // the try form
+    on(0xa569e425, (cpu, _) => 0);
+
+    // InterruptManager: sub-interrupt handlers. Only the vblank
+    // interrupt calls them. The errors of a handler already registered
+    // and of a missing one are as recalled from the public SDK error
+    // list, not checked against games.
+    on(0xca04a2b9, (cpu, _) {
+      final key = (_arg(cpu, 0), _arg(cpu, 1));
+      if (_subIntrs.containsKey(key)) return 0x80020065;
+      _subIntrs[key] = _SubIntr(_arg(cpu, 2), _arg(cpu, 3));
+      return 0;
+    });
+    on(0xd61e6961, (cpu, _) =>
+        _subIntrs.remove((_arg(cpu, 0), _arg(cpu, 1))) == null
+            ? 0x80020068
+            : 0);
+    on(0xfb8e22ec, (cpu, _) {
+      final handler = _subIntrs[(_arg(cpu, 0), _arg(cpu, 1))];
+      if (handler == null) return 0x80020068;
+      handler.enabled = true;
+      return 0;
+    });
+    on(0x8a389411, (cpu, _) {
+      final handler = _subIntrs[(_arg(cpu, 0), _arg(cpu, 1))];
+      if (handler == null) return 0x80020068;
+      handler.enabled = false;
+      return 0;
     });
 
     // ThreadManForUser
@@ -2200,11 +2265,20 @@ class PspKernel {
     writer.int32(_compiledSdkVersion);
     writer.int32(_compilerVersion);
     writer.boolean(_interruptsEnabled);
-    writer.int32(_pendingGeCallbacks.length);
-    for (final (func, id, arg) in _pendingGeCallbacks) {
+    writer.int32(_pendingHandlers.length);
+    for (final (func, id, arg) in _pendingHandlers) {
       writer.int32(func);
       writer.int32(id);
       writer.int32(arg);
+    }
+    writer.int32(_subIntrs.length);
+    for (final MapEntry(key: (interrupt, sub), value: handler)
+        in _subIntrs.entries) {
+      writer.int32(interrupt);
+      writer.int32(sub);
+      writer.int32(handler.func);
+      writer.int32(handler.arg);
+      writer.boolean(handler.enabled);
     }
   }
 
@@ -2298,11 +2372,18 @@ class PspKernel {
     _compiledSdkVersion = hasStartupState ? reader.int32() : 0;
     _compilerVersion = hasStartupState ? reader.int32() : 0;
     _interruptsEnabled = !hasStartupState || reader.boolean();
-    _pendingGeCallbacks.clear();
+    _pendingHandlers.clear();
     final callbackCount = hasStartupState ? reader.int32() : 0;
     for (var i = 0; i < callbackCount; i++) {
-      _pendingGeCallbacks
+      _pendingHandlers
           .addLast((reader.int32(), reader.int32(), reader.int32()));
+    }
+    _subIntrs.clear();
+    final subIntrCount = hasStartupState ? reader.int32() : 0;
+    for (var i = 0; i < subIntrCount; i++) {
+      final key = (reader.int32(), reader.int32());
+      _subIntrs[key] = _SubIntr(reader.int32(), reader.int32())
+        ..enabled = reader.boolean();
     }
     _discWaits.clear();
     current = threads[currentId];

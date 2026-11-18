@@ -25,6 +25,9 @@ const _deleteFpl = 0xed1410e0;
 const _allocateFpl = 0xd979e9bf;
 const _tryAllocateFpl = 0x623ae665;
 const _freeFpl = 0xf6414a71;
+const _registerSubIntr = 0xca04a2b9;
+const _enableSubIntr = 0xfb8e22ec;
+const _lockVolatile = 0x3e0271d3;
 
 void main() {
   late PspMemory mem;
@@ -44,6 +47,8 @@ void main() {
       ),
       ('ModuleMgrForUser', [_moduleId, _moduleByAddress]),
       ('sceDisplay', [_displayFps]),
+      ('InterruptManager', [_registerSubIntr, _enableSubIntr]),
+      ('sceSuspendForUser', [_lockVolatile]),
       (
         'ThreadManForUser',
         [
@@ -140,6 +145,40 @@ void main() {
     call(_resumeIntr, [enabled]);
     expect(mem.read32(result), 42);
     expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('an enabled vblank handler runs on each vblank and survives a save',
+      () {
+    const handler = 0x08900000, counter = 0x08900020;
+    mem.write32(handler, 0x8ca20000); // lw v0, 0(a1)
+    mem.write32(handler + 4, 0x24420001); // addiu v0, v0, 1
+    mem.write32(handler + 8, 0x03e00008); // jr ra
+    mem.write32(handler + 12, 0xaca20000); // sw v0, 0(a1)
+    expect(call(_registerSubIntr, [30, 2, handler, counter]), 0);
+    kernel.onVblank(cpu);
+    expect(mem.read32(counter), 0, reason: 'not enabled yet');
+    expect(call(_enableSubIntr, [30, 2]), 0);
+    expect(call(_enableSubIntr, [30, 3]).toUnsigned(32), isNonZero);
+
+    final writer = StateWriter('psp', 6, 0);
+    kernel.saveState(writer, cpu);
+    final reader = StateReader(writer.take(), 'psp', 6, 0);
+    kernel = PspKernel(mem, PadPort(), image.end)..startModule(image);
+    kernel.loadState(reader);
+    reader.end();
+
+    final pc = cpu.pc;
+    kernel.onVblank(cpu);
+    kernel.onVblank(cpu);
+    expect(mem.read32(counter), 2);
+    expect(cpu.pc, pc);
+  });
+
+  test('the volatile memory lock reports its area', () {
+    const out = 0x08900040;
+    expect(call(_lockVolatile, [0, out, out + 4]), 0);
+    expect(mem.read32(out), 0x08400000);
+    expect(mem.read32(out + 4), 0x400000);
   });
 
   test('formats debug output from registers and overflow arguments', () {

@@ -42,6 +42,9 @@ class PspGe {
   final proj = Float32List(16);
   final tgen = Float32List(16);
 
+  /// The eight bone matrices of skinned vertices, 16 floats each.
+  final bones = Float32List(8 * 16);
+
   final lists = <int, PspGeList>{};
   int _nextListId = 1;
   int lastListId = 0;
@@ -74,6 +77,9 @@ class PspGe {
     _identity(view);
     _identity(proj);
     _identity(tgen);
+    for (var i = 0; i < 8; i++) {
+      _identity(Float32List.sublistView(bones, i * 16, i * 16 + 16));
+    }
   }
 
   static void _identity(Float32List m) {
@@ -246,11 +252,22 @@ class PspGe {
         case 0x13: // OFFSETADDR
           _offset = arg << 8;
           break;
+        case 0x14: // ORIGIN: the offset becomes the command's own address
+          _offset = pc - 4;
+          break;
         case 0x04: // PRIM
           regs[op] = arg;
           _prim(arg);
           break;
-        case 0x2a: // bone matrix number
+        case 0x2a: // bone matrix number: 12 elements per bone
+          _boneIndex = arg & 0x7f;
+          break;
+        case 0x2b:
+          if (_boneIndex < 96) {
+            final bone = _boneIndex ~/ 12, i = _boneIndex % 12;
+            bones[bone * 16 + (i ~/ 3) * 4 + (i % 3)] = _floatArg(arg);
+          }
+          _boneIndex++;
           break;
         case 0x3a:
         case 0x3c:
@@ -285,6 +302,7 @@ class PspGe {
   }
 
   final _matrixIndex = <int, int>{};
+  int _boneIndex = 0;
 
   void _matrixData(Float32List m, int numberOp, int arg, {bool packed = false}) {
     final index = _matrixIndex[numberOp] ?? 0;
@@ -387,6 +405,8 @@ class PspGe {
         .bytes(view.buffer.asUint8List(view.offsetInBytes, view.lengthInBytes));
     writer
         .bytes(proj.buffer.asUint8List(proj.offsetInBytes, proj.lengthInBytes));
+    writer.bytes(
+        bones.buffer.asUint8List(bones.offsetInBytes, bones.lengthInBytes));
     writer.int32(signalFunc);
     writer.int32(signalArg);
     writer.int32(finishFunc);
@@ -414,6 +434,10 @@ class PspGe {
         view.buffer.asUint8List(view.offsetInBytes, view.lengthInBytes));
     reader.bytesInto(
         proj.buffer.asUint8List(proj.offsetInBytes, proj.lengthInBytes));
+    if (reader.version >= 6) {
+      reader.bytesInto(
+          bones.buffer.asUint8List(bones.offsetInBytes, bones.lengthInBytes));
+    }
     signalFunc = reader.int32();
     signalArg = reader.int32();
     finishFunc = reader.int32();
@@ -441,6 +465,10 @@ class _Vertex {
   double x = 0, y = 0, z = 0;
   double su = 0, sv = 0, invW = 1;
   double r = 1, g = 1, b = 1, a = 1;
+
+  /// True if the vertex lies behind the eye (w <= 0); primitives with such
+  /// a vertex are dropped, as no clipping against the near plane is done.
+  bool behind = false;
 }
 
 extension PspGeDrawing on PspGe {
@@ -608,7 +636,8 @@ extension PspGeDrawing on PspGe {
         : type == 2
             ? 2
             : 4;
-    place(weightType == 0 ? 0 : numWeights, sizeOf(weightType));
+    final weightAt =
+        place(weightType == 0 ? 0 : numWeights, sizeOf(weightType));
     final texAt = place(texType == 0 ? 0 : 2, sizeOf(texType));
     final colorSize = colorType == 0 ? 0 : (colorType == 7 ? 4 : 2);
     final colorAt = place(colorType == 0 ? 0 : 1, colorSize);
@@ -626,14 +655,20 @@ extension PspGeDrawing on PspGe {
       } else if (indexType == 2) {
         index = mem.read16(indexBase + i * 2);
       }
-      result.add(_readVertex(base + index * stride, texAt, texType, colorAt,
-          colorType, posAt, posType, through));
+      final at = base + index * stride;
+      final v = _readVertex(
+          at, texAt, texType, colorAt, colorType, posAt, posType, through,
+          weightAt: through ? -1 : weightAt,
+          weightType: weightType,
+          numWeights: numWeights);
+      result.add(v);
     }
     return result;
   }
 
   _Vertex _readVertex(int at, int texAt, int texType, int colorAt,
-      int colorType, int posAt, int posType, bool through) {
+      int colorType, int posAt, int posType, bool through,
+      {int weightAt = -1, int weightType = 0, int numWeights = 0}) {
     final v = _Vertex();
     double component(int offset, int type, {bool signed = true}) {
       switch (type) {
@@ -693,8 +728,52 @@ extension PspGeDrawing on PspGe {
       v.sv = w;
       v.invW = 1;
     } else {
+      // Transformed 8 and 16-bit positions are fixed point with 7 and 15
+      // fraction bits. The scale follows the vertex format description in
+      // public GE documentation; it is not checked against hardware.
+      if (posType != 3) {
+        final scale = posType == 1 ? 1 / 128 : 1 / 32768;
+        px *= scale;
+        py *= scale;
+        pz *= scale;
+      }
+      if (weightAt >= 0) {
+        // Skinning: the weighted sum of the position under each bone.
+        // Fixed point weights have 7 and 15 fraction bits like positions.
+        final size = weightType == 1
+            ? 1
+            : weightType == 2
+                ? 2
+                : 4;
+        final scale = weightType == 1
+            ? 1 / 128
+            : weightType == 2
+                ? 1 / 32768
+                : 1.0;
+        var sx = 0.0, sy = 0.0, sz = 0.0;
+        for (var i = 0; i < numWeights; i++) {
+          final weight =
+              component(weightAt + i * size, weightType, signed: false) *
+                  scale;
+          if (weight == 0) continue;
+          final m = i * 16;
+          sx += weight *
+              (bones[m] * px + bones[m + 4] * py + bones[m + 8] * pz +
+                  bones[m + 12]);
+          sy += weight *
+              (bones[m + 1] * px + bones[m + 5] * py + bones[m + 9] * pz +
+                  bones[m + 13]);
+          sz += weight *
+              (bones[m + 2] * px + bones[m + 6] * py + bones[m + 10] * pz +
+                  bones[m + 14]);
+        }
+        px = sx;
+        py = sy;
+        pz = sz;
+      }
       // Model -> world -> view -> projection, then the viewport.
       final p = _transform(px, py, pz);
+      v.behind = p[3] <= 0;
       final invW = p[3] == 0 ? 0.0 : 1 / p[3];
       final nx = p[0] * invW, ny = p[1] * invW, nz = p[2] * invW;
       // The viewport scale and center produce coordinates around the
@@ -714,7 +793,8 @@ extension PspGeDrawing on PspGe {
         v.su = u * invW;
         v.sv = w * invW;
       } else if (texType != 0) {
-        final full = texType == 1 ? 255.0 : 65535.0;
+        // fixed point with 7 and 15 fraction bits, like the positions
+        final full = texType == 1 ? 128.0 : 32768.0;
         v.su = u / full * invW;
         v.sv = w / full * invW;
       }
@@ -739,6 +819,7 @@ extension PspGeRaster on PspGe {
   bool get _smooth => regs[0x50] & 1 != 0;
 
   void _sprite(_Vertex a, _Vertex b) {
+    if (a.behind || b.behind) return;
     final clip = _clipRect();
     final x0 = math.max(clip[0], math.min(a.x, b.x).floor());
     final y0 = math.max(clip[1], math.min(a.y, b.y).floor());
@@ -765,6 +846,7 @@ extension PspGeRaster on PspGe {
   }
 
   void _triangle(_Vertex a, _Vertex b, _Vertex c) {
+    if (a.behind || b.behind || c.behind) return;
     if (regs[0x1d] & 1 != 0) {
       final area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
       final ccwFront = regs[0x9b] & 1 != 0;
@@ -816,6 +898,7 @@ extension PspGeRaster on PspGe {
   }
 
   void _line(_Vertex a, _Vertex b) {
+    if (a.behind || b.behind) return;
     final steps = math.max((b.x - a.x).abs(), (b.y - a.y).abs()).ceil();
     if (steps == 0) {
       _plot(a);
@@ -839,6 +922,7 @@ extension PspGeRaster on PspGe {
   }
 
   void _plot(_Vertex v, {bool pointSample = false}) {
+    if (v.behind) return;
     final clip = _clipRect();
     final x = v.x.floor(), y = v.y.floor();
     if (x < clip[0] || y < clip[1] || x >= clip[2] || y >= clip[3]) return;
