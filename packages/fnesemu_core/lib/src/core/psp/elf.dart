@@ -172,6 +172,9 @@ class PspElf {
     var moduleInfoAt = -1;
     var stubTop = 0, stubEnd = 0;
     final relocState = _RelocState();
+    final segmentAddrs = [
+      for (var i = 0; i < phnum; i++) u32(phoff + i * 32 + 8)
+    ];
     for (var i = 0; i < shnum; i++) {
       final at = shoff + i * 40;
       final shType = u32(at + 4);
@@ -179,7 +182,8 @@ class PspElf {
           shOffset = u32(at + 16),
           shSize = u32(at + 20);
       if (shType == 9 || shType == 0x700000a0) {
-        _relocate(mem, body, shOffset, shSize, base, relocState);
+        _relocate(
+            mem, body, shOffset, shSize, base, segmentAddrs, relocState);
       }
       final name = sectionName(at);
       if (name == '.rodata.sceModuleInfo') moduleInfoAt = shAddr + base;
@@ -188,7 +192,7 @@ class PspElf {
         stubEnd = stubTop + shSize;
       }
     }
-    relocState.finish(mem, base);
+    relocState.finish(mem);
 
     var gp = 0;
     var moduleName = '';
@@ -221,27 +225,39 @@ class PspElf {
         moduleName, entry + base, gp, base, maxEnd + base, imports, segments);
   }
 
+  /// Applies the relocations at [offset] of [body]. The info word of an
+  /// entry names two program headers besides the type: the location is
+  /// relative to the address of the first, and the address the entry
+  /// refers to is relative to that of the second.
   static void _relocate(PspMemory mem, Uint8List body, int offset,
-      int size, int base, _RelocState state) {
+      int size, int base, List<int> segmentAddrs, _RelocState state) {
     if (base == 0) return;
     final data = ByteData.sublistView(body);
     for (var at = offset; at + 8 <= offset + size; at += 8) {
-      final rOffset = data.getUint32(at, Endian.little) + base;
       final rInfo = data.getUint32(at + 4, Endian.little);
+      final offsetBase = (rInfo >> 8) & 0xff, addrBase = (rInfo >> 16) & 0xff;
+      if (offsetBase >= segmentAddrs.length ||
+          addrBase >= segmentAddrs.length) {
+        throw const FormatException('Invalid ELF relocation');
+      }
+      final rOffset = data.getUint32(at, Endian.little) +
+          segmentAddrs[offsetBase] +
+          base;
+      final addend = segmentAddrs[addrBase] + base;
       switch (rInfo & 0xff) {
         case 2: // word
-          mem.write32(rOffset, mem.read32(rOffset) + base);
+          mem.write32(rOffset, mem.read32(rOffset) + addend);
         case 4: // jump target field
           final word = mem.read32(rOffset);
           mem.write32(
               rOffset,
               (word & 0xfc000000) |
-                  (((word & 0x3ffffff) + (base >> 2)) & 0x3ffffff));
+                  (((word & 0x3ffffff) + (addend >> 2)) & 0x3ffffff));
         case 5: // high half (a lui): registers with the state, which
           // pairs it with the low halves that use its register.
-          state.addHi(mem, rOffset, base);
+          state.addHi(mem, rOffset, addend);
         case 6: // low half
-          state.addLo(mem, rOffset, base);
+          state.addLo(mem, rOffset, addend);
       }
     }
   }
@@ -262,8 +278,8 @@ class _RelocState {
   final _his = <(int, int, int, bool)>[];
 
   /// Low halves seen before any matching high half, as (location,
-  /// immediate, base register).
-  final _earlyLos = <(int, int, int)>[];
+  /// immediate, base register, the value the entry adds).
+  final _earlyLos = <(int, int, int, int)>[];
 
   void _writePair(PspMemory mem, (int, int, int, bool) hi, int loAt,
       int loImm, int base) {
@@ -307,18 +323,18 @@ class _RelocState {
       // A shared high half serving one more low half.
       _writePair(mem, latest, at, loImm, base);
     } else {
-      _earlyLos.add((at, loImm, rs));
+      _earlyLos.add((at, loImm, rs, base));
     }
   }
 
   /// Relocates low halves whose high half never appeared (the high
   /// half is zero, e.g. an address formed from the gp register) on
   /// their own.
-  void finish(PspMemory mem, int base) {
+  void finish(PspMemory mem) {
     for (final lo in _earlyLos) {
       final word = mem.read32(lo.$1);
       mem.write32(
-          lo.$1, (word & 0xffff0000) | ((lo.$2 + base) & 0xffff));
+          lo.$1, (word & 0xffff0000) | ((lo.$2 + lo.$4) & 0xffff));
     }
     _earlyLos.clear();
   }

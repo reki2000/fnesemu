@@ -69,6 +69,43 @@ void main() {
     expect((word & 0x3ffffff) << 2, 0x10 + 0x08804000);
   });
 
+  test('a relocation follows the segments its info names', () {
+    // The second segment starts at 8. The pair at 0 and the word at 8
+    // refer to offset 0x28 of it, 0x30; the word at 12 is listed at
+    // offset 4 of it.
+    final code = <int>[
+      (0x0f << 26) | (8 << 16) | 0, // lui t0, 0
+      (0x09 << 26) | (8 << 21) | (8 << 16) | 0x28, // addiu t0, t0, 0x28
+      0x28,
+      0x30,
+    ];
+    final (bytes, _) = buildTestElf(
+      code: code,
+      prx: true,
+      secondSegmentAt: 8,
+      relocs: [
+        (0, 5 | 1 << 16),
+        (4, 6 | 1 << 16),
+        (8, 2 | 1 << 16),
+        (4, 2 | 1 << 8),
+      ],
+    );
+    final mem = PspMemory();
+    PspElf.load(mem, bytes);
+    const base = 0x08804000;
+    final hi = mem.read32(base) & 0xffff;
+    final lo = (mem.read32(base + 4) & 0xffff).toSigned(16);
+    expect((hi << 16) + lo, base + 0x30);
+    expect(mem.read32(base + 8), base + 0x30);
+    expect(mem.read32(base + 12), base + 0x30);
+  });
+
+  test('a relocation naming a missing segment is rejected', () {
+    final (bytes, _) =
+        buildTestElf(code: [0], prx: true, relocs: [(0, 2 | 1 << 16)]);
+    expect(() => PspElf.load(PspMemory(), bytes), throwsFormatException);
+  });
+
   test('pbp packages unwrap to their executable', () {
     final (elf, _) = buildTestElf(code: [0x03e00008]);
     final pbp = Uint8List(40 + elf.length);
