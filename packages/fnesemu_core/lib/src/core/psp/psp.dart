@@ -228,6 +228,8 @@ class Psp extends Core {
     return ImageBuffer(480, 272, _pixels);
   }
 
+  /// The color of a frame buffer pixel. The display shows no alpha, so
+  /// every pixel is opaque whatever its alpha bits hold.
   static int _pixel(PspMemory mem, int at, int format) {
     switch (format) {
       case 0: // 5 bits red, 6 green, 5 blue
@@ -242,16 +244,15 @@ class Psp extends Core {
         final r = (v & 0x1f) << 3 | (v & 0x1f) >> 2;
         final g = (v >> 5 & 0x1f) << 3 | (v >> 5 & 0x1f) >> 2;
         final b = (v >> 10 & 0x1f) << 3 | (v >> 10 & 0x1f) >> 2;
-        return (v & 0x8000 != 0 ? 0xff000000 : 0) | r | g << 8 | b << 16;
+        return 0xff000000 | r | g << 8 | b << 16;
       case 2: // 4 bits per channel
         final v = mem.read16(at);
         final r = (v & 0xf) << 4 | v & 0xf;
         final g = (v >> 4 & 0xf) << 4 | (v >> 4 & 0xf);
         final b = (v >> 8 & 0xf) << 4 | (v >> 8 & 0xf);
-        final a = (v >> 12 & 0xf) << 4 | (v >> 12 & 0xf);
-        return a << 24 | r | g << 8 | b << 16;
+        return 0xff000000 | r | g << 8 | b << 16;
       default: // 8 bits per channel, stored red first
-        return mem.read32(at);
+        return 0xff000000 | mem.read32(at);
     }
   }
 

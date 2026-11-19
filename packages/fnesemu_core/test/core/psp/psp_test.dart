@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/core_factory.dart';
+import 'package:fnesemu_core/src/core/psp/memory.dart';
 import 'package:fnesemu_core/src/core/psp/psp.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/pad_source.dart';
@@ -102,6 +103,14 @@ Uint8List buildProgram({int workerDelay = 1000}) {
 }
 
 void main() {
+  test('video memory repeats every 2 MiB', () {
+    final mem = PspMemory();
+    mem.write16(0x04088000, 0x1234);
+    expect(mem.read16(0x04288000), 0x1234);
+    expect(mem.read16(0x04688000), 0x1234);
+    expect(mem.read16(0x04888000), 0);
+  });
+
   test('the factory resolves the psp core and its files', () {
     expect(CoreFactory.system('psp').id, 'psp');
     expect(CoreFactory.of('psp'), isA<Psp>());
@@ -190,8 +199,9 @@ void main() {
       final image = core.imageBuffer();
       expect(image.width, 480);
       expect(image.height, 272);
-      expect(image.buffer[0], 0x11223344);
-      expect(image.buffer[1], 0x55667788);
+      // the display shows no alpha: the stored 0x11 and 0x55 read opaque
+      expect(image.buffer[0], 0xff223344);
+      expect(image.buffer[1], 0xff667788);
     });
 
     test('a saved state resumes to the same outcome', () {
