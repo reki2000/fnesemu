@@ -583,39 +583,21 @@ extension PspVfpuExec on Allegrex {
     return (sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13);
   }
 
+  /// The half-precision bits of a single: the mantissa is truncated,
+  /// values below the smallest normal half become a signed zero and
+  /// values above the largest become infinity.
   static int _floatToHalf(int bits) {
     final sign = (bits >> 31) & 1;
     final exp = (bits >> 23) & 0xff;
     final mant = bits & 0x7fffff;
     if (exp == 0xff) {
       // Infinities keep no mantissa; a NaN keeps its low ten bits.
-      return (sign << 15) | 0x7c00 | (mant == 0 ? 0 : mant & 0x3ff);
+      return (sign << 15) | 0x7c00 | (mant & 0x3ff);
     }
-    var e = exp - 127 + 15;
+    final e = exp - 127 + 15;
     if (e >= 31) return (sign << 15) | 0x7c00;
-    if (e <= 0) {
-      if (e < -10) return sign << 15;
-      var m = mant | 0x800000;
-      final shift = 14 - e;
-      final rest = m & ((1 << shift) - 1);
-      m >>= shift;
-      if (rest > (1 << (shift - 1)) ||
-          (rest == (1 << (shift - 1)) && m & 1 != 0)) {
-        m++;
-      }
-      return (sign << 15) | m;
-    }
-    var m = mant >> 13;
-    final rest = mant & 0x1fff;
-    if (rest > 0x1000 || (rest == 0x1000 && m & 1 != 0)) {
-      m++;
-      if (m == 0x400) {
-        m = 0;
-        e++;
-        if (e == 31) return (sign << 15) | 0x7c00;
-      }
-    }
-    return (sign << 15) | (e << 10) | m;
+    if (e <= 0) return sign << 15;
+    return (sign << 15) | (e << 10) | (mant >> 13);
   }
 
   /// COP2: moves between the integer core and the coprocessor, the
@@ -738,11 +720,23 @@ extension PspVfpuExec on Allegrex {
         return true;
       }
       if (sub == 1) {
-        // VCMOV: copy when the named condition code is set.
-        final code = (w >> 16) & 31;
-        if ((vcc >> (code & 7)) & 1 != 0) {
+        // VCMOVT (bit 19 clear) and VCMOVF (bit 19 set): copy when the
+        // named condition code is set or clear. Code 6 tests each lane
+        // against its own condition code bit; code 7 is unspecified.
+        final code = (w >> 16) & 7;
+        final want = (w >> 19) & 1 == 0 ? 1 : 0;
+        bool moves(int lane) =>
+            code < 6 && (vcc >> code) & 1 == want ||
+            code == 6 && (vcc >> lane) & 1 == want;
+        if (code == 6) {
           final a = _readSource(vs, vpfxs, n);
-          _writeDest(vd, n, a);
+          final lanes = _elems(vd, n);
+          _writeDest(vd, n, [
+            for (var i = 0; i < n; i++)
+              moves(i) ? a[i] : _floatOf(v[lanes[i]]),
+          ]);
+        } else if (moves(0)) {
+          _writeDest(vd, n, _readSource(vs, vpfxs, n));
         } else {
           _consumePrefixes();
         }

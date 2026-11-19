@@ -211,6 +211,17 @@ void main() {
       expect(cpu.v[13], 0x01000000);
     });
 
+    test('vf2h truncates and flushes values below the half range', () {
+      final (cpu, _) = run((a) {
+        a.li(Reg.t0, 0x3f801fff); // 1.0 plus mantissa bits a half drops
+        a.word(mtv(Reg.t0, reg(1, 0, 0)));
+        a.li(Reg.t0, 0x38000000); // 2^-15, below the smallest normal half
+        a.word(mtv(Reg.t0, reg(1, 0, 1)));
+        a.word(0xd032048c); // vf2h.p S300, C100
+      }, steps: 20);
+      expect(cpu.v[48], 0x00003c00);
+    });
+
     test('vf2iz maps a NaN to the largest integer', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x7fc00000); // NaN
@@ -370,6 +381,33 @@ void main() {
   });
 
   group('control registers', () {
+    test('vcmov moves on a set or clear code, or lane by lane', () {
+      final (cpu, _) = run((a) {
+        // C100 = (1, 2, 3, 4), C200 = (1, 0, 3, 0)
+        final c1 = [1.0, 2.0, 3.0, 4.0], c2 = [1.0, 0.0, 3.0, 0.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(c1[i]));
+          a.word(mtv(Reg.t0, reg(1, 0, i)));
+          a.li(Reg.t0, floatBits(c2[i]));
+          a.word(mtv(Reg.t0, reg(2, 0, i)));
+        }
+        a.word(0xd006808c); // vzero.q C300
+        a.word(0xd0068090); // vzero.q C400
+        a.word(0xd0068094); // vzero.q C500
+        a.word(0x6c088481); // vcmp.q EQ, C100, C200: lanes 0 and 2
+        a.word(0xd2a6848c); // vcmovt.q C300, C100, 6
+        a.word(0xd2ae8490); // vcmovf.q C400, C100, 6
+        a.word(0xd2a98494); // vcmovf.q C500, C100, 1: code 1 is clear
+      }, steps: 60);
+      List<int> column(int m) =>
+          [for (var i = 0; i < 4; i++) cpu.v[m * 16 + i * 4]];
+      expect(column(3),
+          [floatBits(1), floatBits(0), floatBits(3), floatBits(0)]);
+      expect(column(4),
+          [floatBits(0), floatBits(2), floatBits(0), floatBits(4)]);
+      expect(column(5), [for (final x in [1.0, 2.0, 3.0, 4.0]) floatBits(x)]);
+    });
+
     test('vcmp tells NaN and infinity apart', () {
       int lane0(int cond, int bits) {
         final (cpu, _) = run((a) {
