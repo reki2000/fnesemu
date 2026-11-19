@@ -517,13 +517,13 @@ extension PspVfpuExec on Allegrex {
         6 => x >= y, // GE
         7 => x > y, // GT
         8 => x == 0, // EZ
-        9 => _isNormal(x), // EN
+        9 => x.isNaN, // EN
         10 => x.isInfinite, // EI
-        11 => x.isNaN, // ES
+        11 => x.isNaN || x.isInfinite, // ES
         12 => x != 0, // NZ
-        13 => !_isNormal(x), // NN
+        13 => !x.isNaN, // NN
         14 => !x.isInfinite, // NI
-        15 => !x.isNaN, // NS
+        15 => !x.isNaN && !x.isInfinite, // NS
         _ => false,
       };
       if (result) {
@@ -540,12 +540,6 @@ extension PspVfpuExec on Allegrex {
     _consumePrefixes();
     return true;
   }
-
-  static bool _isNormal(double x) =>
-      x != 0 &&
-      !x.isNaN &&
-      !x.isInfinite &&
-      x.abs() >= 1.1754943508222875e-38;
 
   /// VFPU5: the prefix instructions and the immediate moves.
   bool _vfpu5(int w) {
@@ -1286,6 +1280,8 @@ extension PspVfpuExec on Allegrex {
     if (func >= 1 && func <= 3) {
       // VTFM and VHTFM of size func + 1; the homogeneous form's size
       // field names one lane fewer and its last term is a constant one.
+      // Lane i is the dot product of the vector with line i of the
+      // matrix read transposed, as VMMUL reads its first source.
       final size = _sizeOf(w);
       final homogeneous = size == func;
       final count = func + 1;
@@ -1295,7 +1291,7 @@ extension PspVfpuExec on Allegrex {
         var sum = 0.0;
         for (var j = 0; j < count; j++) {
           final term = homogeneous && j == count - 1 ? 1.0 : a[j];
-          sum += _matrixAt(vs, i, j) * term;
+          sum += _matrixAt(vs, j, i) * term;
         }
         out[i] = sum;
       }
