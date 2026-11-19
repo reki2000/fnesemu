@@ -673,7 +673,7 @@ extension PspGeDrawing on PspGe {
     final texAt = place(texType == 0 ? 0 : 2, sizeOf(texType));
     final colorSize = colorType == 0 ? 0 : (colorType == 7 ? 4 : 2);
     final colorAt = place(colorType == 0 ? 0 : 1, colorSize);
-    place(normalType == 0 ? 0 : 3, sizeOf(normalType));
+    final normalAt = place(normalType == 0 ? 0 : 3, sizeOf(normalType));
     final posAt = place(3, sizeOf(posType));
     final stride = (offset + maxAlign - 1) & ~(maxAlign - 1);
 
@@ -697,7 +697,9 @@ extension PspGeDrawing on PspGe {
           at, texAt, texType, colorAt, colorType, posAt, posType, through,
           weightAt: through ? -1 : weightAt,
           weightType: weightType,
-          numWeights: numWeights);
+          numWeights: numWeights,
+          normalAt: normalAt,
+          normalType: normalType);
       result.add(v);
     }
     return result;
@@ -705,7 +707,11 @@ extension PspGeDrawing on PspGe {
 
   _Vertex _readVertex(int at, int texAt, int texType, int colorAt,
       int colorType, int posAt, int posType, bool through,
-      {int weightAt = -1, int weightType = 0, int numWeights = 0}) {
+      {int weightAt = -1,
+      int weightType = 0,
+      int numWeights = 0,
+      int normalAt = -1,
+      int normalType = 0}) {
     final v = _Vertex();
     double component(int offset, int type, {bool signed = true}) {
       switch (type) {
@@ -832,6 +838,50 @@ extension PspGeDrawing on PspGe {
         final full = texType == 1 ? 128.0 : 32768.0;
         v.tu = u / full;
         v.tv = w / full;
+      }
+      if (regs[0xc0] & 3 == 1) {
+        // Texture matrix mapping: the texture matrix maps the model
+        // position, the texture coordinates or the normal to (s, t, q),
+        // and the coordinates are s / q and t / q.
+        var sx = px, sy = py, sz = pz;
+        final source = (regs[0xc0] >> 8) & 3;
+        if (source == 1) {
+          sx = v.tu;
+          sy = v.tv;
+          sz = 0;
+        } else if (source >= 2) {
+          sx = sy = sz = 0;
+          if (normalAt >= 0) {
+            final scale = normalType == 1
+                ? 1 / 128
+                : normalType == 2
+                    ? 1 / 32768
+                    : 1.0;
+            final size = normalType == 1
+                ? 1
+                : normalType == 2
+                    ? 2
+                    : 4;
+            sx = component(normalAt, normalType) * scale;
+            sy = component(normalAt + size, normalType) * scale;
+            sz = component(normalAt + size * 2, normalType) * scale;
+          }
+          if (source == 2) {
+            final length = math.sqrt(sx * sx + sy * sy + sz * sz);
+            if (length != 0) {
+              sx /= length;
+              sy /= length;
+              sz /= length;
+            }
+          }
+        }
+        final m = tgen;
+        final s = m[0] * sx + m[4] * sy + m[8] * sz + m[12];
+        final t = m[1] * sx + m[5] * sy + m[9] * sz + m[13];
+        final q = m[2] * sx + m[6] * sy + m[10] * sz + m[14];
+        final invQ = q == 0 ? 0.0 : 1 / q;
+        v.tu = s * invQ;
+        v.tv = t * invQ;
       }
       _project(v);
     }
@@ -1294,8 +1344,13 @@ extension PspGeRaster on PspGe {
     // Through vertices address texels directly; transformed ones use
     // normalized coordinates scaled by the texture size.
     final throughTex = regs[0x12] & 0x800000 != 0;
-    var tu = u * PspGe._floatArg(regs[0x48]) + PspGe._floatArg(regs[0x4a]);
-    var tv = w * PspGe._floatArg(regs[0x49]) + PspGe._floatArg(regs[0x4b]);
+    // The scale and offset apply to the texture coordinate mapping only,
+    // not to the texture matrix or environment mapping.
+    var tu = u, tv = w;
+    if (throughTex || regs[0xc0] & 3 == 0) {
+      tu = u * PspGe._floatArg(regs[0x48]) + PspGe._floatArg(regs[0x4a]);
+      tv = w * PspGe._floatArg(regs[0x49]) + PspGe._floatArg(regs[0x4b]);
+    }
     if (!throughTex) {
       tu *= texW;
       tv *= texH;

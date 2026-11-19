@@ -464,6 +464,66 @@ void main() {
       expect(pixel(10, 10), 0);
     });
 
+    test('texture matrix mapping projects the model position', () {
+      const listAt = 0x08800000;
+      const verticesAt = 0x08801000;
+      const texAt = 0x10000;
+      int farg(double value) => _floatBits(value) >> 8;
+      // A 2x1 texture: red, then blue.
+      mem.write32(0x04000000 + texAt, 0xff0000ff);
+      mem.write32(0x04000000 + texAt + 4, 0xffff0000);
+      final words = <int>[
+        _cmd(0x10, 0x080000), // BASE
+        _cmd(0x9c, 0), // frame buffer pointer
+        _cmd(0x9d, 512), // frame buffer width
+        _cmd(0xd2, 3), // frame buffer format 8888
+        _cmd(0x01, verticesAt & 0xffffff),
+        _cmd(0x12, 0x180), // float positions, 3D, no texture coordinates
+        _cmd(0x42, farg(240)), // viewport scale x
+        _cmd(0x43, farg(-136)), // viewport scale y flips
+        _cmd(0x44, 0), // viewport scale z
+        _cmd(0x45, farg(2048)), // viewport center x
+        _cmd(0x46, farg(2048)), // viewport center y
+        _cmd(0x47, 0), // viewport center z
+        _cmd(0x4c, 1808 * 16), // offset x in 12.4 fixed point
+        _cmd(0x4d, 1912 * 16), // offset y
+        _cmd(0xa0, texAt), // texture pointer
+        _cmd(0xa8, 2), // texture buffer width
+        _cmd(0xb8, 0x001), // texture size 2x1
+        _cmd(0xc3, 3), // texture format 8888
+        // A zero scale would map every pixel to the red texel; it applies
+        // to the texture coordinate mapping only.
+        _cmd(0x48, 0),
+        _cmd(0x49, 0),
+        _cmd(0xc9, 3), // texture function: replace
+        _cmd(0x1e, 1), // texture map enable
+        _cmd(0xc0, 1), // texture matrix mapping from the model position
+        // Texture matrix: s = 0.5 x + 0.5, t = 0.5, q = 1.
+        _cmd(0x40, 0),
+        for (final v in [0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.5, 1])
+          _cmd(0x41, farg(v.toDouble())),
+        _cmd(0x04, 0x30003), // three triangle vertices
+        _cmd(0x0f, 0),
+        _cmd(0x0c, 0),
+      ];
+      for (var i = 0; i < words.length; i++) {
+        mem.write32(listAt + i * 4, words[i]);
+      }
+      void vertex(int at, double x, double y) {
+        mem.write32(at, _floatBits(x));
+        mem.write32(at + 4, _floatBits(y));
+        mem.write32(at + 8, _floatBits(0));
+      }
+
+      vertex(verticesAt, -1, -1);
+      vertex(verticesAt + 12, 1, -1);
+      vertex(verticesAt + 24, 0, 1);
+      ge.enqueue(cpu, listAt, 0);
+      // x < 0 maps to u < 0.5 (red), x > 0 to u > 0.5 (blue).
+      expect(pixel(200, 200), 0x0000ff);
+      expect(pixel(280, 200), 0xff0000);
+    });
+
     test('a triangle is cut at the near plane', () {
       const listAt = 0x08800000;
       const verticesAt = 0x08801000;
