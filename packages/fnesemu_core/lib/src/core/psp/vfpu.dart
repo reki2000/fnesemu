@@ -554,9 +554,9 @@ extension PspVfpuExec on Allegrex {
       case 4: // VPFXD
         vpfxd = w & 0xfffff;
         return true;
-      case 6: // VIIM: the immediate becomes the register's raw bits
+      case 6: // VIIM: the signed immediate converts to a float
         final at = _elems((w >> 16) & 0x7f, 1)[0];
-        v[at] = (w & 0xffff).toSigned(16) & 0xffffffff;
+        v[at] = _bits((w & 0xffff).toSigned(16).toDouble());
         return true;
       case 7: // VFIM: the immediate is a half-precision float
         final at = _elems((w >> 16) & 0x7f, 1)[0];
