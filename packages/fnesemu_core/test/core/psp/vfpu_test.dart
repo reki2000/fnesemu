@@ -259,6 +259,24 @@ void main() {
           [floatBits(26), floatBits(30), floatBits(38), floatBits(44)]);
     });
 
+    test('vtfm reads its matrix transposed like vmmul', () {
+      final (cpu, _) = run((a) {
+        // M100 = [[1, 2], [3, 4]] by rows, C200 = (5, 6)
+        final m1 = [1.0, 2.0, 3.0, 4.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(m1[i]));
+          a.word(mtv(Reg.t0, reg(1, i % 2, i ~/ 2)));
+        }
+        a.li(Reg.t0, floatBits(5));
+        a.word(mtv(Reg.t0, reg(2, 0, 0)));
+        a.li(Reg.t0, floatBits(6));
+        a.word(mtv(Reg.t0, reg(2, 0, 1)));
+        a.word(0xf0880480); // vtfm2.p C000, M100, C200
+      }, steps: 40);
+      // transpose(M100) * (5, 6) = (23, 34)
+      expect([cpu.v[0], cpu.v[4]], [floatBits(23), floatBits(34)]);
+    });
+
     test('vidt writes the identity line its operand names', () {
       final (cpu, _) = run((a) {
         a.word(0xd0038087); // vidt.q, column 3 of M1
@@ -352,6 +370,24 @@ void main() {
   });
 
   group('control registers', () {
+    test('vcmp tells NaN and infinity apart', () {
+      int lane0(int cond, int bits) {
+        final (cpu, _) = run((a) {
+          a.li(Reg.t0, bits);
+          a.word(mtv(Reg.t0, reg(1, 0, 0)));
+          a.word(0x6c040400 | cond); // vcmp.s cond, S100, S100
+        }, steps: 20);
+        return cpu.vcc & 1;
+      }
+
+      const nan = 0x7fc00000, inf = 0x7f800000, one = 0x3f800000;
+      // EN, EI, ES, NN, NI, NS on NaN, infinity and 1.0
+      final conds = [9, 10, 11, 13, 14, 15];
+      expect([for (final c in conds) lane0(c, nan)], [1, 0, 1, 0, 1, 0]);
+      expect([for (final c in conds) lane0(c, inf)], [0, 1, 1, 1, 0, 0]);
+      expect([for (final c in conds) lane0(c, one)], [0, 0, 0, 1, 1, 1]);
+    });
+
     test('the random state registers mask writes to twenty bits', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, -1);
