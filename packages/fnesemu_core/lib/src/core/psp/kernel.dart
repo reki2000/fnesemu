@@ -720,6 +720,23 @@ class PspKernel {
     on(0xceadeb47, _delayThread);
     on(0x68da9e36, _delayThread); // the CB form shares the delay
     on(0xea748e31, (cpu, _) => current?.id ?? 0);
+    // GetSystemTime fills a 64-bit microsecond count at a0;
+    // GetSystemTimeWide returns it in v0:v1 and GetSystemTimeLow
+    // returns its low word.
+    on(0xdb738f35, (cpu, _) {
+      final micros = cpu.clocks ~/ _clocksPerMicrosecond;
+      mem.write32(_arg(cpu, 0), micros & 0xffffffff);
+      mem.write32(_arg(cpu, 0) + 4, micros >>> 32);
+      return 0;
+    });
+    on(0x82bc5777, (cpu, _) {
+      final micros = cpu.clocks ~/ _clocksPerMicrosecond;
+      cpu.r[2] = micros & 0xffffffff;
+      cpu.r[3] = micros >>> 32;
+      return null;
+    });
+    on(0x369ed59d,
+        (cpu, _) => (cpu.clocks ~/ _clocksPerMicrosecond) & 0xffffffff);
     int? sleepThread(Allegrex cpu, PspImport? _) {
       // SleepThread: wakes only through WakeupThread.
       if (_inCallback) return 0;
