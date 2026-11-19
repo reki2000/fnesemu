@@ -445,10 +445,11 @@ extension PspVfpuExec on Allegrex {
         _writeDest(vd, 1, [sum]);
         return true;
       case 0x194: // VHDP: the dot product with the last used lane's
-        // product replaced by the second source's lane itself
-        var sum = b[n - 1] - a[n - 1] * b[n - 1];
+        // product replaced by the second source's lane itself; the first
+        // source's last lane is not read, so a NaN there does not matter
+        var sum = 0.0;
         for (var i = 0; i < 4; i++) {
-          sum += a[i] * b[i];
+          sum += i == n - 1 ? b[i] : a[i] * b[i];
         }
         _writeDest(vd, 1, [sum]);
         return true;
@@ -764,9 +765,15 @@ extension PspVfpuExec on Allegrex {
       return true;
     }
     switch (sel) {
-      case 0x03: // VIDT: the basis vector of the destination's anchor
-        final anchor = _elems(vd, 1)[0] % 16;
-        final along = vd & 0x20 != 0 ? anchor % 4 : anchor ~/ 4;
+      case 0x03: // VIDT: the destination's line of the identity matrix.
+        // Column c (or row r) of the identity has its one at row c (or
+        // column r), so the one sits at the lane of that index, counted
+        // from the vector's first lane; a single is one on the diagonal.
+        final half = (vd >> 6) & 1;
+        final start = n == 2 ? half * 2 : (n == 3 ? half : 0);
+        final along = n == 1
+            ? (((vd >> 5) & 3) == (vd & 3) ? 0 : -1)
+            : (vd & 3) - start;
         _writeDest(vd, n, [
           for (var i = 0; i < n; i++) i == along ? 1.0 : 0.0,
         ]);
@@ -1250,12 +1257,15 @@ extension PspVfpuExec on Allegrex {
       final n = _sizeOf(w);
       if (func == 0) {
         // VMMUL: the product of the two source matrices over the
-        // size's submatrix; a zero result is a positive zero here.
+        // size's submatrix, the first one read transposed, so a
+        // transposed first operand gives the plain product. A game
+        // composing a translation with a model matrix needs this order.
+        // A zero result is a positive zero here.
         for (var r = 0; r < n; r++) {
           for (var c = 0; c < n; c++) {
             var sum = 0.0;
             for (var k = 0; k < n; k++) {
-              sum += _matrixAt(vs, r, k) * _matrixAt(vt, k, c);
+              sum += _matrixAt(vs, k, r) * _matrixAt(vt, k, c);
             }
             _writeMatrixElement(vd, r, c, sum == 0 ? 0.0 : sum);
           }
