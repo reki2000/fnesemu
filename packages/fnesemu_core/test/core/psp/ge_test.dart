@@ -412,6 +412,75 @@ void main() {
       expect(pixel(10, 10), 0);
     });
 
+    test('a triangle is cut at the near plane', () {
+      const listAt = 0x08800000;
+      const verticesAt = 0x08801000;
+      int farg(double value) => _floatBits(value) >> 8;
+      // Identity in the packed three-per-column upload form: the
+      // diagonal sits at stream positions 0, 4 and 8.
+      List<int> packed(int numberOp, int dataOp, List<double> diag,
+          List<double> column3) {
+        final stream = <double>[
+          diag[0], 0, 0, //
+          0, diag[1], 0, //
+          0, 0, diag[2], //
+          ...column3,
+        ];
+        return [
+          _cmd(numberOp, 0),
+          for (final v in stream) _cmd(dataOp, farg(v)),
+        ];
+      }
+
+      final words = <int>[
+        _cmd(0x10, 0x080000), // BASE
+        _cmd(0x9c, 0), // frame buffer pointer
+        _cmd(0x9d, 512), // frame buffer width
+        _cmd(0xd2, 3), // frame buffer format 8888
+        _cmd(0x01, verticesAt & 0xffffff),
+        _cmd(0x12, 0x1c | 0x180), // color 8888, float positions, 3D
+        _cmd(0x42, farg(240)), // viewport scale x
+        _cmd(0x43, farg(-136)), // viewport scale y flips
+        _cmd(0x44, 0), // viewport scale z
+        _cmd(0x45, farg(2048)), // viewport center x
+        _cmd(0x46, farg(2048)), // viewport center y
+        _cmd(0x47, 0), // viewport center z
+        _cmd(0x4c, 1808 * 16), // offset x in 12.4 fixed point
+        _cmd(0x4d, 1912 * 16), // offset y
+        // Projection: a full 4x4 identity upload.
+        _cmd(0x3e, 0),
+        for (var i = 0; i < 16; i++)
+          _cmd(0x3f, farg(i % 5 == 0 ? 1 : 0)),
+        ...packed(0x3c, 0x3d, [1, 1, 1], [0, 0, 0]),
+        ...packed(0x3a, 0x3b, [1, 1, 1], [0, 0, 0]),
+        _cmd(0x04, 0x30003), // three triangle vertices
+        _cmd(0x0f, 0),
+        _cmd(0x0c, 0),
+      ];
+      for (var i = 0; i < words.length; i++) {
+        mem.write32(listAt + i * 4, words[i]);
+      }
+      void vertex(int at, double x, double y, double z) {
+        mem.write32(at, 0xff00ff00);
+        mem.write32(at + 4, _floatBits(x));
+        mem.write32(at + 8, _floatBits(y));
+        mem.write32(at + 12, _floatBits(z));
+      }
+
+      // the top vertex lies in front of the near plane z = -w; the edges
+      // toward it cross the plane a third of the way, at y = -1/6
+      vertex(verticesAt, -0.5, -0.5, 0);
+      vertex(verticesAt + 16, 0.5, -0.5, 0);
+      vertex(verticesAt + 32, 0, 0.5, -3);
+      final id = ge.enqueue(cpu, listAt, 0);
+      expect(ge.listState(id), PspGe.stateDone);
+      // y = -136 * ndc + 136: the kept part spans 159..204
+      expect(pixel(240, 190), 0xff00ff00);
+      expect(pixel(240, 165), 0xff00ff00);
+      expect(pixel(240, 150), 0);
+      expect(pixel(240, 95), 0);
+    });
+
     test('a block transfer copies pixels inside video memory', () {
       const src = 0x10000, dst = 0x20000;
       for (var i = 0; i < 4; i++) {
