@@ -102,6 +102,30 @@ void main() {
       expect(pixel(10, 20), 0xff0000ff);
     });
 
+    test('a primitive continues from where the previous one ended', () {
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xd3, 0x101),
+            _cmd(0x04, 0x60002), // the two vertices of _writeList
+            _cmd(0x04, 0x60002), // the next two, written below
+          ],
+          0xff0000ff);
+      // a second sprite from (50, 60) to (70, 80) right after the first
+      void vertex(int at, double x, double y) {
+        mem.write32(at + 8, 0xff00ff00);
+        mem.write32(at + 12, _floatBits(x));
+        mem.write32(at + 16, _floatBits(y));
+        mem.write32(at + 20, _floatBits(0));
+      }
+
+      vertex(0x08801000 + 48, 50, 60);
+      vertex(0x08801000 + 72, 70, 80);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(10, 20), 0xff0000ff);
+      expect(pixel(50, 60), 0xff00ff00);
+    });
+
     test('a vertex without a color takes the material color', () {
       // two through-mode vertices of 16-bit positions alone (6 bytes each)
       const plainAt = 0x08802000;

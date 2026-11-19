@@ -249,6 +249,12 @@ class PspGe {
         case 0x10: // BASE: the argument is the base address shifted by 8
           _base = arg << 8;
           break;
+        case 0x01: // VADDR
+          _vertexAt = _effective(arg);
+          break;
+        case 0x02: // IADDR
+          _indexAt = _effective(arg);
+          break;
         case 0x13: // OFFSETADDR
           _offset = arg << 8;
           break;
@@ -302,6 +308,10 @@ class PspGe {
   }
 
   final _matrixIndex = <int, int>{};
+
+  /// The vertex and index addresses: set by their commands and moved past
+  /// what each primitive reads, so the next one continues from there.
+  int _vertexAt = 0, _indexAt = 0;
   int _boneIndex = 0;
 
   void _matrixData(Float32List m, int numberOp, int arg, {bool packed = false}) {
@@ -409,6 +419,8 @@ class PspGe {
         .bytes(proj.buffer.asUint8List(proj.offsetInBytes, proj.lengthInBytes));
     writer.bytes(
         bones.buffer.asUint8List(bones.offsetInBytes, bones.lengthInBytes));
+    writer.int32(_vertexAt);
+    writer.int32(_indexAt);
     writer.int32(signalFunc);
     writer.int32(signalArg);
     writer.int32(finishFunc);
@@ -439,6 +451,8 @@ class PspGe {
     if (reader.version >= 6) {
       reader.bytesInto(
           bones.buffer.asUint8List(bones.offsetInBytes, bones.lengthInBytes));
+      _vertexAt = reader.int32();
+      _indexAt = reader.int32();
     }
     signalFunc = reader.int32();
     signalArg = reader.int32();
@@ -647,8 +661,13 @@ extension PspGeDrawing on PspGe {
     final posAt = place(3, sizeOf(posType));
     final stride = (offset + maxAlign - 1) & ~(maxAlign - 1);
 
-    final base = _effective(regs[0x01]);
-    final indexBase = _effective(regs[0x02]);
+    final base = _vertexAt;
+    final indexBase = _indexAt;
+    if (indexType == 0) {
+      _vertexAt += count * stride;
+    } else {
+      _indexAt += count * indexType;
+    }
     final result = <_Vertex>[];
     for (var i = 0; i < count; i++) {
       var index = i;
