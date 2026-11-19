@@ -65,7 +65,9 @@ void main() {
       cpu = Allegrex(mem);
     });
 
-    int pixel(int x, int y) => mem.read32(0x04000000 + (y * 512 + x) * 4);
+    /// The color bits of a pixel; its alpha bits hold the stencil.
+    int pixel(int x, int y) =>
+        mem.read32(0x04000000 + (y * 512 + x) * 4) & 0xffffff;
 
     test('a clear-mode sprite fills its rectangle', () {
       final list = _writeList(
@@ -77,10 +79,46 @@ void main() {
           0xff0000ff);
       final id = ge.enqueue(cpu, list, 0);
       expect(ge.listState(id), PspGe.stateDone);
-      expect(pixel(10, 20), 0xff0000ff);
-      expect(pixel(29, 39), 0xff0000ff);
+      expect(pixel(10, 20), 0x0000ff);
+      expect(pixel(29, 39), 0x0000ff);
       expect(pixel(30, 40), 0);
       expect(pixel(0, 0), 0);
+    });
+
+    test('the stencil test gates the color and its operations write alpha',
+        () {
+      int raw(int x, int y) => mem.read32(0x04000000 + (y * 512 + x) * 4);
+      mem.write32(0x04000000 + (20 * 512 + 10) * 4, 0x00112233);
+      mem.write32(0x04000000 + (20 * 512 + 12) * 4, 0x5a112233);
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0x24, 1), // stencil test on
+            _cmd(0xdc, 2 | 0x5a << 8 | 0xff << 16), // equal to 0x5a
+            _cmd(0xdd, 3 | 4 << 16), // fail: invert, pass: increment
+            _cmd(0x04, 0x60002),
+          ],
+          0xff0000ff);
+      ge.enqueue(cpu, list, 0);
+      expect(raw(12, 20), 0x5b0000ff); // passed: red, stencil + 1
+      expect(raw(10, 20), 0xff112233); // failed: kept, stencil inverted
+    });
+
+    test('without the stencil test a 5551 draw keeps alpha and the mask',
+        () {
+      int raw(int x, int y) => mem.read16(0x04000000 + (y * 512 + x) * 2);
+      mem.write16(0x04000000 + (20 * 512 + 10) * 2, 0x801f);
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xd2, 1), // frame buffer format 5551
+            _cmd(0xe8, 0x0000ff), // the pixel mask protects red
+            _cmd(0x04, 0x60002),
+          ],
+          0xff00ff00);
+      ge.enqueue(cpu, list, 0);
+      expect(raw(10, 20), 0x83ff); // red and alpha kept, green drawn
+      expect(raw(12, 20), 0x03e0);
     });
 
     test('a jump after ORIGIN is relative to the ORIGIN command', () {
@@ -99,7 +137,7 @@ void main() {
           ],
           0xff0000ff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xff0000ff);
+      expect(pixel(10, 20), 0x0000ff);
     });
 
     test('a primitive continues from where the previous one ended', () {
@@ -122,8 +160,8 @@ void main() {
       vertex(0x08801000 + 48, 50, 60);
       vertex(0x08801000 + 72, 70, 80);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xff0000ff);
-      expect(pixel(50, 60), 0xff00ff00);
+      expect(pixel(10, 20), 0x0000ff);
+      expect(pixel(50, 60), 0x00ff00);
     });
 
     test('a vertex without a color takes the material color', () {
@@ -145,7 +183,7 @@ void main() {
           ],
           0xffffffff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xff302010);
+      expect(pixel(10, 20), 0x302010);
     });
 
     test('alpha blending mixes by the source alpha', () {
@@ -186,10 +224,10 @@ void main() {
           ],
           0xffffffff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xff0000ff);
-      expect(pixel(29, 20), 0xff00ff00);
-      expect(pixel(10, 39), 0xffff0000);
-      expect(pixel(29, 39), 0xffffffff);
+      expect(pixel(10, 20), 0x0000ff);
+      expect(pixel(29, 20), 0x00ff00);
+      expect(pixel(10, 39), 0xff0000);
+      expect(pixel(29, 39), 0xffffff);
     });
 
     test('a palette texture resolves through the loaded CLUT', () {
@@ -218,8 +256,8 @@ void main() {
           ],
           0xffffffff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xff000000);
-      expect(pixel(29, 20), 0xffffffff);
+      expect(pixel(10, 20), 0x000000);
+      expect(pixel(29, 20), 0xffffff);
     });
 
     test('a swizzled 4-bit texture reads its texels by block', () {
@@ -252,8 +290,8 @@ void main() {
           ],
           0xffffffff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xffffffff);
-      expect(pixel(29, 20), 0xff000000);
+      expect(pixel(10, 20), 0xffffff);
+      expect(pixel(29, 20), 0x000000);
     });
 
     test('a narrow swizzled texture steps its lines by a block width', () {
@@ -286,8 +324,8 @@ void main() {
           ],
           0xffffffff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xffffffff);
-      expect(pixel(29, 20), 0xff000000);
+      expect(pixel(10, 20), 0xffffff);
+      expect(pixel(29, 20), 0x000000);
     });
 
     test('a 16-bit index texture reads its palette', () {
@@ -319,8 +357,8 @@ void main() {
           ],
           0xffffffff);
       ge.enqueue(cpu, list, 0);
-      expect(pixel(10, 20), 0xffffffff);
-      expect(pixel(29, 20), 0xff000000);
+      expect(pixel(10, 20), 0xffffff);
+      expect(pixel(29, 20), 0x000000);
     });
 
     test('a stalled list resumes when its stall address moves', () {
@@ -338,7 +376,7 @@ void main() {
       expect(pixel(10, 20), 0);
       expect(ge.updateStall(cpu, id, 0), 0);
       expect(ge.listState(id), PspGe.stateDone);
-      expect(pixel(10, 20), 0xff0000ff);
+      expect(pixel(10, 20), 0x0000ff);
     });
 
     test('a transformed triangle lands through the viewport offset', () {
@@ -405,8 +443,8 @@ void main() {
       expect(ge.listState(id), PspGe.stateDone);
       // The world translation moves the triangle to screen (240..480,
       // 68..204): x = ndc * 240 + 240, y = -136 * ndc + 136.
-      expect(pixel(360, 190), 0xff00ff00);
-      expect(pixel(360, 80), 0xff00ff00);
+      expect(pixel(360, 190), 0x00ff00);
+      expect(pixel(360, 80), 0x00ff00);
       expect(pixel(245, 100), 0);
       expect(pixel(300, 250), 0);
       expect(pixel(10, 10), 0);
@@ -475,8 +513,8 @@ void main() {
       final id = ge.enqueue(cpu, listAt, 0);
       expect(ge.listState(id), PspGe.stateDone);
       // y = -136 * ndc + 136: the kept part spans 159..204
-      expect(pixel(240, 190), 0xff00ff00);
-      expect(pixel(240, 165), 0xff00ff00);
+      expect(pixel(240, 190), 0x00ff00);
+      expect(pixel(240, 165), 0x00ff00);
       expect(pixel(240, 150), 0);
       expect(pixel(240, 95), 0);
     });
@@ -628,7 +666,7 @@ Uint8List _buildGeProgram() {
       _cmd(0x9c, 0),
       _cmd(0x9d, 512),
       _cmd(0xd2, 3),
-      _cmd(0xd3, 0x101),
+      _cmd(0xd3, 0x301), // clear the color and the stencil
       _cmd(0x01, 0x08900040 & 0xffffff),
       _cmd(0x12, _spriteType),
       _cmd(0x04, 0x60002),
