@@ -7,9 +7,14 @@ import '../../compute_sink.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
+import '../../util/disasm.dart';
+import '../../util/int.dart';
+import '../../util/register_dump.dart';
 import 'bus.dart';
+import 'disasm.dart';
 import 'ee_idle_loop.dart';
 import 'ee_io.dart';
 import 'elf.dart';
@@ -565,5 +570,125 @@ class Ps2 extends Core {
     if (cpu.clocks >= _nextDeviceClock) _advanceDevices();
     if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
     return _result;
+  }
+
+  @override
+  List<CpuInfo> get cpuInfos =>
+      const [CpuInfo(0, 'R5900', 32), CpuInfo(1, 'IOP', 32)];
+
+  @override
+  int programCounter(int cpuNo) => cpuNo == 1 ? iop.pc : cpu.pc;
+
+  @override
+  int stackPointer(int cpuNo) =>
+      cpuNo == 1 ? iop.r[29] : (cpu.reg(29) & 0xffffffff);
+
+  @override
+  int read(int cpuNo, int addr) =>
+      cpuNo == 1 ? iopMemory.read8(addr) : bus.read8(addr);
+
+  @override
+  (String, int) disasm(int cpuNo, int addr) {
+    addr &= ~3;
+    if (cpuNo == 1) {
+      final op = iopMemory.read32(addr);
+      return (
+        formatDisasm(addr.x8, op.x8, Ps2Disasm.iop(op, addr), codeWidth: 8),
+        4
+      );
+    }
+    final op = bus.read32(addr);
+    return (
+      formatDisasm(addr.x8, op.x8, Ps2Disasm.ee(op, addr), codeWidth: 8),
+      4
+    );
+  }
+
+  @override
+  List<int> get vram => io.gs.mem.bytes;
+
+  @override
+  ImageBuffer renderBg() => imageBuffer();
+
+  @override
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) => imageBuffer();
+
+  @override
+  ImageBuffer renderColorTable(int paletteNo) => ImageBuffer.empty();
+
+  @override
+  List<String> spriteInfo() => const [];
+
+  String _traceIopRegisters() => [
+        registerRows(
+            [for (var i = 0; i < 32; i++) ('r$i', iop.r[i])],
+            perLine: 32),
+        'HI:${iop.hi.x8} LO:${iop.lo.x8} SR:${iop.readCop0(Iop.cop0Status).x8} CAUSE:${iop.readCop0(Iop.cop0Cause).x8} EPC:${iop.readCop0(Iop.cop0Epc).x8}',
+      ].join(' ');
+
+  String _traceEeRegisters() => [
+        registerRows([
+          for (var i = 0; i < 32; i++) ('r$i', cpu.reg(i)),
+          ('HI', cpu.hi),
+          ('LO', cpu.lo),
+          ('HI1', cpu.hi1),
+          ('LO1', cpu.lo1),
+        ], bits: 64, perLine: 36),
+        registerRows([
+          for (var i = 0; i < 32; i++) ('CP0[$i]', cpu.cop0[i]),
+        ], perLine: 32),
+        'SA:${cpu.sa.x2}',
+      ].join(' ');
+
+  @override
+  TraceLog trace(int cpuNo) {
+    if (cpuNo == 1) {
+      final opcode = iopMemory.read32(iop.pc & ~3);
+      return TraceLog(
+        iop.pc,
+        iop.clocks,
+        disasm(cpuNo, iop.pc).$1,
+        _traceIopRegisters(),
+        [iop.pc, ...iop.r],
+        flow: traceMipsFlow(opcode, iop.pc, iop.r),
+      );
+    }
+    final opcode = bus.read32(cpu.pc & ~3);
+    return TraceLog(
+      cpu.pc,
+      cpu.clocks,
+      disasm(cpuNo, cpu.pc).$1,
+      _traceEeRegisters(),
+      [cpu.pc, for (var i = 0; i < 32; i++) cpu.reg(i) & 0xffffffff],
+      flow: traceMipsFlow(
+        opcode,
+        cpu.pc,
+        [for (var i = 0; i < 32; i++) cpu.reg(i)],
+        wide: true,
+      ),
+    );
+  }
+
+  @override
+  String dump(
+      {bool showZeroPage = false,
+      bool showSpriteVram = false,
+      bool showStack = false,
+      bool showApu = false}) {
+    final eeDisasm = disasm(0, cpu.pc).$1;
+    final iopDisasm = disasm(1, iop.pc).$1;
+    return 'PS2 (EE R5900 + IOP)\n'
+        'EE $eeDisasm clocks:${cpu.clocks}\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("r$i", cpu.reg(i))], bits: 64)}\n'
+        '${registerRows([("HI", cpu.hi), ("LO", cpu.lo), ("HI1", cpu.hi1), ("LO1", cpu.lo1)], bits: 64)} SA:${cpu.sa.x2}\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("CP0[$i]", cpu.cop0[i])])}\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("f$i", cpu.fpr[i])])}\n'
+        'FACC:${cpu.facc.x8} FCR31:${cpu.fcr31.x8}\n'
+        'INTC stat:${io.intc.stat.x8} mask:${io.intc.mask.x8}\n'
+        'DMAC stat:${io.dmac.stat.x8} ctrl:${io.dmac.ctrl.x8}\n'
+        'GS CSR:${io.gs.readPrivileged(0x1000).toRadixString(16).padLeft(16, "0")}\n'
+        'IOP $iopDisasm clocks:${iop.clocks} (BIOS loaded: $biosLoaded)\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("iop.r$i", iop.r[i])])}\n'
+        'IOP HI:${iop.hi.x8} LO:${iop.lo.x8} SR:${iop.readCop0(Iop.cop0Status).x8} CAUSE:${iop.readCop0(Iop.cop0Cause).x8} EPC:${iop.readCop0(Iop.cop0Epc).x8}';
   }
 }
