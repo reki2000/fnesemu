@@ -242,6 +242,56 @@ void main() {
       expect(cpu.v[0], floatBits(7.5));
     });
 
+    test('vmmul reads its first source transposed', () {
+      final (cpu, _) = run((a) {
+        // M100 = [[1, 2], [3, 4]], M200 = [[5, 6], [7, 8]] by rows
+        final m1 = [1.0, 2.0, 3.0, 4.0], m2 = [5.0, 6.0, 7.0, 8.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(m1[i]));
+          a.word(mtv(Reg.t0, reg(1, i % 2, i ~/ 2)));
+          a.li(Reg.t0, floatBits(m2[i]));
+          a.word(mtv(Reg.t0, reg(2, i % 2, i ~/ 2)));
+        }
+        a.word(0xf0080480); // vmmul.p M000, M100, M200
+      }, steps: 40);
+      // transpose(M100) * M200 = [[26, 30], [38, 44]]
+      expect([cpu.v[0], cpu.v[1], cpu.v[4], cpu.v[5]],
+          [floatBits(26), floatBits(30), floatBits(38), floatBits(44)]);
+    });
+
+    test('vidt writes the identity line its operand names', () {
+      final (cpu, _) = run((a) {
+        a.word(0xd0038087); // vidt.q, column 3 of M1
+        a.word(0xd00380a6); // vidt.q, row 2 of M1
+        a.word(0xd0038049); // vidt.t, column 1 of M2 from row 1
+      });
+      // column 3 of M1: one at row 3
+      expect([cpu.v[16 + 3], cpu.v[16 + 7], cpu.v[16 + 11], cpu.v[16 + 15]],
+          [floatBits(0), floatBits(0), floatBits(0), floatBits(1)]);
+      // row 2 of M1: one at column 2
+      expect([cpu.v[24], cpu.v[25], cpu.v[26], cpu.v[27]],
+          [floatBits(0), floatBits(0), floatBits(1), floatBits(0)]);
+      // rows 1-3 of column 1 of M2: one at row 1
+      expect([cpu.v[32 + 5], cpu.v[32 + 9], cpu.v[32 + 13]],
+          [floatBits(1), floatBits(0), floatBits(0)]);
+    });
+
+    test('vhdp does not read the last lane of its first source', () {
+      final (cpu, _) = run((a) {
+        // C100 = (1, 2, 3, NaN), C200 = (1, 1, 1, 5)
+        final s = [1.0, 2.0, 3.0, double.nan];
+        final t = [1.0, 1.0, 1.0, 5.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(s[i]));
+          a.word(mtv(Reg.t0, reg(1, 0, i)));
+          a.li(Reg.t0, floatBits(t[i]));
+          a.word(mtv(Reg.t0, reg(2, 0, i)));
+        }
+        a.word(0x66088480); // vhdp.q S000, C100, C200
+      });
+      expect(cpu.v[0], floatBits(11));
+    });
+
     test('vcrsp forms its components in reverse order', () {
       // With the destination equal to the first source, the z and y
       // components land before x is formed, and x reads them back.
