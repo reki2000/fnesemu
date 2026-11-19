@@ -567,6 +567,26 @@ void main() {
       expect(core.mem.read32(0x0890010c), 0); // unlock
       expect(core.mem.read32(0x08900110), 0); // the mutex still works
     });
+
+    test('the system time counts microseconds', () {
+      final bytes = _buildSystemTimeProgram();
+      final core = Psp()..setRom(bytes);
+      var result = core.runFrame(286);
+      var frames = 1;
+      while (!result.stopped && frames < 60) {
+        result = core.runFrame(286);
+        frames++;
+      }
+      expect(result.stopped, isTrue);
+      int at(int offset) => core.mem.read32(0x08900000 + offset);
+      final first = at(0) | at(4) << 32;
+      final second = at(8) | at(12) << 32;
+      // A 2 ms delay lies between the two GetSystemTime calls, and the
+      // low and wide forms read the clock after them.
+      expect(second - first, greaterThanOrEqualTo(2000));
+      expect(at(16), greaterThanOrEqualTo(at(8)));
+      expect(at(20) | at(24) << 32, greaterThanOrEqualTo(second));
+    });
   });
 }
 
@@ -582,6 +602,9 @@ const _nidChRelease = 0x6fc46853;
 const _nidCreateLwMutex = 0x19cff145;
 const _nidLockLwMutex = 0xbea46419;
 const _nidUnlockLwMutex = 0x15b6446b;
+const _nidGetSystemTime = 0xdb738f35;
+const _nidGetSystemTimeLow = 0x369ed59d;
+const _nidGetSystemTimeWide = 0x82bc5777;
 
 /// Emits code that stores each of [words] at [base] in order.
 void _storeWords(Asm a, int base, List<int> words) {
@@ -751,6 +774,50 @@ Uint8List _buildLwMutexProgram() {
     a.jal(stub('ThreadManForUser', _nidLockLwMutex));
     a.nop();
     a.sw(Reg.v0, 16, Reg.s1);
+    a.jal(stub('LoadExecForUser', _nidExitGame));
+    a.nop();
+    return a.finish();
+  }
+
+  final (_, probe) = buildTestElf(code: assemble(const {}), imports: imports);
+  final (bytes, _) =
+      buildTestElf(code: assemble(probe.stubOf), imports: imports);
+  return bytes;
+}
+
+Uint8List _buildSystemTimeProgram() {
+  const imports = [
+    (
+      'ThreadManForUser',
+      [
+        _nidGetSystemTime,
+        _nidGetSystemTimeLow,
+        _nidGetSystemTimeWide,
+        _nidDelayThread,
+      ]
+    ),
+    ('LoadExecForUser', [_nidExitGame]),
+  ];
+  List<int> assemble(Map<String, int> stubs) {
+    int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
+    final a = Asm(0x08800000);
+    a.li(Reg.s0, 0x08900000); // the results
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.jal(stub('ThreadManForUser', _nidGetSystemTime));
+    a.nop();
+    a.li(Reg.a0, 2000);
+    a.jal(stub('ThreadManForUser', _nidDelayThread));
+    a.nop();
+    a.addiu(Reg.a0, Reg.s0, 8);
+    a.jal(stub('ThreadManForUser', _nidGetSystemTime));
+    a.nop();
+    a.jal(stub('ThreadManForUser', _nidGetSystemTimeLow));
+    a.nop();
+    a.sw(Reg.v0, 16, Reg.s0);
+    a.jal(stub('ThreadManForUser', _nidGetSystemTimeWide));
+    a.nop();
+    a.sw(Reg.v0, 20, Reg.s0);
+    a.sw(Reg.v1, 24, Reg.s0);
     a.jal(stub('LoadExecForUser', _nidExitGame));
     a.nop();
     return a.finish();
