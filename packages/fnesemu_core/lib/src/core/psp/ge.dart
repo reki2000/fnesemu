@@ -482,8 +482,14 @@ class _Vertex {
   double su = 0, sv = 0, invW = 1;
   double r = 1, g = 1, b = 1, a = 1;
 
-  /// True if the vertex lies behind the eye (w <= 0); primitives with such
-  /// a vertex are dropped, as no clipping against the near plane is done.
+  /// The clip-space position and the texture coordinates before the
+  /// perspective division, kept to clip triangles against the near plane.
+  double cx = 0, cy = 0, cz = 0, cw = 1, tu = 0, tv = 0;
+
+  /// True if the vertex lies in front of the near plane (z < -w), which
+  /// the libraries' projections put there; whether the hardware clips at
+  /// this plane is not verified. Triangles are clipped against it, other
+  /// primitives with such a vertex are dropped.
   bool behind = false;
 }
 
@@ -802,34 +808,79 @@ extension PspGeDrawing on PspGe {
       }
       // Model -> world -> view -> projection, then the viewport.
       final p = _transform(px, py, pz);
-      v.behind = p[3] <= 0;
-      final invW = p[3] == 0 ? 0.0 : 1 / p[3];
-      final nx = p[0] * invW, ny = p[1] * invW, nz = p[2] * invW;
-      // The viewport scale and center produce coordinates around the
-      // 2048 center; the offset registers (12.4 fixed point) locate the
-      // framebuffer's origin inside that space.
-      v.x = nx * PspGe._floatArg(regs[0x42]) +
-          PspGe._floatArg(regs[0x45]) -
-          regs[0x4c] / 16;
-      v.y = ny * PspGe._floatArg(regs[0x43]) +
-          PspGe._floatArg(regs[0x46]) -
-          regs[0x4d] / 16;
-      final sz = nz * PspGe._floatArg(regs[0x44]) + PspGe._floatArg(regs[0x47]);
-      v.z = sz.clamp(
-          (regs[0xd6] & 0xffff).toDouble(), (regs[0xd7] & 0xffff).toDouble());
-      // Texture coordinates of transformed vertices are normalized.
+      v
+        ..cx = p[0]
+        ..cy = p[1]
+        ..cz = p[2]
+        ..cw = p[3];
+      // Texture coordinates of transformed vertices are normalized; the
+      // fixed point forms have 7 and 15 fraction bits, like the positions.
       if (texType == 3) {
-        v.su = u * invW;
-        v.sv = w * invW;
+        v.tu = u;
+        v.tv = w;
       } else if (texType != 0) {
-        // fixed point with 7 and 15 fraction bits, like the positions
         final full = texType == 1 ? 128.0 : 32768.0;
-        v.su = u / full * invW;
-        v.sv = w / full * invW;
+        v.tu = u / full;
+        v.tv = w / full;
       }
-      v.invW = invW;
+      _project(v);
     }
     return v;
+  }
+
+  /// Divides the clip-space position of [v] by w and maps it through the
+  /// viewport.
+  void _project(_Vertex v) {
+    v.behind = v.cz < -v.cw;
+    final invW = v.cw == 0 ? 0.0 : 1 / v.cw;
+    final nx = v.cx * invW, ny = v.cy * invW, nz = v.cz * invW;
+    // The viewport scale and center produce coordinates around the
+    // 2048 center; the offset registers (12.4 fixed point) locate the
+    // framebuffer's origin inside that space.
+    v.x = nx * PspGe._floatArg(regs[0x42]) +
+        PspGe._floatArg(regs[0x45]) -
+        regs[0x4c] / 16;
+    v.y = ny * PspGe._floatArg(regs[0x43]) +
+        PspGe._floatArg(regs[0x46]) -
+        regs[0x4d] / 16;
+    final sz = nz * PspGe._floatArg(regs[0x44]) + PspGe._floatArg(regs[0x47]);
+    v.z = sz.clamp(
+        (regs[0xd6] & 0xffff).toDouble(), (regs[0xd7] & 0xffff).toDouble());
+    v.su = v.tu * invW;
+    v.sv = v.tv * invW;
+    v.invW = invW;
+  }
+
+  /// The parts of the triangle [a] [b] [c] behind the near plane, as a fan
+  /// of triangles, or nothing if it lies wholly in front of the plane.
+  List<_Vertex> _clipNear(_Vertex a, _Vertex b, _Vertex c) {
+    final out = <_Vertex>[];
+    final ring = [a, b, c];
+    for (var i = 0; i < 3; i++) {
+      final p = ring[i], q = ring[(i + 1) % 3];
+      final dp = p.cz + p.cw, dq = q.cz + q.cw;
+      if (dp >= 0) out.add(p);
+      if ((dp >= 0) != (dq >= 0)) {
+        final t = dp / (dp - dq);
+        double mix(double x, double y) => x + (y - x) * t;
+        final v = _Vertex()
+          ..cx = mix(p.cx, q.cx)
+          ..cy = mix(p.cy, q.cy)
+          ..cz = mix(p.cz, q.cz)
+          ..cw = mix(p.cw, q.cw)
+          ..tu = mix(p.tu, q.tu)
+          ..tv = mix(p.tv, q.tv)
+          ..r = mix(p.r, q.r)
+          ..g = mix(p.g, q.g)
+          ..b = mix(p.b, q.b)
+          ..a = mix(p.a, q.a);
+        _project(v);
+        // a point on the plane counts as in front of it
+        v.behind = false;
+        out.add(v);
+      }
+    }
+    return out;
   }
 
   List<double> _transform(double x, double y, double z) {
@@ -875,7 +926,29 @@ extension PspGeRaster on PspGe {
   }
 
   void _triangle(_Vertex a, _Vertex b, _Vertex c) {
-    if (a.behind || b.behind || c.behind) return;
+    if (a.behind || b.behind || c.behind) {
+      final fan = _clipNear(a, b, c);
+      for (var i = 1; i + 1 < fan.length; i++) {
+        var last = fan[i + 1];
+        if (!_smooth && last != c) {
+          // flat shading takes the last vertex's color: keep the
+          // original's on a copy, as strips share their vertices
+          last = _Vertex()
+            ..x = last.x
+            ..y = last.y
+            ..z = last.z
+            ..su = last.su
+            ..sv = last.sv
+            ..invW = last.invW
+            ..r = c.r
+            ..g = c.g
+            ..b = c.b
+            ..a = c.a;
+        }
+        _triangle(fan[0], fan[i], last);
+      }
+      return;
+    }
     if (regs[0x1d] & 1 != 0) {
       final area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
       final ccwFront = regs[0x9b] & 1 != 0;
