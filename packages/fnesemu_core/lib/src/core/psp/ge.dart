@@ -228,9 +228,9 @@ class PspGe {
         case 0x08: // JUMP
           pc = _effective(arg);
           break;
-        case 0x09: // BJUMP: jumps while the bounding box test passes; the
-          // test is not evaluated and counts as visible.
-          pc = _effective(arg);
+        case 0x09: // BJUMP: jumps past an object when the preceding
+          // bounding box (BBOX) test fails. The test is not evaluated and
+          // every box counts as visible, so the jump is never taken.
           break;
         case 0x0a: // CALL
           _stack.add(pc);
