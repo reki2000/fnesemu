@@ -222,6 +222,15 @@ void main() {
       expect(cpu.v[48], 0x00003c00);
     });
 
+    test('viim converts its signed immediate to a float', () {
+      final (cpu, _) = run((a) {
+        a.word(0xdf0000ff); // viim.s S000, 255
+        a.word(0xdf01ffff); // viim.s S010, -1
+      });
+      expect(cpu.v[0], 0x437f0000);
+      expect(cpu.v[1], 0xbf800000);
+    });
+
     test('vf2iz maps a NaN to the largest integer', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x7fc00000); // NaN
