@@ -121,6 +121,20 @@ void main() {
       expect(raw(12, 20), 0x03e0);
     });
 
+    test('BJUMP does not skip an object whose box counts as visible', () {
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xd3, 0x101),
+            _cmd(0x07, 2), // BBOX over the two sprite vertices
+            _cmd(0x09, 0x800000 + 4 * 11), // BJUMP past the sprite
+            _cmd(0x04, 0x60002),
+          ],
+          0xff0000ff);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(10, 20), 0x0000ff);
+    });
+
     test('a jump after ORIGIN is relative to the ORIGIN command', () {
       final list = _writeList(
           mem,
