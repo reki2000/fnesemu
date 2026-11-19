@@ -1203,9 +1203,12 @@ extension PspGeRaster on PspGe {
   /// swizzle layout when the texture mode asks for it.
   int _texelOffset(int x, int y, int pitch, int bpp, bool swizzled) {
     final pitchBytes = pitch * bpp;
-    if (swizzled && pitchBytes >= 16) {
+    if (swizzled) {
+      // A block is 16 bytes wide even when a line is narrower, so a
+      // narrow texture still steps its lines 16 bytes apart.
+      final blockPitch = pitchBytes < 16 ? 16 : pitchBytes;
       final byteX = x * bpp;
-      return ((y >> 3) * (pitchBytes << 3)) +
+      return ((y >> 3) * (blockPitch << 3)) +
           ((byteX >> 4) << 7) +
           ((y & 7) << 4) +
           (byteX & 15);
