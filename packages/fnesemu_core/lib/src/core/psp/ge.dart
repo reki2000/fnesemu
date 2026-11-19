@@ -1164,7 +1164,7 @@ extension PspGeRaster on PspGe {
     final base = _addr(regs[0xa0], regs[0xa8]);
     final swizzled = regs[0xc2] & 1 != 0;
     int rgba;
-    if (format == 4 || format == 5) {
+    if (format >= 4 && format <= 7) {
       final index = _texelIndex(x, y, pitch, base, format, swizzled);
       final clut = regs[0xc5];
       final shift = (clut >> 2) & 0x1f, mask = (clut >> 8) & 0xff;
@@ -1192,6 +1192,12 @@ extension PspGeRaster on PspGe {
       int x, int y, int pitch, int base, int format, bool swizzled) {
     if (format == 5) {
       return mem.read8(base + _texelOffset(x, y, pitch, 1, swizzled));
+    }
+    if (format == 6) {
+      return mem.read16(base + _texelOffset(x, y, pitch, 2, swizzled));
+    }
+    if (format == 7) {
+      return mem.read32(base + _texelOffset(x, y, pitch, 4, swizzled));
     }
     // Two texels share a byte; a swizzled block is 32 texels wide.
     final byte =
