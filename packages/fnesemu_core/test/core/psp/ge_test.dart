@@ -290,6 +290,39 @@ void main() {
       expect(pixel(29, 20), 0xff000000);
     });
 
+    test('a 16-bit index texture reads its palette', () {
+      const texAt = 0x10000;
+      // texels 0 and 1: indices 0x101 and 0x100, whose low byte the
+      // mask keeps
+      mem.vram[texAt] = 0x01;
+      mem.vram[texAt + 1] = 0x01;
+      mem.vram[texAt + 3] = 0x01;
+      const clutAt = 0x04020000;
+      mem.write32(clutAt, 0xff000000);
+      mem.write32(clutAt + 4, 0xffffffff);
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xa0, texAt),
+            _cmd(0xa8, 16),
+            _cmd(0xb8, 0x404), // texture size 16x16
+            _cmd(0xc3, 6), // texture format T16
+            _cmd(0xb0, clutAt & 0xffffff),
+            _cmd(0xb1, (clutAt >> 24) << 16),
+            _cmd(0xc5, 0xff03),
+            _cmd(0xc4, 1),
+            _cmd(0x48, 0x3f8000),
+            _cmd(0x49, 0x3f8000),
+            _cmd(0xc9, 3),
+            _cmd(0x1e, 1),
+            _cmd(0x04, 0x60002),
+          ],
+          0xffffffff);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(10, 20), 0xffffffff);
+      expect(pixel(29, 20), 0xff000000);
+    });
+
     test('a stalled list resumes when its stall address moves', () {
       final list = _writeList(
           mem,
