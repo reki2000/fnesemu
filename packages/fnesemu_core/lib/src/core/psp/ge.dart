@@ -26,10 +26,10 @@ class PspGeList {
 /// The supported drawing path covers through-mode (2D) and transformed
 /// (3D) vertices without skinning or lighting, points, lines, triangles,
 /// strips, fans and sprites, textures in the direct and palette formats
-/// (no compression), the texture functions, alpha testing, depth testing
-/// and blending, buffer clears through the clear mode, and block
-/// transfers. Patches (Bezier and spline), fog, dithering, stencil and
-/// color tests and logic operations are accepted but not rasterized.
+/// (no compression), the texture functions, alpha, stencil and depth
+/// testing, blending, the pixel mask, buffer clears through the clear mode,
+/// and block transfers. Patches (Bezier and spline), fog, dithering, color
+/// tests and logic operations are accepted but not rasterized.
 class PspGe {
   final PspMemory mem;
 
@@ -593,9 +593,19 @@ extension PspGeDrawing on PspGe {
     final y1 = math.min(clip[3], math.max(a.y, b.y).ceil());
     final color = _encodePixel(b.r, b.g, b.b, b.a);
     final depth = b.z.round().clamp(0, 65535);
+    // Flag 1 clears the color bits and flag 2 the alpha (stencil) bits.
+    final full = _fbFormat == 3 ? 0xffffffff : 0xffff;
+    final alpha = _alphaMask;
+    final cleared = ((flags & 1 != 0 ? ~alpha : 0) |
+            (flags & 2 != 0 ? alpha : 0)) &
+        full;
     for (var y = y0; y < y1; y++) {
       for (var x = x0; x < x1; x++) {
-        if (flags & 1 != 0) _writeRaw(x, y, color);
+        if (cleared == full) {
+          _writeRaw(x, y, color);
+        } else if (cleared != 0) {
+          _writeRaw(x, y, (_readRaw(x, y) & ~cleared) | (color & cleared));
+        }
         if (flags & 4 != 0) _writeDepth(x, y, depth);
       }
     }
@@ -1099,28 +1109,112 @@ extension PspGeRaster on PspGe {
       final value = (a * 255).round() & mask;
       if (!_compare(test & 7, value, ref & mask)) return;
     }
+    final dstRaw = _readRaw(x, y);
+    // The stencil is the frame buffer's alpha (none in 5650).
+    final stencilOn = regs[0x24] & 1 != 0 && _fbFormat != 0;
+    if (stencilOn) {
+      final test = regs[0xdc];
+      final ref = (test >> 8) & 0xff, mask = (test >> 16) & 0xff;
+      // The reference is compared against the stored value, in that
+      // order; the order of the less and greater functions is unverified.
+      if (!_compare(test & 7, ref & mask, _stencil8(dstRaw) & mask)) {
+        _writeStencil(x, y, dstRaw, regs[0xdd] & 7);
+        return;
+      }
+    }
     final z = v.z.round().clamp(0, 65535);
     if (regs[0x23] & 1 != 0 && _zWidth > 0) {
       final stored = _readDepth(x, y);
-      if (!_compare(regs[0xde] & 7, z, stored)) return;
+      if (!_compare(regs[0xde] & 7, z, stored)) {
+        if (stencilOn) _writeStencil(x, y, dstRaw, (regs[0xdd] >> 8) & 7);
+        return;
+      }
     }
     var out = _encodePixel(r, g, b, a);
     if (regs[0x21] & 1 != 0) {
-      final dst = _decodePixel(_readRaw(x, y));
+      final dst = _decodePixel(dstRaw);
       out = _encodePixel(
           _blendChannel(r, dst[0], a, dst[3], 0),
           _blendChannel(g, dst[1], a, dst[3], 1),
           _blendChannel(b, dst[2], a, dst[3], 2),
           _blendChannel(a, dst[3], a, dst[3], 3));
     }
-    if (_fbFormat == 3) {
-      final keep = ((regs[0xe9] & 0xff) << 24) | (regs[0xe8] & 0xffffff);
-      out = (_readRaw(x, y) & keep) | (out & ~keep);
-    }
-    _writeRaw(x, y, out);
+    // The alpha bits change only through the stencil operations; with
+    // the stencil test off they keep their value. This is inferred from
+    // a game whose stencil shadow needs the alpha a clear left behind.
+    final alpha = _alphaMask;
+    final stencil = stencilOn
+        ? _stencilRaw(_stencilOp((regs[0xdd] >> 16) & 7, dstRaw))
+        : dstRaw & alpha;
+    out = (out & ~alpha) | stencil;
+    final keep = _keepMask;
+    _writeRaw(x, y, (dstRaw & keep) | (out & ~keep));
     if (regs[0x23] & 1 != 0 && regs[0xe7] & 1 == 0 && _zWidth > 0) {
       _writeDepth(x, y, z);
     }
+  }
+
+  /// The frame buffer bits that hold the alpha (the stencil).
+  int get _alphaMask => const [0, 0x8000, 0xf000, 0xff000000][_fbFormat];
+
+  /// The frame buffer bits the pixel mask protects from writes.
+  int get _keepMask {
+    final rgb = regs[0xe8], al = regs[0xe9] & 0xff;
+    return _encodeBytes(
+        rgb & 0xff, (rgb >> 8) & 0xff, (rgb >> 16) & 0xff, al);
+  }
+
+  /// The stencil of a frame buffer pixel at the format's width.
+  int _stencilOf(int raw) => switch (_fbFormat) {
+        1 => (raw >> 15) & 1,
+        2 => (raw >> 12) & 0xf,
+        3 => (raw >> 24) & 0xff,
+        _ => 0,
+      };
+
+  /// The stencil scaled to eight bits for the test.
+  int _stencil8(int raw) => switch (_fbFormat) {
+        1 => _stencilOf(raw) * 0xff,
+        2 => _stencilOf(raw) * 0x11,
+        _ => _stencilOf(raw),
+      };
+
+  int _stencilRaw(int value) => switch (_fbFormat) {
+        1 => value << 15,
+        2 => value << 12,
+        3 => value << 24,
+        _ => 0,
+      };
+
+  /// Applies a stencil operation (keep, zero, replace, invert,
+  /// increment, decrement) at the format's width; the reference value
+  /// is reduced to that width by its top bits.
+  int _stencilOp(int op, int raw) {
+    final value = _stencilOf(raw);
+    final bits = const [0, 1, 4, 8][_fbFormat];
+    final max = (1 << bits) - 1;
+    switch (op) {
+      case 1:
+        return 0;
+      case 2:
+        return ((regs[0xdc] >> 8) & 0xff) >> (8 - bits);
+      case 3:
+        return max - value;
+      case 4:
+        return value < max ? value + 1 : max;
+      case 5:
+        return value > 0 ? value - 1 : 0;
+      default:
+        return value;
+    }
+  }
+
+  /// Writes only the stencil after a failed stencil or depth test.
+  void _writeStencil(int x, int y, int dstRaw, int op) {
+    final alpha = _alphaMask;
+    final out = (dstRaw & ~alpha) | _stencilRaw(_stencilOp(op, dstRaw));
+    final keep = _keepMask;
+    _writeRaw(x, y, (dstRaw & keep) | (out & ~keep));
   }
 
   bool _compare(int func, int value, int ref) {
@@ -1295,11 +1389,14 @@ extension PspGeRaster on PspGe {
     return y * pitchBytes + x * bpp;
   }
 
-  int _encodePixel(double r, double g, double b, double a) {
-    final ri = (r.clamp(0.0, 1.0) * 255).round();
-    final gi = (g.clamp(0.0, 1.0) * 255).round();
-    final bi = (b.clamp(0.0, 1.0) * 255).round();
-    final ai = (a.clamp(0.0, 1.0) * 255).round();
+  int _encodePixel(double r, double g, double b, double a) =>
+      _encodeBytes(
+          (r.clamp(0.0, 1.0) * 255).round(),
+          (g.clamp(0.0, 1.0) * 255).round(),
+          (b.clamp(0.0, 1.0) * 255).round(),
+          (a.clamp(0.0, 1.0) * 255).round());
+
+  int _encodeBytes(int ri, int gi, int bi, int ai) {
     switch (_fbFormat) {
       case 0:
         return (ri >> 3) | (gi >> 2) << 5 | (bi >> 3) << 11;
