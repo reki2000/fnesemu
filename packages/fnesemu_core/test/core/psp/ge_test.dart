@@ -102,6 +102,28 @@ void main() {
       expect(pixel(10, 20), 0xff0000ff);
     });
 
+    test('a vertex without a color takes the material color', () {
+      // two through-mode vertices of 16-bit positions alone (6 bytes each)
+      const plainAt = 0x08802000;
+      for (final (i, (x, y)) in [(10, 20), (30, 40)].indexed) {
+        mem.write16(plainAt + i * 6, x);
+        mem.write16(plainAt + i * 6 + 2, y);
+        mem.write16(plainAt + i * 6 + 4, 0);
+      }
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0x01, plainAt & 0xffffff),
+            _cmd(0x12, 0x800100),
+            _cmd(0x55, 0x302010), // ambient color
+            _cmd(0x58, 0xff), // ambient alpha
+            _cmd(0x04, 0x60002),
+          ],
+          0xffffffff);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(10, 20), 0xff302010);
+    });
+
     test('alpha blending mixes by the source alpha', () {
       mem.write32(0x04000000 + (20 * 512 + 10) * 4, 0xff0000ff); // red
       final list = _writeList(
@@ -174,6 +196,40 @@ void main() {
       ge.enqueue(cpu, list, 0);
       expect(pixel(10, 20), 0xff000000);
       expect(pixel(29, 20), 0xffffffff);
+    });
+
+    test('a swizzled 4-bit texture reads its texels by block', () {
+      // 64x16 texels, 32 bytes a row: texel (32, 0) starts the second
+      // 16-byte block, which follows the first block's eight rows.
+      const texAt = 0x10000;
+      mem.vram[texAt + 128] = 0x01; // texels 32 and 33: indices 1 and 0
+      mem.vram[texAt + 16] = 0x10; // where a linear layout would look
+      const clutAt = 0x04020000;
+      mem.write32(clutAt, 0xff000000);
+      mem.write32(clutAt + 4, 0xffffffff);
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xa0, texAt),
+            _cmd(0xa8, 64),
+            _cmd(0xb8, 0x406), // texture size 64x16
+            _cmd(0xc3, 4), // texture format T4
+            _cmd(0xc2, 1), // swizzled
+            _cmd(0xb0, clutAt & 0xffffff),
+            _cmd(0xb1, (clutAt >> 24) << 16),
+            _cmd(0xc5, 0xff03),
+            _cmd(0xc4, 1),
+            _cmd(0x48, 0x3f8000),
+            _cmd(0x49, 0x3f8000),
+            _cmd(0x4a, 0x420000), // texture offset u 32.0
+            _cmd(0xc9, 3),
+            _cmd(0x1e, 1),
+            _cmd(0x04, 0x60002),
+          ],
+          0xffffffff);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(10, 20), 0xffffffff);
+      expect(pixel(29, 20), 0xff000000);
     });
 
     test('a stalled list resumes when its stall address moves', () {

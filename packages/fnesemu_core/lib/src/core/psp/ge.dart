@@ -695,7 +695,15 @@ extension PspGeDrawing on PspGe {
       u = component(texAt, texType, signed: false);
       w = component(texAt + size, texType, signed: false);
     }
-    if (colorAt >= 0) {
+    if (colorAt < 0) {
+      // A vertex without a color takes the material's ambient color and
+      // alpha, which the color commands of the libraries set.
+      final c = regs[0x55];
+      v.r = (c & 0xff) / 255;
+      v.g = (c >> 8 & 0xff) / 255;
+      v.b = (c >> 16 & 0xff) / 255;
+      v.a = (regs[0x58] & 0xff) / 255;
+    } else {
       if (colorType == 7) {
         final c = mem.read32(at + colorAt);
         v.r = (c & 0xff) / 255;
@@ -1166,8 +1174,9 @@ extension PspGeRaster on PspGe {
     if (format == 5) {
       return mem.read8(base + _texelOffset(x, y, pitch, 1, swizzled));
     }
+    // Two texels share a byte; a swizzled block is 32 texels wide.
     final byte =
-        mem.read8(base + _texelOffset(x >> 1, y, pitch >> 1, 1, false));
+        mem.read8(base + _texelOffset(x >> 1, y, pitch >> 1, 1, swizzled));
     return (x & 1) == 0 ? byte & 0xf : byte >> 4;
   }
 
