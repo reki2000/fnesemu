@@ -223,6 +223,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  mp_media_decoder:
+    dependency: "direct dev"
+    description:
+      path: "../mp_media_decoder"
+      relative: true
+    source: path
+    version: "0.1.0"
   native_toolchain_c:
     dependency: transitive
     description:

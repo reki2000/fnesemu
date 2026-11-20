@@ -14,7 +14,7 @@ Each package owns its domain and communicates through the interfaces below.
 | Media decoders | `packages/mp_media_decoder` | H.264 video through the decoder of the operating system and ATRAC3plus audio through a shared libavcodec loaded at run time; an example app under `example/` | Dart SDK, `dart:ffi`, `ffi`; no Flutter (except the example), app or core dependencies |
 | File picker | `packages/mp_bigfile_picker` | Platform file/directory selection and random reads | Flutter and platform APIs; no app/core dependencies |
 | App | `lib/` | GUI, storage, and package adapters | All packages |
-| Core tools | `packages/fnesemu_core/tool` | Headless runs, benchmarks, and CPU tests | Cores, `dart:io`, disc images; never the app |
+| Core tools | `packages/fnesemu_core/tool` | Headless runs, benchmarks, and CPU tests | Cores, `dart:io`, disc images, media decoders; never the app |
 | App tools | `tool/` | Flutter-dependent tools and audio output | App dependencies |
 
 ## Package interfaces

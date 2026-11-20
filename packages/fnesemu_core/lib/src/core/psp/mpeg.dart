@@ -1,20 +1,24 @@
 import 'dart:typed_data';
 
+import '../../media_decoder.dart';
 import '../../util/state.dart';
 import 'memory.dart';
 
 /// The movie player library (sceMpeg) without a picture or sound decoder.
 ///
 /// The guest streams a PSMF movie into a ring buffer of 2048-byte packets.
-/// Each packet is an MPEG program stream pack with one PES packet: video
-/// (stream 0xe0) or ATRAC audio (private stream 0xbd). This class follows
-/// the time stamps of the stream so the movie plays for its own length
-/// and ends when the data ends. A video access unit starts at an access
-/// unit delimiter (H.264 NAL unit type 9) of the video elementary stream;
-/// it takes the time stamp of its PES packet when it is the first unit
-/// there, and otherwise the previous one plus a frame at 29.97 Hz. An
-/// audio access unit advances an audio clock by one ATRAC frame (2048
-/// samples at 44100 Hz). Decoding writes a black picture and silence.
+/// Each packet is an MPEG program stream pack with PES packets: video
+/// (stream 0xe0), ATRAC audio (private stream 0xbd), and others such as a
+/// system header and padding. This class follows the time stamps of the
+/// stream so the movie plays for its own length and ends when the data
+/// ends. A video access unit runs from an access unit delimiter (H.264 NAL
+/// unit type 9) of the video elementary stream to the next one; it takes
+/// the time stamp of its PES packet when it is the first unit there, and
+/// otherwise the previous one plus a frame at 29.97 Hz. An audio access
+/// unit advances an audio clock by one ATRAC frame (2048 samples at 44100
+/// Hz). With a [decoder] that supports H.264, decoding writes the pictures
+/// of the video; otherwise it writes a black picture. The audio decodes to
+/// silence.
 ///
 /// The ring buffer lives in guest memory with the SDK layout: the packet
 /// count, the read and write packet indexes, the free packet count, the
@@ -59,8 +63,19 @@ class PspMpeg {
   int videoPts = -1;
   int videoPtsPacket = -1;
 
-  /// The pixel format of decoded pictures (3: 32-bit).
+  /// The pixel format of decoded pictures: 0 to 2 are the 16-bit formats
+  /// 5:6:5, 5:5:5:1 and 4:4:4:4, 3 is 32-bit.
   int pixelMode = 3;
+
+  /// The decoder of the pictures, from the core; null writes black ones.
+  MediaDecoder? decoder;
+
+  /// The media id of the video stream at [decoder].
+  static const videoMediaId = 1;
+
+  /// Whether the video stream is open at [decoder]. A restored state opens
+  /// it anew, and pictures come again after the next parameter sets.
+  bool _videoOpen = false;
 
   int get packets => mem.read32(ringbuffer);
   int get dataAt => mem.read32(ringbuffer + 20);
@@ -92,8 +107,16 @@ class PspMpeg {
     mem.write32(at + 40, 0);
   }
 
+  /// Closes the video stream at the decoder.
+  void closeVideo() {
+    if (_videoOpen) decoder?.close(videoMediaId);
+    _videoOpen = false;
+  }
+
   /// Restarts the stream: the ring buffer empties.
   void flush() {
+    if (_videoOpen) decoder?.flush(videoMediaId);
+    lastVideoUnit = null;
     written = 0;
     videoAt = 0;
     videoOffset = 0;
@@ -307,6 +330,55 @@ class PspMpeg {
     mem.write32(au + 20, 0);
   }
 
+  /// Decodes the last video unit and writes its picture, of 272 lines
+  /// [width] pixels apart, at [at]; a black picture until the decoder
+  /// gives one, or without a decoder.
+  void decodePicture(int at, int width) {
+    final unit = lastVideoUnit;
+    final decoder = this.decoder;
+    if (unit != null &&
+        decoder != null &&
+        decoder.supports(MediaCodec.h264)) {
+      if (!_videoOpen) {
+        _videoOpen = decoder.open(videoMediaId, MediaCodec.h264);
+      }
+      final picture =
+          _videoOpen ? decoder.decodeVideo(videoMediaId, unit) : null;
+      if (picture != null) {
+        _writePicture(at, width, picture);
+        return;
+      }
+    }
+    blackPicture(at, width);
+  }
+
+  void _writePicture(int at, int width, MediaPicture picture) {
+    final w = picture.width < width ? picture.width : width;
+    final h = picture.height < 272 ? picture.height : 272;
+    final pixels = picture.pixels;
+    final bytes = pixelMode == 3 ? 4 : 2;
+    for (var y = 0; y < h; y++) {
+      final row = at + y * width * bytes;
+      final src = y * picture.width;
+      if (bytes == 4) {
+        for (var x = 0; x < w; x++) {
+          mem.write32(row + x * 4, pixels[src + x]);
+        }
+        continue;
+      }
+      for (var x = 0; x < w; x++) {
+        final p = pixels[src + x];
+        final r = p & 0xff, g = p >> 8 & 0xff, b = p >> 16 & 0xff;
+        final c = switch (pixelMode) {
+          0 => r >> 3 | (g >> 2) << 5 | (b >> 3) << 11,
+          1 => r >> 3 | (g >> 3) << 5 | (b >> 3) << 10 | 0x8000,
+          _ => r >> 4 | (g >> 4) << 4 | (b >> 4) << 8 | 0xf000,
+        };
+        mem.write16(row + x * 2, c);
+      }
+    }
+  }
+
   /// Writes a black picture of 272 lines [width] pixels apart at [at].
   void blackPicture(int at, int width) {
     final bytes = pixelMode == 3 ? 4 : 2;
@@ -348,6 +420,8 @@ class PspMpeg {
     audioOn = x[5] != 0;
     audioPts = x[6];
     pixelMode = x[7];
+    closeVideo();
+    lastVideoUnit = null;
     videoOffset = x[8];
     videoZeros = x[9];
     videoStart = x[10] != 0;
