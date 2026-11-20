@@ -7,11 +7,13 @@ const _dataAt = 0x08910000;
 const _auAt = 0x08a00000;
 
 /// Writes a pack with one PES packet of [stream] carrying [payload] into
-/// packet [index], with the time stamp [pts] when it is not negative.
+/// packet [index], with the time stamp [pts] when it is not negative, after
+/// a system header when [systemHeader].
 void _pack(PspMemory mem, int index, int stream, List<int> payload,
-    {int pts = -1}) {
+    {int pts = -1, bool systemHeader = false}) {
   final at = _dataAt + index * PspMpeg.packetSize;
   final bytes = <int>[0, 0, 1, 0xba, ...List.filled(9, 0), 0xf8];
+  if (systemHeader) bytes.addAll([0, 0, 1, 0xbb, 0, 2, 0x80, 0]);
   final header = <int>[];
   if (pts >= 0) {
     header.addAll([
@@ -46,23 +48,29 @@ void main() {
       ..flush();
   });
 
-  test('video units start at access unit delimiters', () {
+  test('video units run from one access unit delimiter to the next', () {
     const aud = [0, 0, 0, 1, 9, 0xf0];
-    // Two units in the first packet, the second delimiter split across
-    // the packets that follow.
-    _pack(mem, 0, 0xe0, [...aud, 0x11, ...aud, 0x22, 0, 0], pts: 90000);
+    // A system header before the video in the first pack, two units there,
+    // the third delimiter split across the packets that follow.
+    _pack(mem, 0, 0xe0, [...aud, 0x11, ...aud, 0x22, 0, 0], pts: 90000,
+        systemHeader: true);
     _pack(mem, 1, 0xbd, [1, 2, 3], pts: 90000);
     _pack(mem, 2, 0xe0, [0, 1]);
-    _pack(mem, 3, 0xe0, [9, 0xf0]);
-    expect(mpeg.chunk(8), 8);
+    _pack(mem, 3, 0xe0, [9, 0xf0, 0x33]);
     mpeg.put(4);
     expect(mpeg.videoUnit(_auAt), 0);
     expect(_pts(mem), 90000);
+    expect(mpeg.lastVideoUnit, [0, 0, 0, 1, 9, 0xf0, 0x11]);
     expect(mpeg.videoUnit(_auAt), 0);
     expect(_pts(mem), 90000 + PspMpeg.videoFrameTicks);
+    expect(mpeg.lastVideoUnit, [0, 0, 0, 1, 9, 0xf0, 0x22]);
+    // the third unit has no delimiter after it yet
+    expect(mpeg.videoUnit(_auAt), PspMpeg.errorNoData);
+    _pack(mem, 4, 0xe0, [...aud]);
+    mpeg.put(1);
     expect(mpeg.videoUnit(_auAt), 0);
     expect(_pts(mem), 90000 + 2 * PspMpeg.videoFrameTicks);
-    expect(mpeg.videoUnit(_auAt), PspMpeg.errorNoData);
+    expect(mpeg.lastVideoUnit, [0, 0, 0, 1, 9, 0xf0, 0x33]);
   });
 
   test('audio units follow the audio clock and free the ring buffer', () {
