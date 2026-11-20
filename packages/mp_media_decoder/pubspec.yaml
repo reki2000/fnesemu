@@ -1,0 +1,15 @@
+name: mp_media_decoder
+description: Decodes H.264 video and ATRAC3plus audio through the platform decoders and libavcodec.
+version: 0.1.0
+
+publish_to: none
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.21.1

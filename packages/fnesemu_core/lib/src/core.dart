@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'cdrom_drive.dart';
 import 'compute_sink.dart';
 import 'core_debug.dart';
+import 'media_decoder.dart';
 import 'pad_button.dart';
 import 'pad_source.dart';
 import 'sram.dart';
@@ -68,6 +69,11 @@ class Core extends CoreDebug {
   /// runs the video chip on the host GPU in the cores that support it;
   /// null draws in the core. other cores ignore it
   set computeSink(ComputeSink? sink) {}
+
+  /// decodes the movies and the music of the media in the cores that play
+  /// them; null plays them without a picture or sound. other cores ignore
+  /// it
+  set mediaDecoder(MediaDecoder? decoder) {}
 
   /// Asks for the results on the GPU that the core needs before it runs on
   /// or saves a state, when the sink cannot wait by itself
