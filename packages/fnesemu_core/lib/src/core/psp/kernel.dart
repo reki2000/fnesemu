@@ -10,6 +10,7 @@ import 'elf.dart';
 import 'ge.dart';
 import 'memory.dart';
 import 'memstick.dart';
+import 'mpeg.dart';
 import 'printf.dart';
 import 'rtc.dart';
 import 'sas.dart';
@@ -52,6 +53,26 @@ class PspThread {
   final state = AllegrexState();
   PspThread(this.id, this.name, this.entry, this.priority, this.stackTop,
       this.stackSize);
+}
+
+/// A callback: a function the kernel runs on its owner thread, with the
+/// notification count and argument, when that thread waits in a CB call.
+class _Callback {
+  final int thread;
+  final int func;
+  final int common;
+  int count = 0;
+  int arg = 0;
+  _Callback(this.thread, this.func, this.common);
+}
+
+/// A ring buffer put in progress on a thread: the packets still wanted,
+/// the packets put so far and where the put returns to.
+class _Put {
+  int want;
+  int done;
+  final int returnAt;
+  _Put(this.want, this.done, this.returnAt);
 }
 
 class _EventFlag {
@@ -243,6 +264,12 @@ class PspKernel {
 
   final _audioChannels = List.generate(8, (_) => _AudioChannel());
   late final _sas = PspSas(mem);
+  late final _mpeg = PspMpeg(mem);
+  final _puts = <int, _Put>{};
+
+  /// Set by a handler that sent the processor into guest code of its own
+  /// instead of back to the caller.
+  bool _redirected = false;
 
   /// The second stereo output (sceAudioOutput2), outside the eight
   /// channels.
@@ -254,6 +281,7 @@ class PspKernel {
   final threads = <int, PspThread>{};
   final _semas = <int, _Sema>{};
   final _eventFlags = <int, _EventFlag>{};
+  final _callbacks = <int, _Callback>{};
   final _lwMutexes = <int, _LwMutex>{};
   final _blocks = <int, _Block>{};
   final _fpls = <int, _Fpl>{};
@@ -343,6 +371,10 @@ class PspKernel {
 
   static const _exitStubAt = 0x08000000;
   static const _callbackSentinelAt = 0x08000020;
+
+  /// A guest function that the kernel calls on a thread returns here,
+  /// to a syscall that resumes the kernel call that made it.
+  static const _guestReturnAt = 0x08000040, _guestReturnCode = 0xfffff;
   static const _mainStackTop = PspMemory.ramEnd;
   static const _mainStackSize = 256 * 1024;
 
@@ -364,10 +396,18 @@ class PspKernel {
       _pendingHandlers.addLast((func, id, arg));
       return;
     }
+    _runGuest(cpu, func, id, arg, 0);
+  }
+
+  /// Runs the guest function [func] with three arguments on the live
+  /// processor up to its return and restores the processor. Returns the
+  /// function's v0.
+  int _runGuest(Allegrex cpu, int func, int a0, int a1, int a2) {
     _inCallback = true;
     final saved = AllegrexState()..copyFrom(cpu);
-    cpu.r[4] = id;
-    cpu.r[5] = arg;
+    cpu.r[4] = a0;
+    cpu.r[5] = a1;
+    cpu.r[6] = a2;
     cpu.r[31] = _callbackSentinelAt;
     cpu.pc = func;
     cpu.nextPc = func + 4;
@@ -375,8 +415,77 @@ class PspKernel {
     while (budget-- > 0 && cpu.pc != _callbackSentinelAt) {
       if (!cpu.step()) break;
     }
+    final result = cpu.r[2];
     cpu.copyFrom(saved);
     _inCallback = false;
+    return result;
+  }
+
+  /// Sends the thread into the ring buffer read callback for the next
+  /// chunk of [put]. Returns false when nothing remains to read.
+  bool _callPut(Allegrex cpu, _Put put) {
+    final n = _mpeg.chunk(put.want);
+    if (n <= 0 || _mpeg.callback == 0) return false;
+    cpu.r[4] = _mpeg.putAt;
+    cpu.r[5] = n;
+    cpu.r[6] = _mpeg.callbackArg;
+    cpu.r[31] = _guestReturnAt;
+    cpu.pc = _mpeg.callback;
+    cpu.nextPc = cpu.pc + 4;
+    return true;
+  }
+
+  /// The read callback of a ring buffer put returned the packets it read
+  /// in v0: the put asks for the next chunk, or returns the packets put
+  /// to the caller when the request is met or the callback read nothing.
+  void _putReturned(Allegrex cpu) {
+    final put = current == null ? null : _puts[current!.id];
+    if (put == null) return;
+    final read = cpu.r[2].toSigned(32);
+    if (read > 0) {
+      _mpeg.put(read);
+      put.done += read;
+      put.want -= read;
+    }
+    if (read > 0 && put.want > 0 && _callPut(cpu, put)) return;
+    _puts.remove(current!.id);
+    cpu.r[2] = put.done > 0 || read >= 0 ? put.done : read;
+    cpu.pc = put.returnAt;
+    cpu.nextPc = put.returnAt + 4;
+  }
+
+  /// Records a notification of callback [id] with [arg]; it runs at the
+  /// next CB call of its owner thread.
+  void _notifyCallback(int id, int arg) {
+    final callback = _callbacks[id];
+    if (callback == null) return;
+    callback.count++;
+    callback.arg = arg;
+  }
+
+  /// Runs the notified callbacks of the current thread. A callback that
+  /// returns nonzero is deleted. Returns whether any ran.
+  bool _runCallbacks(Allegrex cpu) {
+    final cur = current;
+    if (cur == null || _inCallback) return false;
+    var ran = false;
+    for (final id in _callbacks.keys.toList()) {
+      final callback = _callbacks[id];
+      if (callback == null ||
+          callback.thread != cur.id ||
+          callback.count == 0) {
+        continue;
+      }
+      final count = callback.count;
+      callback.count = 0;
+      ran = true;
+      if (_runGuest(cpu, callback.func, count, callback.arg,
+              callback.common) !=
+          0) {
+        _callbacks.remove(id);
+      }
+    }
+    return ran;
   }
 
   /// Prepares a loaded module: patches its stubs, writes the thread exit
@@ -389,6 +498,7 @@ class PspKernel {
     // A jump to itself: graphics callbacks return here and stop.
     mem.write32(_callbackSentinelAt,
         0x08000000 | ((_callbackSentinelAt >> 2) & 0x3ffffff));
+    mem.write32(_guestReturnAt, 0x0000000c | (_guestReturnCode << 6));
     var code = 1;
     for (final import in image.imports) {
       import.code = code++;
@@ -573,6 +683,10 @@ class PspKernel {
       _exitThread(cpu, cpu.r[2]);
       return;
     }
+    if (code == _guestReturnCode) {
+      _putReturned(cpu);
+      return;
+    }
     final import = _byCode[code];
     final handler = import == null ? null : _handlers[import.nid];
     if (import == null) {
@@ -587,6 +701,10 @@ class PspKernel {
       unknownCalls[import.nid] = (unknownCalls[import.nid] ?? 0) + 1;
     } else {
       result = handler(cpu, import);
+    }
+    if (_redirected) {
+      _redirected = false;
+      return;
     }
     if (_inCallback) {
       // A call from a handler returns to the handler on the live
@@ -756,7 +874,15 @@ class PspKernel {
     });
     on(0x278c0df5, _waitThreadEnd);
     on(0xceadeb47, _delayThread);
-    on(0x68da9e36, _delayThread); // the CB form shares the delay
+    // The CB forms of the waits run the thread's notified callbacks
+    // first and then wait as the plain forms do.
+    int? Function(Allegrex, PspImport?) withCallbacks(
+            int? Function(Allegrex, PspImport?) wait) =>
+        (cpu, import) {
+          _runCallbacks(cpu);
+          return wait(cpu, import);
+        };
+    on(0x68da9e36, withCallbacks(_delayThread));
     on(0xea748e31, (cpu, _) => current?.id ?? 0);
     // GetSystemTime fills a 64-bit microsecond count at a0;
     // GetSystemTimeWide returns it in v0:v1 and GetSystemTimeLow
@@ -789,7 +915,7 @@ class PspKernel {
     }
 
     on(0x9ace131e, sleepThread);
-    on(0x82826f70, sleepThread); // the CB form shares the sleep
+    on(0x82826f70, withCallbacks(sleepThread));
     on(0x1d17decf, (cpu, _) {
       final thread = threads[_arg(cpu, 0)];
       if (thread != null && thread.status == PspThreadStatus.waitSleep) {
@@ -827,12 +953,29 @@ class PspKernel {
       return 0;
     });
     on(0x402fcf22, (cpu, _) => _waitEventFlag(cpu, poll: false));
-    on(0x328c546a, (cpu, _) => _waitEventFlag(cpu, poll: false));
+    on(0x328c546a,
+        withCallbacks((cpu, _) => _waitEventFlag(cpu, poll: false)));
     on(0x30fd48f0, (cpu, _) => _waitEventFlag(cpu, poll: true));
-    on(0xe81caf8f, (cpu, _) => _nextId++); // CreateCallback
+    on(0xe81caf8f, (cpu, _) {
+      // CreateCallback(name, func, common): owned by the calling thread
+      final id = _nextId++;
+      _callbacks[id] =
+          _Callback(current?.id ?? 0, _arg(cpu, 1), _arg(cpu, 2));
+      return id;
+    });
+    on(0xedba5844, (cpu, _) => _callbacks.remove(_arg(cpu, 0)) == null
+        ? 0x800201a1
+        : 0); // DeleteCallback
+    on(0xc11ba8c4, (cpu, _) {
+      // NotifyCallback
+      if (!_callbacks.containsKey(_arg(cpu, 0))) return 0x800201a1;
+      _notifyCallback(_arg(cpu, 0), _arg(cpu, 1));
+      return 0;
+    });
+    on(0x349d6d6c, (cpu, _) => _runCallbacks(cpu) ? 1 : 0); // CheckCallback
     on(0xd6da4ba1, _createSema);
     on(0x4e3a1105, _waitSema);
-    on(0x6d212bac, _waitSema); // the CB form shares the wait machinery
+    on(0x6d212bac, withCallbacks(_waitSema));
     on(0x3f53e640, _signalSema);
     on(0x58b1f937, _pollSema);
     on(0x28b6489c, (cpu, _) {
@@ -1287,10 +1430,16 @@ class PspKernel {
     on(0xc6183d47, (cpu, _) => 0);
     on(0xe83742ba, (cpu, _) => 0);
     on(0x8ef08fce, (cpu, _) => 0);
-    on(0x4a9e5e29, (cpu, _) => 0);
+    on(0x4a9e5e29, withCallbacks((cpu, _) => 0)); // WaitDriveStatCB
     on(0x6b4a146c, (cpu, _) => disc?.isMounted == true ? 0x22 : 0x01);
     on(0x46ebb729, (cpu, _) => disc?.isMounted == true ? 1 : 0); // CheckMedium
-    on(0xaee7404d, (cpu, _) => 0);
+    on(0xaee7404d, (cpu, _) {
+      // RegisterUMDCallBack: the callback learns the drive state at once
+      // (present, initialized and ready while a disc is mounted).
+      _notifyCallback(
+          _arg(cpu, 0), disc?.isMounted == true ? 0x32 : 0x01);
+      return 0;
+    });
     on(0xbd2bde07, (cpu, _) => 0);
     on(0x54f5fb11, (cpu, _) {
       // sceIoDevctl: the "emulator:" device is how test harnesses
@@ -1303,7 +1452,9 @@ class PspKernel {
       if (device == 'disc0:' || device == 'umd0:') {
         return disc?.isMounted == true ? 0 : 0x80010002;
       }
-      if (device == 'ms0:') return 0;
+      if (device == 'ms0:' || device == 'fatms0:' || device == 'mscmhc0:') {
+        return 0;
+      }
       if (device != 'emulator:' && device != 'kemulator:') {
         return 0x80010002;
       }
@@ -1381,6 +1532,113 @@ class PspKernel {
       if (!_output2.reserved) return 0x80260002;
       return _queueBlock(cpu, _output2, _arg(cpu, 1), _arg(cpu, 0), null,
           blocking: true);
+    });
+
+    // sceMpeg: the movie player without decoders (see [PspMpeg]). The
+    // work area sizes only need room for the guest's own bookkeeping.
+    on(0x682a619b, (cpu, _) => 0); // Init
+    on(0x874624d6, (cpu, _) => 0); // Finish
+    on(0xc132e22f, (cpu, _) => 0x10000); // QueryMemSize
+    on(0xd7a29f46, (cpu, _) => _arg(cpu, 0) * 0x868); // RingbufferQueryMemSize
+    on(0x37295ed8, (cpu, _) {
+      // RingbufferConstruct(rb, packets, data, size, callback, arg)
+      _mpeg.construct(_arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2),
+          _arg(cpu, 4), _arg(cpu, 5));
+      return 0;
+    });
+    on(0x13407f13, (cpu, _) => 0); // RingbufferDestruct
+    on(0xd8c5f121, (cpu, _) {
+      // Create(mpeg, data, size, rb, frameWidth, ...): the handle points
+      // at the work area
+      mem.write32(_arg(cpu, 0), _arg(cpu, 1));
+      mem.write32(_arg(cpu, 3) + 40, _arg(cpu, 0));
+      _mpeg
+        ..ringbuffer = _arg(cpu, 3)
+        ..videoOn = false
+        ..audioOn = false
+        ..flush();
+      return 0;
+    });
+    on(0x606a4649, (cpu, _) => 0); // Delete
+    on(0xa780cf7e, (cpu, _) => 1); // MallocAvcEsBuf
+    on(0xceb870b1, (cpu, _) => 0); // FreeAvcEsBuf
+    on(0xf8dcb679, (cpu, _) {
+      // QueryAtracEsSize(mpeg, esSize, outSize)
+      mem.write32(_arg(cpu, 1), 2112);
+      mem.write32(_arg(cpu, 2), 8192);
+      return 0;
+    });
+    on(0x167afd9e, (cpu, _) {
+      // InitAu(mpeg, esBuffer, au)
+      _mpeg.initUnit(_arg(cpu, 2), _arg(cpu, 1));
+      return 0;
+    });
+    on(0x21ff80e4, (cpu, _) {
+      // QueryStreamOffset(mpeg, header, offset): the big-endian word at
+      // byte 8 of a PSMF header
+      final at = _arg(cpu, 1);
+      if (mem.read32(at) != 0x464d5350) {
+        mem.write32(_arg(cpu, 2), 0);
+        return 0x806101fe;
+      }
+      final word = mem.read32(at + 8);
+      mem.write32(
+          _arg(cpu, 2),
+          (word & 0xff) << 24 |
+              (word >> 8 & 0xff) << 16 |
+              (word >> 16 & 0xff) << 8 |
+              word >>> 24);
+      return 0;
+    });
+    on(0x42560f23, (cpu, _) {
+      // RegistStream(mpeg, type, channel): the handle names the type
+      final type = _arg(cpu, 1);
+      if (type == PspMpeg.streamVideo) _mpeg.videoOn = true;
+      if (type == PspMpeg.streamAudio) _mpeg.audioOn = true;
+      return 0x34340000 | type;
+    });
+    on(0x591a4aa2, (cpu, _) {
+      // UnRegistStream(mpeg, stream)
+      final type = _arg(cpu, 1) & 0xff;
+      if (type == PspMpeg.streamVideo) _mpeg.videoOn = false;
+      if (type == PspMpeg.streamAudio) _mpeg.audioOn = false;
+      return 0;
+    });
+    on(0x707b7629, (cpu, _) {
+      _mpeg.flush(); // FlushAllStream
+      return 0;
+    });
+    on(0xb5f6dc87, (cpu, _) => _mpeg.free); // RingbufferAvailableSize
+    on(0xb240a59e, (cpu, _) {
+      // RingbufferPut(rb, packets, available): the read callback fills
+      // the buffer on the calling thread
+      if (_inCallback || current == null) return 0;
+      final put = _Put(_arg(cpu, 1), 0, cpu.r[31]);
+      if (!_callPut(cpu, put)) return 0;
+      _puts[current!.id] = put;
+      _redirected = true;
+      return null;
+    });
+    on(0xfe246728, (cpu, _) => _mpeg.videoUnit(_arg(cpu, 2))); // GetAvcAu
+    on(0xe1ce83a7, (cpu, _) => _mpeg.audioUnit(_arg(cpu, 2))); // GetAtracAu
+    on(0x8c1e027d, (cpu, _) => PspMpeg.errorNoData); // GetPcmAu
+    on(0xa11c7026, (cpu, _) {
+      // AvcDecodeMode(mpeg, mode): the second word is the pixel format
+      final at = _arg(cpu, 1);
+      if (at != 0) _mpeg.pixelMode = mem.read32(at + 4);
+      return 0;
+    });
+    on(0x0e3c2e9d, (cpu, _) {
+      // AvcDecode(mpeg, au, frameWidth, buffer, init): a black picture
+      final bufferAt = mem.read32(_arg(cpu, 3));
+      _mpeg.blackPicture(bufferAt, _arg(cpu, 2));
+      if (cpu.r[8] != 0) mem.write32(cpu.r[8], 1);
+      return 0;
+    });
+    on(0x4571cc64, (cpu, _) => 0); // AvcDecodeFlush
+    on(0x800c44df, (cpu, _) {
+      _mpeg.silence(_arg(cpu, 2)); // AtracDecode(mpeg, au, buffer, init)
+      return 0;
     });
 
     // sceSasCore: the software synthesizer. The first argument of every
@@ -1479,10 +1737,13 @@ class PspKernel {
       _mixBlock(channel, start, volume, at, rightVolume: rightVolume);
     }
     final rest = channel.nextAt - _audioAt(cpu);
-    if (!blocking || rest <= 0 || _inCallback) return rest > 0 ? rest : 0;
-    // Block until the queued block has played out, on the delay queue.
+    // A blocking output waits while the channel still holds an earlier
+    // block: the new block is queued behind the playing one, so it
+    // returns when that one ends and the new one starts to play.
+    final wait = start - _audioAt(cpu);
+    if (!blocking || wait <= 0 || _inCallback) return rest > 0 ? rest : 0;
     current!.status = PspThreadStatus.waitDelay;
-    current!.wakeAt = cpu.clocks + rest * _cpuHz ~/ _audioRate;
+    current!.wakeAt = cpu.clocks + wait * _cpuHz ~/ _audioRate;
     if (current!.wakeAt < _nextDelayWake) _nextDelayWake = current!.wakeAt;
     _schedule(cpu);
     return null;
@@ -2552,6 +2813,15 @@ class PspKernel {
     for (final MapEntry(key: id, value: flag) in _eventFlags.entries) {
       writer.ints([id, flag.pattern, flag.attr]);
     }
+    _mpeg.saveState(writer);
+    writer.int32(_puts.length);
+    for (final MapEntry(key: id, value: put) in _puts.entries) {
+      writer.ints([id, put.want, put.done, put.returnAt]);
+    }
+    writer.int32(_callbacks.length);
+    for (final MapEntry(key: id, value: c) in _callbacks.entries) {
+      writer.ints([id, c.thread, c.func, c.common, c.count, c.arg]);
+    }
     for (final thread in threads.values) {
       writer.ints([
         thread.wakeupCount, thread.waitEvent, thread.waitBits, //
@@ -2664,6 +2934,7 @@ class PspKernel {
         ..enabled = reader.boolean();
     }
     _eventFlags.clear();
+    _callbacks.clear();
     _output2
       ..reserved = false
       ..sampleCount = 0
@@ -2678,6 +2949,20 @@ class PspKernel {
       for (var i = 0; i < flagCount; i++) {
         final x = reader.ints();
         _eventFlags[x[0]] = _EventFlag(x[1], x[2]);
+      }
+      _mpeg.loadState(reader);
+      _puts.clear();
+      final putCount = reader.int32();
+      for (var i = 0; i < putCount; i++) {
+        final x = reader.ints();
+        _puts[x[0]] = _Put(x[1], x[2], x[3]);
+      }
+      final callbackCount = reader.int32();
+      for (var i = 0; i < callbackCount; i++) {
+        final x = reader.ints();
+        _callbacks[x[0]] = _Callback(x[1], x[2], x[3])
+          ..count = x[4]
+          ..arg = x[5];
       }
       for (final thread in threads.values) {
         final x = reader.ints();
