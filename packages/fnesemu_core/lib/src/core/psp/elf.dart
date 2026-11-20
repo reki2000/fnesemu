@@ -253,8 +253,8 @@ class PspElf {
               rOffset,
               (word & 0xfc000000) |
                   (((word & 0x3ffffff) + (addend >> 2)) & 0x3ffffff));
-        case 5: // high half (a lui): registers with the state, which
-          // pairs it with the low halves that use its register.
+        case 5: // high half (a lui): collected by the state, which
+          // pairs it with a low half that uses its register.
           state.addHi(mem, rOffset, addend);
         case 6: // low half
           state.addLo(mem, rOffset, addend);
@@ -265,77 +265,64 @@ class PspElf {
 
 /// Pairing state for the high/low half relocations of one module.
 ///
-/// The relocation stream does not pair a high half (a lui) with its
-/// low halves in any fixed order: several high halves can share one
-/// low half where control flow merges, one high half serves many low
-/// halves, and a low half can be listed before its high half. The
-/// link between them is the register: a low half uses the register
-/// its high half loads. High halves keep their original immediate
-/// because completing a pair rewrites the word it came from.
+/// A low half's relocated value does not depend on its high half: it is
+/// the low 16 bits of its immediate plus the address it refers to. A
+/// high half needs the immediate of a low half for the carry, and the
+/// stream does not pair them in a fixed order: several high halves can
+/// share one low half where control flow merges, one high half serves
+/// many low halves, and a low half can be listed before its high half.
+/// The link between them is the register: a low half uses the register
+/// its high half loads. So the halves are collected first, and each
+/// high half takes the nearest low half after it in the stream that
+/// uses its register, unless another high half of that register comes
+/// first; failing that, the nearest such low half before it.
 class _RelocState {
-  /// Every high half seen, as (location, immediate, destination
-  /// register, paired) in stream order.
-  final _his = <(int, int, int, bool)>[];
-
-  /// Low halves seen before any matching high half, as (location,
-  /// immediate, base register, the value the entry adds).
-  final _earlyLos = <(int, int, int, int)>[];
-
-  void _writePair(PspMemory mem, (int, int, int, bool) hi, int loAt,
-      int loImm, int base) {
-    final target = ((hi.$2 << 16) + loImm + base) & 0xffffffff;
-    final hiWord = mem.read32(hi.$1), loWord = mem.read32(loAt);
-    mem.write32(hi.$1,
-        (hiWord & 0xffff0000) | (((target + 0x8000) >>> 16) & 0xffff));
-    mem.write32(loAt, (loWord & 0xffff0000) | (target & 0xffff));
-  }
+  /// Every half in stream order, as (is high, location, immediate,
+  /// register, the value the entry adds). The register is the
+  /// destination of a high half and the base of a low half.
+  final _halves = <(bool, int, int, int, int)>[];
 
   void addHi(PspMemory mem, int at, int base) {
     final word = mem.read32(at);
-    final hi = (at, word & 0xffff, (word >> 16) & 31, false);
-    _his.add(hi);
-    // Low halves that arrived before this high half pair with it now.
-    _earlyLos.removeWhere((lo) {
-      if (lo.$3 != hi.$3) return false;
-      _writePair(mem, hi, lo.$1, lo.$2, base);
-      return true;
-    });
+    _halves.add((true, at, word & 0xffff, (word >> 16) & 31, base));
   }
 
   void addLo(PspMemory mem, int at, int base) {
     final word = mem.read32(at);
-    final rs = (word >> 21) & 31;
-    final loImm = (word & 0xffff).toSigned(16);
-    var paired = false;
-    (int, int, int, bool)? latest;
-    for (var i = 0; i < _his.length; i++) {
-      final hi = _his[i];
-      if (hi.$3 != rs) continue;
-      latest = hi;
-      if (!hi.$4) {
-        _writePair(mem, hi, at, loImm, base);
-        _his[i] = (hi.$1, hi.$2, hi.$3, true);
-        paired = true;
-      }
-    }
-    if (paired) return;
-    if (latest != null) {
-      // A shared high half serving one more low half.
-      _writePair(mem, latest, at, loImm, base);
-    } else {
-      _earlyLos.add((at, loImm, rs, base));
-    }
+    _halves.add(
+        (false, at, (word & 0xffff).toSigned(16), (word >> 21) & 31, base));
   }
 
-  /// Relocates low halves whose high half never appeared (the high
-  /// half is zero, e.g. an address formed from the gp register) on
-  /// their own.
-  void finish(PspMemory mem) {
-    for (final lo in _earlyLos) {
-      final word = mem.read32(lo.$1);
-      mem.write32(
-          lo.$1, (word & 0xffff0000) | ((lo.$2 + lo.$4) & 0xffff));
+  /// The immediate of the low half that completes the high half at
+  /// [index], or zero when none uses its register.
+  int _partner(int index) {
+    final reg = _halves[index].$4;
+    for (var i = index + 1; i < _halves.length; i++) {
+      final (isHi, _, imm, r, _) = _halves[i];
+      if (r != reg) continue;
+      if (isHi) break;
+      return imm;
     }
-    _earlyLos.clear();
+    for (var i = index - 1; i >= 0; i--) {
+      final (isHi, _, imm, r, _) = _halves[i];
+      if (!isHi && r == reg) return imm;
+    }
+    return 0;
+  }
+
+  /// Writes every collected half.
+  void finish(PspMemory mem) {
+    for (var i = 0; i < _halves.length; i++) {
+      final (isHi, at, imm, _, base) = _halves[i];
+      final word = mem.read32(at);
+      if (isHi) {
+        final target = ((imm << 16) + _partner(i) + base) & 0xffffffff;
+        mem.write32(
+            at, (word & 0xffff0000) | (((target + 0x8000) >>> 16) & 0xffff));
+      } else {
+        mem.write32(at, (word & 0xffff0000) | ((imm + base) & 0xffff));
+      }
+    }
+    _halves.clear();
   }
 }
