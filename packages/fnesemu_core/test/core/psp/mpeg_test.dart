@@ -73,17 +73,26 @@ void main() {
     expect(mpeg.lastVideoUnit, [0, 0, 0, 1, 9, 0xf0, 0x33]);
   });
 
-  test('audio units follow the audio clock and free the ring buffer', () {
-    _pack(mem, 0, 0xbd, [0], pts: 1000);
-    _pack(mem, 1, 0xbd, [0], pts: 1000 + PspMpeg.audioFrameTicks * 2);
+  test('audio units are ATRAC3plus frames across the audio packets', () {
+    // two 16-byte frames (size code 1) after the 4-byte header of each
+    // audio packet; the second frame runs into the next packet
+    const head = [0x0f, 0xd0, 0x24, 0x01, 0, 0, 0, 0];
+    final first = List.generate(16, (i) => 0x10 + i);
+    final second = List.generate(16, (i) => 0x40 + i);
+    _pack(mem, 0, 0xbd, [0, 0, 0, 0, ...head, ...first, ...head,
+        ...second.sublist(0, 6)], pts: 1000);
+    _pack(mem, 1, 0xbd, [0, 0, 0, 0, ...second.sublist(6)]);
     mpeg.put(2);
     mpeg.videoOn = false;
     expect(mpeg.free, 6);
     expect(mpeg.audioUnit(_auAt), 0);
     expect(_pts(mem), 1000);
+    expect(mpeg.lastAudioFrame, first);
+    expect(mpeg.lastAudioParams, 0x2401);
     expect(mpeg.audioUnit(_auAt), 0);
     expect(_pts(mem), 1000 + PspMpeg.audioFrameTicks);
-    // The clock reaches the second packet, whose successor is not there.
+    expect(mpeg.lastAudioFrame, second);
+    // the first packet is consumed; no more frames
     expect(mpeg.audioUnit(_auAt), PspMpeg.errorNoData);
     expect(mpeg.free, 7);
     expect(mem.read32(_rbAt + 12), 7);

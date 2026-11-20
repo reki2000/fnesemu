@@ -15,10 +15,10 @@ import 'memory.dart';
 /// unit type 9) of the video elementary stream to the next one; it takes
 /// the time stamp of its PES packet when it is the first unit there, and
 /// otherwise the previous one plus a frame at 29.97 Hz. An audio access
-/// unit advances an audio clock by one ATRAC frame (2048 samples at 44100
-/// Hz). With a [decoder] that supports H.264, decoding writes the pictures
-/// of the video; otherwise it writes a black picture. The audio decodes to
-/// silence.
+/// unit is one ATRAC3plus frame (2048 samples at 44100 Hz) of the audio
+/// stream and advances the audio clock by its length. With a [decoder]
+/// that supports the codecs, decoding writes the pictures and the samples;
+/// otherwise it writes a black picture and silence.
 ///
 /// The ring buffer lives in guest memory with the SDK layout: the packet
 /// count, the read and write packet indexes, the free packet count, the
@@ -77,6 +77,14 @@ class PspMpeg {
   /// it anew, and pictures come again after the next parameter sets.
   bool _videoOpen = false;
 
+  /// The media id of the audio stream at [decoder], and the frame
+  /// parameters it is open with, or -1 when it is closed.
+  static const audioMediaId = 2;
+  int _audioParams = -1;
+
+  /// The byte of packet [audioAt] where the audio scan goes on.
+  int audioOffset = 0;
+
   int get packets => mem.read32(ringbuffer);
   int get dataAt => mem.read32(ringbuffer + 20);
   int get callback => mem.read32(ringbuffer + 24);
@@ -107,16 +115,21 @@ class PspMpeg {
     mem.write32(at + 40, 0);
   }
 
-  /// Closes the video stream at the decoder.
+  /// Closes the video and audio streams at the decoder.
   void closeVideo() {
     if (_videoOpen) decoder?.close(videoMediaId);
     _videoOpen = false;
+    if (_audioParams >= 0) decoder?.close(audioMediaId);
+    _audioParams = -1;
   }
 
   /// Restarts the stream: the ring buffer empties.
   void flush() {
     if (_videoOpen) decoder?.flush(videoMediaId);
+    if (_audioParams >= 0) decoder?.flush(audioMediaId);
     lastVideoUnit = null;
+    lastAudioFrame = null;
+    audioOffset = 0;
     written = 0;
     videoAt = 0;
     videoOffset = 0;
@@ -277,39 +290,68 @@ class PspMpeg {
     return errorNoData;
   }
 
-  /// Takes the next audio access unit into the unit at [au]. The audio
-  /// clock starts at the first audio time stamp; the packets whose time
-  /// stamps it has passed are consumed. Returns [errorNoData] when the
-  /// ring buffer holds no audio beyond the clock.
+  /// The last ATRAC3plus frame that [audioUnit] took, without its header,
+  /// and the parameter word of its header: a sample rate code in bits 13
+  /// to 15, the channel code (1: mono) in bits 10 to 12 and the frame size
+  /// in 8-byte units less one in bits 0 to 9.
+  Uint8List? lastAudioFrame;
+  int lastAudioParams = 0;
+
+  /// Takes the next audio access unit into the unit at [au]: one ATRAC3plus
+  /// frame of the audio stream. Each audio PES payload starts with a 4-byte
+  /// header of its own, and the frames run across the payloads; a frame
+  /// has an 8-byte header that starts with 0x0f 0xd0. The time stamp
+  /// starts at the first audio time stamp and advances by a frame. Returns
+  /// [errorNoData] while the ring buffer does not hold the whole frame.
   int audioUnit(int au) {
-    var next = -1;
-    for (var i = audioAt; i < written && next < 0; i++) {
-      final audio = [
-        for (final p in _pes(i))
-          if (p.stream == 0xbd) p
-      ];
-      if (audio.isEmpty) {
-        if (i == audioAt) audioAt++;
-        continue;
-      }
-      for (final p in audio) {
-        if (p.pts < 0) continue;
-        if (audioPts < 0) audioPts = p.pts;
-        if (p.pts > audioPts) {
-          next = p.pts;
-          break;
+    final header = <int>[];
+    Uint8List? frame;
+    var filled = 0;
+    var firstPts = -1;
+    for (var i = audioAt; i < written; i++) {
+      final packetAt = dataAt + (i % packets) * packetSize;
+      for (final p in _pes(i)) {
+        if (p.stream != 0xbd) continue;
+        if (firstPts < 0) firstPts = p.pts;
+        var a = p.start + 4;
+        if (i == audioAt && a < packetAt + audioOffset) {
+          a = packetAt + audioOffset;
         }
-        audioAt = i;
+        for (; a < p.end; a++) {
+          final byte = mem.read8(a);
+          if (frame == null) {
+            header.add(byte);
+            if (header.length == 1 && byte != 0x0f ||
+                header.length == 2 && byte != 0xd0) {
+              // not a frame header: look for the next one
+              header.clear();
+              continue;
+            }
+            if (header.length == 8) {
+              final params = header[2] << 8 | header[3];
+              frame = Uint8List(((params & 0x3ff) + 1) * 8);
+              lastAudioParams = params;
+            }
+            continue;
+          }
+          frame[filled++] = byte;
+          if (filled == frame.length) {
+            lastAudioFrame = frame;
+            audioAt = i;
+            audioOffset = a + 1 - packetAt;
+            if (audioPts < 0) {
+              audioPts = firstPts < 0 ? 0 : firstPts;
+            } else {
+              audioPts += audioFrameTicks;
+            }
+            _sync();
+            _writeUnit(au, audioPts, audioPts);
+            return 0;
+          }
+        }
       }
     }
-    if (next < 0) {
-      _sync();
-      return errorNoData;
-    }
-    _writeUnit(au, audioPts, audioPts);
-    audioPts += audioFrameTicks;
-    _sync();
-    return 0;
+    return errorNoData;
   }
 
   /// Fills an access unit: the time stamps as high and low words, then
@@ -395,6 +437,43 @@ class PspMpeg {
     }
   }
 
+  /// Decodes the last audio frame into 2048 stereo 16-bit samples at [at];
+  /// silence until the decoder gives samples, or without a decoder.
+  void decodeAudio(int at) {
+    final frame = lastAudioFrame;
+    final decoder = this.decoder;
+    if (frame != null &&
+        decoder != null &&
+        decoder.supports(MediaCodec.atrac3plus)) {
+      final params = lastAudioParams;
+      final channels = params >> 10 & 7 == 1 ? 1 : 2;
+      if (_audioParams != params) {
+        if (_audioParams >= 0) decoder.close(audioMediaId);
+        _audioParams = decoder.open(audioMediaId, MediaCodec.atrac3plus,
+                // the movies seen use rate code 1, 44100 Hz; the other
+                // codes are not confirmed
+                sampleRate: 44100,
+                channels: channels,
+                blockAlign: frame.length)
+            ? params
+            : -1;
+      }
+      final samples =
+          _audioParams >= 0 ? decoder.decodeAudio(audioMediaId, frame) : null;
+      if (samples != null) {
+        final count = samples.length ~/ channels;
+        for (var i = 0; i < 2048; i++) {
+          final left = i < count ? samples[i * channels] : 0;
+          final right =
+              i < count ? samples[i * channels + channels - 1] : 0;
+          mem.write32(at + i * 4, (left & 0xffff) | (right & 0xffff) << 16);
+        }
+        return;
+      }
+    }
+    silence(at);
+  }
+
   /// Writes the silence of one ATRAC frame (2048 stereo 16-bit samples).
   void silence(int at) {
     for (var a = at; a < at + 2048 * 4; a += 4) {
@@ -406,7 +485,7 @@ class PspMpeg {
     writer.ints([
       ringbuffer, written, videoAt, audioAt, videoOn ? 1 : 0, //
       audioOn ? 1 : 0, audioPts, pixelMode, videoOffset, videoZeros,
-      videoStart ? 1 : 0, videoPts, videoPtsPacket,
+      videoStart ? 1 : 0, videoPts, videoPtsPacket, audioOffset,
     ]);
   }
 
@@ -427,5 +506,7 @@ class PspMpeg {
     videoStart = x[10] != 0;
     videoPts = x[11];
     videoPtsPacket = x[12];
+    audioOffset = x.length > 13 ? x[13] : 0;
+    lastAudioFrame = null;
   }
 }
