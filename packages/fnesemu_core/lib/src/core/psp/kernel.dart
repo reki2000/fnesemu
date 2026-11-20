@@ -27,6 +27,7 @@ class PspThreadStatus {
   static const dormant = 8; // created, not started
   static const waitLwMutex = 9;
   static const waitDisc = 10;
+  static const waitEvent = 11;
 }
 
 class PspThread {
@@ -42,11 +43,21 @@ class PspThread {
   int waitCount = 0;
   int waitJoin = 0;
   int waitLw = 0; // workarea address of a lightweight mutex wait
+  int wakeupCount = 0; // wake-ups that arrived while not sleeping
+  // An event flag wait: the flag, the bits, the mode and where the
+  // pattern goes on release.
+  int waitEvent = 0, waitBits = 0, waitMode = 0, waitOutAt = 0;
   int exitStatus = 0;
   int? pendingResult;
   final state = AllegrexState();
   PspThread(this.id, this.name, this.entry, this.priority, this.stackTop,
       this.stackSize);
+}
+
+class _EventFlag {
+  int pattern;
+  final int attr;
+  _EventFlag(this.pattern, this.attr);
 }
 
 class _Sema {
@@ -139,8 +150,13 @@ class _DirEnt {
   final bool isDirectory;
   final int size;
   final int year, month, day, hour, minute, second;
+
+  /// The first sector of a disc file, which the status structure reports
+  /// in its first private word; zero elsewhere.
+  final int lba;
   const _DirEnt(this.name, this.isDirectory, this.size, this.year,
-      this.month, this.day, this.hour, this.minute, this.second);
+      this.month, this.day, this.hour, this.minute, this.second,
+      [this.lba = 0]);
 
   factory _DirEnt.disc(PspDiscNode node, String name) => _DirEnt(
       name,
@@ -151,7 +167,8 @@ class _DirEnt {
       node.entry.day,
       node.entry.hour,
       node.entry.minute,
-      node.entry.second);
+      node.entry.second,
+      node.entry.lba);
 
   factory _DirEnt.stick(PspMsNode node, String name) {
     final (year, month, day, hour, minute, second) =
@@ -226,12 +243,17 @@ class PspKernel {
 
   final _audioChannels = List.generate(8, (_) => _AudioChannel());
   late final _sas = PspSas(mem);
+
+  /// The second stereo output (sceAudioOutput2), outside the eight
+  /// channels.
+  final _output2 = _AudioChannel();
   final _mix = <double>[];
   int _mixBase = 0;
   final _handlers = <int, int? Function(Allegrex, PspImport?)>{};
   final _byCode = <int, PspImport>{};
   final threads = <int, PspThread>{};
   final _semas = <int, _Sema>{};
+  final _eventFlags = <int, _EventFlag>{};
   final _lwMutexes = <int, _LwMutex>{};
   final _blocks = <int, _Block>{};
   final _fpls = <int, _Fpl>{};
@@ -453,14 +475,19 @@ class PspKernel {
     _preempt(cpu);
   }
 
-  /// Switches to a ready thread of strictly higher priority, if any.
+  /// Switches to a ready thread of strictly higher priority, if any. A
+  /// current thread that does not run gives way even while interrupts
+  /// are disabled, since it blocked in a call. Inside a handler nothing
+  /// switches: the handler runs on the interrupted thread's processor
+  /// state, and the switch waits for the next scheduling point after it.
   void _preempt(Allegrex cpu) {
-    if (!_interruptsEnabled) return;
+    if (_inCallback) return;
     final cur = current;
     if (cur == null || cur.status != PspThreadStatus.running) {
       _schedule(cpu);
       return;
     }
+    if (!_interruptsEnabled) return;
     for (final thread in threads.values) {
       if (thread.status == PspThreadStatus.ready &&
           thread.priority < cur.priority) {
@@ -560,6 +587,15 @@ class PspKernel {
       unknownCalls[import.nid] = (unknownCalls[import.nid] ?? 0) + 1;
     } else {
       result = handler(cpu, import);
+    }
+    if (_inCallback) {
+      // A call from a handler returns to the handler on the live
+      // processor; the interrupted thread's saved state, which may
+      // belong to a thread that is blocked, stays untouched.
+      cpu.pc = returnAt;
+      cpu.nextPc = returnAt + 4;
+      if (result != null) cpu.r[2] = result;
+      return;
     }
     if (caller == null || !threads.containsKey(caller.id)) return;
     // An import call returns straight to the link register, as the system
@@ -740,8 +776,13 @@ class PspKernel {
     on(0x369ed59d,
         (cpu, _) => (cpu.clocks ~/ _clocksPerMicrosecond) & 0xffffffff);
     int? sleepThread(Allegrex cpu, PspImport? _) {
-      // SleepThread: wakes only through WakeupThread.
+      // SleepThread: wakes only through WakeupThread; a wake-up that came
+      // first is consumed at once.
       if (_inCallback) return 0;
+      if (current!.wakeupCount > 0) {
+        current!.wakeupCount--;
+        return 0;
+      }
       current!.status = PspThreadStatus.waitSleep;
       _schedule(cpu);
       return null;
@@ -757,6 +798,38 @@ class PspKernel {
       }
       return 0;
     });
+    on(0xd59ead2f, (cpu, _) {
+      // WakeupThread
+      final thread = threads[_arg(cpu, 0)];
+      if (thread == null) return 0x80020198;
+      if (thread.status == PspThreadStatus.waitSleep) {
+        thread.status = PspThreadStatus.ready;
+        thread.pendingResult = 0;
+        _preempt(cpu);
+      } else {
+        thread.wakeupCount++;
+      }
+      return 0;
+    });
+    // Event flags
+    on(0x55c20a00, (cpu, _) {
+      final id = _nextId++;
+      _eventFlags[id] = _EventFlag(_arg(cpu, 2), _arg(cpu, 1));
+      return id;
+    });
+    on(0xef9e4c70, (cpu, _) =>
+        _eventFlags.remove(_arg(cpu, 0)) == null ? _unknownEventFlag : 0);
+    on(0x1fb15a32, _setEventFlag);
+    on(0x812346e4, (cpu, _) {
+      final flag = _eventFlags[_arg(cpu, 0)];
+      if (flag == null) return _unknownEventFlag;
+      flag.pattern &= _arg(cpu, 1);
+      return 0;
+    });
+    on(0x402fcf22, (cpu, _) => _waitEventFlag(cpu, poll: false));
+    on(0x328c546a, (cpu, _) => _waitEventFlag(cpu, poll: false));
+    on(0x30fd48f0, (cpu, _) => _waitEventFlag(cpu, poll: true));
+    on(0xe81caf8f, (cpu, _) => _nextId++); // CreateCallback
     on(0xd6da4ba1, _createSema);
     on(0x4e3a1105, _waitSema);
     on(0x6d212bac, _waitSema); // the CB form shares the wait machinery
@@ -852,13 +925,13 @@ class PspKernel {
       return 0;
     });
     on(0xeeda2e54, (cpu, _) {
-      final at = _arg(cpu, 0);
-      if (at != 0) {
-        mem.write32(at, fbAddr | 0x40000000);
-        mem.write32(at + 4, fbWidth);
-        mem.write32(at + 8, fbFormat);
-        mem.write32(at + 12, 0);
-      }
+      // GetFrameBuf: the address, the width and the format each go to
+      // their own pointer.
+      final addrAt = _arg(cpu, 0), widthAt = _arg(cpu, 1);
+      final formatAt = _arg(cpu, 2);
+      if (addrAt != 0) mem.write32(addrAt, fbAddr | 0x40000000);
+      if (widthAt != 0) mem.write32(widthAt, fbWidth);
+      if (formatAt != 0) mem.write32(formatAt, fbFormat);
       return 0;
     });
     on(0x984c27e7, _waitVblank);
@@ -959,6 +1032,25 @@ class PspKernel {
       cpu.r[2] = micros & 0xffffffff;
       cpu.r[3] = micros >>> 32;
       return null;
+    });
+    // sceDmacMemcpy: the copy completes at once.
+    on(0x617f3fe6, (cpu, _) {
+      final dst = _arg(cpu, 0), src = _arg(cpu, 1), size = _arg(cpu, 2);
+      if (size > 0) mem.writeBytes(dst, mem.readBytes(src, size));
+      return 0;
+    });
+    // sceKernelLibcClock: the processor time in microseconds.
+    on(0x91e4f6a7,
+        (cpu, _) => (cpu.clocks ~/ _clocksPerMicrosecond) & 0x7fffffff);
+    on(0x71ec4271, (cpu, _) {
+      // sceKernelLibcGettimeofday: seconds and microseconds of the clock.
+      final tv = _arg(cpu, 0);
+      if (tv != 0) {
+        final micros = cpu.clocks ~/ _clocksPerMicrosecond;
+        mem.write32(tv, _nowSeconds);
+        mem.write32(tv + 4, micros % 1000000);
+      }
+      return 0;
     });
     on(0xe860e75e, (cpu, _) {
       _rng = _arg(cpu, 1) | 1;
@@ -1197,6 +1289,7 @@ class PspKernel {
     on(0x8ef08fce, (cpu, _) => 0);
     on(0x4a9e5e29, (cpu, _) => 0);
     on(0x6b4a146c, (cpu, _) => disc?.isMounted == true ? 0x22 : 0x01);
+    on(0x46ebb729, (cpu, _) => disc?.isMounted == true ? 1 : 0); // CheckMedium
     on(0xaee7404d, (cpu, _) => 0);
     on(0xbd2bde07, (cpu, _) => 0);
     on(0x54f5fb11, (cpu, _) {
@@ -1253,6 +1346,43 @@ class PspKernel {
     });
     on(0x827a2fb7, (cpu, _) => 0);
 
+    // sceAudioOutput2: one more stereo output with its own block size.
+    on(0x01562ba3, (cpu, _) {
+      final sampleCount = _arg(cpu, 0);
+      if (_output2.reserved) return 0x80260002;
+      if (sampleCount <= 0 || sampleCount > 65472) return 0x8026000a;
+      _output2
+        ..reserved = true
+        ..sampleCount = sampleCount
+        ..format = 0
+        ..nextAt = 0;
+      return 0;
+    });
+    on(0x43196845, (cpu, _) {
+      if (!_output2.reserved) return 0x80260002;
+      _output2
+        ..reserved = false
+        ..nextAt = 0;
+      return 0;
+    });
+    on(0x63f2889c, (cpu, _) {
+      final sampleCount = _arg(cpu, 0);
+      if (!_output2.reserved) return 0x80260002;
+      if (sampleCount <= 0 || sampleCount > 65472) return 0x8026000a;
+      _output2.sampleCount = sampleCount;
+      return 0;
+    });
+    on(0x647cef33, (cpu, _) {
+      if (!_output2.reserved) return 0x80260002;
+      final rest = _output2.nextAt - _audioAt(cpu);
+      return rest > 0 ? rest : 0;
+    });
+    on(0x2d53f36e, (cpu, _) {
+      if (!_output2.reserved) return 0x80260002;
+      return _queueBlock(cpu, _output2, _arg(cpu, 1), _arg(cpu, 0), null,
+          blocking: true);
+    });
+
     // sceSasCore: the software synthesizer. The first argument of every
     // call is the guest's work area; this kernel keeps one synthesizer.
     on(0x42778a9f,
@@ -1283,6 +1413,16 @@ class PspKernel {
         _sas.setSimpleAdsr(_arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
     on(0x74ae582a, (cpu, _) => _sas.envelopeHeight(_arg(cpu, 1)));
     on(0x68a46b95, (cpu, _) => _sas.endFlags);
+    on(0x2c8e6ab3, (cpu, _) => _sas.pauseFlags);
+    on(0x787d04d5,
+        (cpu, _) => _sas.setPause(_arg(cpu, 1), _arg(cpu, 2) != 0));
+    on(0xbd11b7c2, (cpu, _) => _sas.grain);
+    on(0xd1e0a01e, (cpu, _) => _sas.setGrain(_arg(cpu, 1)));
+    on(0xe175ef66, (cpu, _) => _sas.outputMode);
+    on(0xe855bf76, (cpu, _) {
+      _sas.outputMode = _arg(cpu, 1);
+      return 0;
+    });
     // Reverb type, parameters, effect volume and per-voice send: reverb
     // is not emulated.
     for (final nid in [0x33d4ab37, 0x267a6dd2, 0xd5a229c9, 0xf983b186]) {
@@ -1322,13 +1462,22 @@ class PspKernel {
     if (index < 0 || index >= 8) return 0x80260002;
     final channel = _audioChannels[index];
     if (!channel.reserved) return 0x80260002;
-    final volume = _arg(cpu, 1);
-    final at = _arg(cpu, 2);
+    return _queueBlock(cpu, channel, _arg(cpu, 2), _arg(cpu, 1), null,
+        blocking: blocking);
+  }
+
+  /// Queues one block of [channel] from [at] behind the blocks already
+  /// queued; a blocking call waits until the block has played out.
+  int? _queueBlock(Allegrex cpu, _AudioChannel channel, int at, int volume,
+      int? rightVolume,
+      {required bool blocking}) {
     final frames = channel.sampleCount;
     final start =
         channel.nextAt > _audioAt(cpu) ? channel.nextAt : _audioAt(cpu);
     channel.nextAt = start + frames;
-    if (at != 0) _mixBlock(channel, start, volume, at);
+    if (at != 0) {
+      _mixBlock(channel, start, volume, at, rightVolume: rightVolume);
+    }
     final rest = channel.nextAt - _audioAt(cpu);
     if (!blocking || rest <= 0 || _inCallback) return rest > 0 ? rest : 0;
     // Block until the queued block has played out, on the delay queue.
@@ -1344,22 +1493,9 @@ class PspKernel {
     if (index < 0 || index >= 8) return 0x80260002;
     final channel = _audioChannels[index];
     if (!channel.reserved) return 0x80260002;
-    final at = _arg(cpu, 3);
-    final frames = channel.sampleCount;
-    final start =
-        channel.nextAt > _audioAt(cpu) ? channel.nextAt : _audioAt(cpu);
-    channel.nextAt = start + frames;
-    if (at != 0) {
-      _mixBlock(channel, start, _arg(cpu, 1), at, rightVolume: _arg(cpu, 2));
-    }
-    final rest = channel.nextAt - _audioAt(cpu);
-    if (rest <= 0 || _inCallback) return rest > 0 ? rest : 0;
     // The panned output call always blocks until the block has played.
-    current!.status = PspThreadStatus.waitDelay;
-    current!.wakeAt = cpu.clocks + rest * _cpuHz ~/ _audioRate;
-    if (current!.wakeAt < _nextDelayWake) _nextDelayWake = current!.wakeAt;
-    _schedule(cpu);
-    return null;
+    return _queueBlock(cpu, channel, _arg(cpu, 3), _arg(cpu, 1), _arg(cpu, 2),
+        blocking: true);
   }
 
   void _mixBlock(_AudioChannel channel, int start, int volume, int at,
@@ -1490,6 +1626,69 @@ class PspKernel {
     current!.status = PspThreadStatus.waitVblank;
     _schedule(cpu);
     return null;
+  }
+
+  static const _unknownEventFlag = 0x800201a9;
+
+  /// Whether [pattern] meets the wait for [bits] in [mode]: all bits
+  /// (mode bit 0 clear) or any of them (set).
+  static bool _eventMatches(int pattern, int bits, int mode) =>
+      mode & 1 == 0 ? pattern & bits == bits : pattern & bits != 0;
+
+  /// Applies the clear modes of a satisfied wait: 0x20 clears the waited
+  /// bits, 0x10 the whole pattern.
+  static int _eventCleared(int pattern, int bits, int mode) {
+    if (mode & 0x10 != 0) return 0;
+    if (mode & 0x20 != 0) return pattern & ~bits;
+    return pattern;
+  }
+
+  /// WaitEventFlag and PollEventFlag. A timeout is not counted: the wait
+  /// lasts until the bits arrive.
+  int? _waitEventFlag(Allegrex cpu, {required bool poll}) {
+    final id = _arg(cpu, 0);
+    final flag = _eventFlags[id];
+    if (flag == null) return _unknownEventFlag;
+    final bits = _arg(cpu, 1), mode = _arg(cpu, 2), outAt = _arg(cpu, 3);
+    if (bits == 0) return 0x800201b5;
+    if (_eventMatches(flag.pattern, bits, mode)) {
+      if (outAt != 0) mem.write32(outAt, flag.pattern);
+      flag.pattern = _eventCleared(flag.pattern, bits, mode);
+      return 0;
+    }
+    if (poll || _inCallback) {
+      if (outAt != 0) mem.write32(outAt, flag.pattern);
+      return 0x800201af;
+    }
+    current!
+      ..status = PspThreadStatus.waitEvent
+      ..waitEvent = id
+      ..waitBits = bits
+      ..waitMode = mode
+      ..waitOutAt = outAt;
+    _schedule(cpu);
+    return null;
+  }
+
+  int? _setEventFlag(Allegrex cpu, PspImport? _) {
+    final id = _arg(cpu, 0);
+    final flag = _eventFlags[id];
+    if (flag == null) return _unknownEventFlag;
+    flag.pattern |= _arg(cpu, 1);
+    for (final thread in threads.values) {
+      if (thread.status != PspThreadStatus.waitEvent ||
+          thread.waitEvent != id ||
+          !_eventMatches(flag.pattern, thread.waitBits, thread.waitMode)) {
+        continue;
+      }
+      if (thread.waitOutAt != 0) mem.write32(thread.waitOutAt, flag.pattern);
+      flag.pattern =
+          _eventCleared(flag.pattern, thread.waitBits, thread.waitMode);
+      thread.status = PspThreadStatus.ready;
+      thread.pendingResult = 0;
+    }
+    _preempt(cpu);
+    return 0;
   }
 
   int? _createSema(Allegrex cpu, PspImport? _) {
@@ -1793,7 +1992,14 @@ class PspKernel {
   /// The device prefix of a guest path, lowercased, or null.
   static String? _deviceOf(String path) {
     final colon = path.indexOf(':');
-    return colon < 0 ? null : path.substring(0, colon).toLowerCase();
+    return colon < 0 ? null : _canonicalDevice(path.substring(0, colon));
+  }
+
+  /// The device name with its aliases folded: `umd:` and `umd1:` name the
+  /// same disc block device as `umd0:`.
+  static String _canonicalDevice(String device) {
+    final lower = device.toLowerCase();
+    return lower == 'umd' || lower == 'umd1' ? 'umd0' : lower;
   }
 
   /// Splits a guest path into the device it lives on and the path
@@ -1806,7 +2012,7 @@ class PspKernel {
     }
     final joined = '$_cwd$path';
     final colon = joined.indexOf(':');
-    return (joined.substring(0, colon).toLowerCase(),
+    return (_canonicalDevice(joined.substring(0, colon)),
         joined.substring(colon + 1));
   }
 
@@ -2101,7 +2307,9 @@ class PspKernel {
 
   /// Fills the 88-byte file status structure for [ent]: the mode and
   /// attribute describe the kind, read-only on the disc and writable
-  /// on the stick, and all three timestamps are the entry's date.
+  /// on the stick, all three timestamps are the entry's date, and the
+  /// first private word is a disc file's first sector, which games use
+  /// to read the file through the raw disc device.
   void _writeStatEnt(int at, _DirEnt ent, bool writable) {
     if (at == 0) return;
     for (var i = 0; i < 88; i += 4) {
@@ -2123,6 +2331,7 @@ class PspKernel {
       mem.write8(at + base + 5, ent.minute);
       mem.write8(at + base + 6, ent.second);
     }
+    mem.write32(at + 64, ent.lba);
   }
 
   int? _ioDopen(Allegrex cpu, PspImport? _) {
@@ -2336,6 +2545,19 @@ class PspKernel {
       writer.boolean(handler.enabled);
     }
     _sas.saveState(writer);
+    writer.boolean(_output2.reserved);
+    writer.int32(_output2.sampleCount);
+    writer.int64(_output2.nextAt);
+    writer.int32(_eventFlags.length);
+    for (final MapEntry(key: id, value: flag) in _eventFlags.entries) {
+      writer.ints([id, flag.pattern, flag.attr]);
+    }
+    for (final thread in threads.values) {
+      writer.ints([
+        thread.wakeupCount, thread.waitEvent, thread.waitBits, //
+        thread.waitMode, thread.waitOutAt,
+      ]);
+    }
   }
 
   void loadState(StateReader reader) {
@@ -2441,8 +2663,31 @@ class PspKernel {
       _subIntrs[key] = _SubIntr(reader.int32(), reader.int32())
         ..enabled = reader.boolean();
     }
+    _eventFlags.clear();
+    _output2
+      ..reserved = false
+      ..sampleCount = 0
+      ..format = 0
+      ..nextAt = 0;
     if (reader.version >= 7) {
       _sas.loadState(reader);
+      _output2.reserved = reader.boolean();
+      _output2.sampleCount = reader.int32();
+      _output2.nextAt = reader.int64();
+      final flagCount = reader.int32();
+      for (var i = 0; i < flagCount; i++) {
+        final x = reader.ints();
+        _eventFlags[x[0]] = _EventFlag(x[1], x[2]);
+      }
+      for (final thread in threads.values) {
+        final x = reader.ints();
+        thread
+          ..wakeupCount = x[0]
+          ..waitEvent = x[1]
+          ..waitBits = x[2]
+          ..waitMode = x[3]
+          ..waitOutAt = x[4];
+      }
     } else {
       _sas.init(256, PspSas.voiceCount, 0);
     }
