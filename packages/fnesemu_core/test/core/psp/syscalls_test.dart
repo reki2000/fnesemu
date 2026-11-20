@@ -132,9 +132,9 @@ void main() {
     mem.write32(callback + 8, 0);
     kernel.ge.callbackRunner!(cpu, callback, 42, result);
 
-    final writer = StateWriter('psp', 6, 0);
+    final writer = StateWriter('psp', 7, 0);
     kernel.saveState(writer, cpu);
-    final reader = StateReader(writer.take(), 'psp', 6, 0);
+    final reader = StateReader(writer.take(), 'psp', 7, 0);
     kernel = PspKernel(mem, PadPort(), image.end)..startModule(image);
     kernel.loadState(reader);
     reader.end();
@@ -160,9 +160,9 @@ void main() {
     expect(call(_enableSubIntr, [30, 2]), 0);
     expect(call(_enableSubIntr, [30, 3]).toUnsigned(32), isNonZero);
 
-    final writer = StateWriter('psp', 6, 0);
+    final writer = StateWriter('psp', 7, 0);
     kernel.saveState(writer, cpu);
-    final reader = StateReader(writer.take(), 'psp', 6, 0);
+    final reader = StateReader(writer.take(), 'psp', 7, 0);
     kernel = PspKernel(mem, PadPort(), image.end)..startModule(image);
     kernel.loadState(reader);
     reader.end();
