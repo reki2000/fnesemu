@@ -9,6 +9,7 @@ import 'src/compute_sink.dart';
 import 'src/core.dart';
 import 'src/internal/frame_counter.dart';
 import 'src/internal/frame_pacer.dart';
+import 'src/media_decoder.dart';
 import 'src/pad_button.dart';
 import 'src/pad_source.dart';
 import 'src/sram.dart';
@@ -95,7 +96,8 @@ class CoreController {
     _core.dispose();
     _core = core
       ..input = _input
-      ..computeSink = _computeSink;
+      ..computeSink = _computeSink
+      ..mediaDecoder = _mediaDecoder;
     _system = system;
     final metadata = CoreFactory.system(system);
     debugger.setCore(_core,
@@ -376,6 +378,17 @@ class CoreController {
   set computeSink(ComputeSink? sink) {
     _computeSink = sink;
     _core.computeSink = sink;
+  }
+
+  MediaDecoder? _mediaDecoder;
+
+  /// the loaded core and the cores loaded later decode the movies and the
+  /// music of their media with this; null plays them without a picture or
+  /// sound
+  MediaDecoder? get mediaDecoder => _mediaDecoder;
+  set mediaDecoder(MediaDecoder? decoder) {
+    _mediaDecoder = decoder;
+    _core.mediaDecoder = decoder;
   }
 
   // returns a list of core's buttons
