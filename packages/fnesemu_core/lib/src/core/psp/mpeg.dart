@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../util/state.dart';
 import 'memory.dart';
 
@@ -47,10 +49,10 @@ class PspMpeg {
   /// The time stamp of the next audio access unit, or -1 before the first.
   int audioPts = -1;
 
-  // The video scan: the payload byte reached in packet [videoAt], the
-  // zero bytes just before it, whether a start code waits for its NAL
-  // header, the last unit's time stamp and the packet whose time stamp
-  // a unit took.
+  // The video scan: the byte reached in packet [videoAt], whether it is
+  // the NAL header of the delimiter that starts the next unit, the last
+  // unit's time stamp and the position of the PES packet whose time stamp
+  // a unit took. [videoZeros] is kept for the state layout.
   int videoOffset = 0;
   int videoZeros = 0;
   bool videoStart = false;
@@ -133,32 +135,42 @@ class PspMpeg {
     mem.write32(ringbuffer + 12, free);
   }
 
-  /// The PES stream id of packet [index], its time stamps and the guest
-  /// addresses of its payload, or null for a packet that is not a pack
-  /// with a PES packet.
-  ({int stream, int pts, int dts, int start, int end})? _packet(int index) {
+  /// The PES packets of packet [index] in order: the stream id, the time
+  /// stamps (-1 without) and the guest addresses of the payload. A pack may
+  /// hold several, such as a system header, a private stream, the video and
+  /// padding.
+  List<({int stream, int pts, int dts, int start, int end})> _pes(int index) {
     final at = dataAt + (index % packets) * packetSize;
-    if (mem.read32(at) != 0xba010000) return null;
-    final pes = at + 14 + (mem.read8(at + 13) & 7);
-    if (mem.read8(pes) != 0 || mem.read8(pes + 1) != 0) return null;
-    if (mem.read8(pes + 2) != 1) return null;
-    final stream = mem.read8(pes + 3);
-    final length = mem.read8(pes + 4) << 8 | mem.read8(pes + 5);
-    final flags = mem.read8(pes + 7);
-    var pts = -1, dts = -1;
-    if (flags & 0x80 != 0) {
-      pts = _timeStamp(pes + 9);
-      dts = flags & 0x40 != 0 ? _timeStamp(pes + 14) : pts;
+    final out = <({int stream, int pts, int dts, int start, int end})>[];
+    if (mem.read32(at) != 0xba010000) return out;
+    var pes = at + 14 + (mem.read8(at + 13) & 7);
+    while (pes + 6 <= at + packetSize &&
+        mem.read8(pes) == 0 &&
+        mem.read8(pes + 1) == 0 &&
+        mem.read8(pes + 2) == 1) {
+      final stream = mem.read8(pes + 3);
+      final length = mem.read8(pes + 4) << 8 | mem.read8(pes + 5);
+      var end = pes + 6 + length;
+      if (end > at + packetSize) end = at + packetSize;
+      // the streams with an extension header: video, private stream 1
+      if (stream == 0xe0 || stream == 0xbd) {
+        final flags = mem.read8(pes + 7);
+        var pts = -1, dts = -1;
+        if (flags & 0x80 != 0) {
+          pts = _timeStamp(pes + 9);
+          dts = flags & 0x40 != 0 ? _timeStamp(pes + 14) : pts;
+        }
+        out.add((
+          stream: stream,
+          pts: pts,
+          dts: dts,
+          start: pes + 9 + mem.read8(pes + 8),
+          end: end,
+        ));
+      }
+      pes = end;
     }
-    var end = pes + 6 + length;
-    if (end > at + packetSize) end = at + packetSize;
-    return (
-      stream: stream,
-      pts: pts,
-      dts: dts,
-      start: pes + 9 + mem.read8(pes + 8),
-      end: end,
-    );
+    return out;
   }
 
   /// The 33-bit time stamp coded in five bytes at [at].
@@ -169,46 +181,76 @@ class PspMpeg {
       mem.read8(at + 3) << 7 |
       mem.read8(at + 4) >> 1;
 
-  /// Takes the next video access unit into the unit at [au]. Returns
-  /// [errorNoData] when the ring buffer holds no further one.
+  /// The bytes of the last video access unit that [videoUnit] took, in
+  /// Annex B form from its delimiter, for a decoder.
+  Uint8List? lastVideoUnit;
+
+  /// Takes the next video access unit into the unit at [au]: the bytes from
+  /// an access unit delimiter up to the next one. Returns [errorNoData]
+  /// while the ring buffer does not hold the next delimiter yet.
   int videoUnit(int au) {
-    while (videoAt < written) {
-      final p = _packet(videoAt);
-      if (p == null || p.stream != 0xe0) {
-        videoAt++;
-        videoOffset = 0;
-        continue;
-      }
-      for (var a = p.start + videoOffset; a < p.end; a++) {
-        final byte = mem.read8(a);
-        if (videoStart) {
-          videoStart = false;
-          if (byte & 0x1f == 9) {
-            videoOffset = a + 1 - p.start;
-            final first = p.pts >= 0 && videoPtsPacket != videoAt;
-            if (first) {
-              videoPts = p.pts;
-              videoPtsPacket = videoAt;
-            } else {
-              videoPts = videoPts < 0 ? 0 : videoPts + videoFrameTicks;
+    final bytes = BytesBuilder(copy: false);
+    final chunk = <int>[];
+    var zeros = 0, startZeros = 0;
+    // a scan resumes at the header byte of the delimiter it stopped at
+    var startSeen = videoStart;
+    var found = 0; // delimiters seen
+    var unitPts = -1, unitDts = -1, unitKey = -1;
+    for (var i = videoAt; i < written; i++) {
+      for (final p in _pes(i)) {
+        if (p.stream != 0xe0) continue;
+        final packetAt = dataAt + (i % packets) * packetSize;
+        var a = p.start;
+        if (i == videoAt && a < packetAt + videoOffset) a = packetAt + videoOffset;
+        for (; a < p.end; a++) {
+          final byte = mem.read8(a);
+          if (found > 0) chunk.add(byte);
+          if (startSeen) {
+            startSeen = false;
+            if (byte & 0x1f == 9) {
+              if (found == 0) {
+                // the unit starts here: its start code and header
+                chunk.addAll([0, 0, 0, 1, byte]);
+                final key = i * packetSize + (p.start - packetAt);
+                if (p.pts >= 0 && key != videoPtsPacket) {
+                  unitPts = p.pts;
+                  unitDts = p.dts;
+                  unitKey = key;
+                }
+                found = 1;
+              } else {
+                // the next unit: this one ends before its start code
+                final keep = chunk.length - 2 - startZeros;
+                bytes.add(chunk.sublist(0, keep < 0 ? 0 : keep));
+                lastVideoUnit = bytes.takeBytes();
+                videoAt = i;
+                videoOffset = a - packetAt;
+                videoStart = true;
+                if (unitKey >= 0) {
+                  videoPts = unitPts;
+                  videoPtsPacket = unitKey;
+                } else {
+                  videoPts = videoPts < 0 ? 0 : videoPts + videoFrameTicks;
+                  unitDts = videoPts;
+                }
+                _sync();
+                _writeUnit(au, videoPts, unitDts);
+                return 0;
+              }
             }
-            _sync();
-            final dts = first ? p.dts : videoPts;
-            _writeUnit(au, videoPts, dts);
-            return 0;
+          }
+          if (byte == 0) {
+            zeros++;
+          } else {
+            if (byte == 1 && zeros >= 2) {
+              startSeen = true;
+              startZeros = zeros;
+            }
+            zeros = 0;
           }
         }
-        if (byte == 0) {
-          videoZeros++;
-        } else {
-          if (byte == 1 && videoZeros >= 2) videoStart = true;
-          videoZeros = 0;
-        }
       }
-      videoAt++;
-      videoOffset = 0;
     }
-    _sync();
     return errorNoData;
   }
 
@@ -218,19 +260,24 @@ class PspMpeg {
   /// ring buffer holds no audio beyond the clock.
   int audioUnit(int au) {
     var next = -1;
-    for (var i = audioAt; i < written; i++) {
-      final p = _packet(i);
-      if (p == null || p.stream != 0xbd) {
+    for (var i = audioAt; i < written && next < 0; i++) {
+      final audio = [
+        for (final p in _pes(i))
+          if (p.stream == 0xbd) p
+      ];
+      if (audio.isEmpty) {
         if (i == audioAt) audioAt++;
         continue;
       }
-      if (p.pts < 0) continue;
-      if (audioPts < 0) audioPts = p.pts;
-      if (p.pts > audioPts) {
-        next = p.pts;
-        break;
+      for (final p in audio) {
+        if (p.pts < 0) continue;
+        if (audioPts < 0) audioPts = p.pts;
+        if (p.pts > audioPts) {
+          next = p.pts;
+          break;
+        }
+        audioAt = i;
       }
-      audioAt = i;
     }
     if (next < 0) {
       _sync();
