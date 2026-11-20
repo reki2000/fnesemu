@@ -36,6 +36,10 @@ const _clearEventFlag = 0x812346e4;
 const _pollEventFlag = 0x30fd48f0;
 const _sleepThread = 0x9ace131e;
 const _wakeupThread = 0xd59ead2f;
+const _ioOpen = 0x109f50bc;
+const _ioRead = 0x6a638d83;
+const _ioWrite = 0x42ec03ac;
+const _ioLseek32 = 0x68963324;
 
 void main() {
   late PspMemory mem;
@@ -57,6 +61,7 @@ void main() {
       ('sceDisplay', [_displayFps, _setFrameBuf, _getFrameBuf]),
       ('InterruptManager', [_registerSubIntr, _enableSubIntr]),
       ('sceSuspendForUser', [_lockVolatile]),
+      ('IoFileMgrForUser', [_ioOpen, _ioRead, _ioWrite, _ioLseek32]),
       (
         'ThreadManForUser',
         [
@@ -202,6 +207,47 @@ void main() {
     call(_resumeIntr, [enabled]);
     expect(mem.read32(result), 42);
     expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('open files keep their contents and positions across a save', () {
+    const path = 0x08900000, other = 0x08900040, buffer = 0x08900080;
+    void putString(int at, String text) {
+      for (var i = 0; i < text.length; i++) {
+        mem.write8(at + i, text.codeUnitAt(i));
+      }
+      mem.write8(at + text.length, 0);
+    }
+
+    putString(path, 'ms0:/A.BIN');
+    putString(other, 'host0:/log.txt');
+    for (var i = 0; i < 4; i++) {
+      mem.write8(buffer + i, 0x41 + i);
+    }
+    final stick = kernel.memStick;
+    // write, create and truncate
+    final fd = call(_ioOpen, [path, 0x0603, 0x1ff]);
+    expect(call(_ioWrite, [fd, buffer, 4]), 4);
+    expect(call(_ioLseek32, [fd, 1, 0]), 1);
+    final log = call(_ioOpen, [other, 0x0603, 0x1ff]);
+    expect(call(_ioWrite, [log, buffer, 2]), 2);
+
+    final writer = StateWriter('psp', 7, 0);
+    kernel.saveState(writer, cpu);
+    final reader = StateReader(writer.take(), 'psp', 7, 0);
+    kernel = PspKernel(mem, PadPort(), image.end)
+      ..memStick = stick
+      ..startModule(image);
+    kernel.loadState(reader);
+    reader.end();
+
+    expect(call(_ioRead, [fd, buffer + 0x10, 8]), 3);
+    expect([for (var i = 0; i < 3; i++) mem.read8(buffer + 0x10 + i)],
+        [0x42, 0x43, 0x44]);
+    expect(call(_ioLseek32, [log, 0, 0]), 0);
+    expect(call(_ioRead, [log, buffer + 0x20, 8]), 2);
+    expect(mem.read8(buffer + 0x21), 0x42);
+    // a file opened after the load takes a new descriptor
+    expect(call(_ioOpen, [other, 0x0603, 0x1ff]), greaterThan(log));
   });
 
   test('an enabled vblank handler runs on each vblank and survives a save',
