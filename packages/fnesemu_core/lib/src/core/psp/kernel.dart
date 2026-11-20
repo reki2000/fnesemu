@@ -12,6 +12,7 @@ import 'memory.dart';
 import 'memstick.dart';
 import 'printf.dart';
 import 'rtc.dart';
+import 'sas.dart';
 
 /// Thread states of the kernel scheduler.
 class PspThreadStatus {
@@ -197,7 +198,7 @@ class _AudioChannel {
 /// Only the services a first core needs are implemented: threads,
 /// semaphores, mutexes, memory blocks, the display frame buffer, the
 /// controller, the graphics engine's display lists, the audio channels,
-/// file access (in-memory files, the mounted disc and the memory
+/// the sound synthesizer (sceSasCore), file access (in-memory files, the mounted disc and the memory
 /// stick), the real-time clock and a few utility calls. Unknown calls return zero, which most software treats as
 /// success or as an idle dialog state.
 class PspKernel {
@@ -224,6 +225,7 @@ class PspKernel {
   void Function(Float32List samples)? audioSink;
 
   final _audioChannels = List.generate(8, (_) => _AudioChannel());
+  late final _sas = PspSas(mem);
   final _mix = <double>[];
   int _mixBase = 0;
   final _handlers = <int, int? Function(Allegrex, PspImport?)>{};
@@ -1250,6 +1252,42 @@ class PspKernel {
       return rest > 0 ? rest : 0;
     });
     on(0x827a2fb7, (cpu, _) => 0);
+
+    // sceSasCore: the software synthesizer. The first argument of every
+    // call is the guest's work area; this kernel keeps one synthesizer.
+    on(0x42778a9f,
+        (cpu, _) => _sas.init(_arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
+    on(0xa3589d81, (cpu, _) {
+      _sas.mix(_arg(cpu, 1));
+      return 0;
+    });
+    on(0x50a14dfc, (cpu, _) {
+      _sas.mix(_arg(cpu, 1), mixLeft: _arg(cpu, 2), mixRight: _arg(cpu, 3));
+      return 0;
+    });
+    on(0x99944089, (cpu, _) =>
+        _sas.setVoice(_arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3), _arg(cpu, 4)));
+    on(0xb7660a23, (cpu, _) => _sas.setNoise(_arg(cpu, 1), _arg(cpu, 2)));
+    on(0xad84d37f, (cpu, _) => _sas.setPitch(_arg(cpu, 1), _arg(cpu, 2)));
+    on(0x440ca7d8, (cpu, _) =>
+        _sas.setVolume(_arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
+    on(0x76f01aca, (cpu, _) => _sas.keyOn(_arg(cpu, 1)));
+    on(0xa0cf2fa4, (cpu, _) => _sas.keyOff(_arg(cpu, 1)));
+    on(0x019b25eb, (cpu, _) => _sas.setAdsr(_arg(cpu, 1), _arg(cpu, 2),
+        [for (var i = 3; i < 7; i++) _arg(cpu, i)]));
+    on(0x9ec3676a, (cpu, _) => _sas.setAdsrMode(_arg(cpu, 1), _arg(cpu, 2),
+        [for (var i = 3; i < 7; i++) _arg(cpu, i)]));
+    on(0x5f9529f6,
+        (cpu, _) => _sas.setSustainLevel(_arg(cpu, 1), _arg(cpu, 2)));
+    on(0xcbcd4f79, (cpu, _) =>
+        _sas.setSimpleAdsr(_arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
+    on(0x74ae582a, (cpu, _) => _sas.envelopeHeight(_arg(cpu, 1)));
+    on(0x68a46b95, (cpu, _) => _sas.endFlags);
+    // Reverb type, parameters, effect volume and per-voice send: reverb
+    // is not emulated.
+    for (final nid in [0x33d4ab37, 0x267a6dd2, 0xd5a229c9, 0xf983b186]) {
+      on(nid, (cpu, _) => 0);
+    }
   }
 
   static const _audioRate = 44100;
@@ -2297,6 +2335,7 @@ class PspKernel {
       writer.int32(handler.arg);
       writer.boolean(handler.enabled);
     }
+    _sas.saveState(writer);
   }
 
   void loadState(StateReader reader) {
@@ -2401,6 +2440,11 @@ class PspKernel {
       final key = (reader.int32(), reader.int32());
       _subIntrs[key] = _SubIntr(reader.int32(), reader.int32())
         ..enabled = reader.boolean();
+    }
+    if (reader.version >= 7) {
+      _sas.loadState(reader);
+    } else {
+      _sas.init(256, PspSas.voiceCount, 0);
     }
     _discWaits.clear();
     current = threads[currentId];

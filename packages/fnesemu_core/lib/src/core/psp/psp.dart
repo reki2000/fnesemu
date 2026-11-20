@@ -25,7 +25,7 @@ import 'memstick.dart';
 /// to the framework output and the multimedia coprocessor (VFPU) is
 /// emulated with a few documented accuracy limits.
 class Psp extends Core {
-  static const _stateVersion = 6;
+  static const _stateVersion = 7;
   static const _visibleLines = 272;
 
   final mem = PspMemory();
