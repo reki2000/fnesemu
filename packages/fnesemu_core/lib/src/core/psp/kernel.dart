@@ -2840,6 +2840,70 @@ class PspKernel {
         thread.waitMode, thread.waitOutAt,
       ]);
     }
+    _saveFiles(writer);
+  }
+
+  /// Saves the open files: a disc or memory stick file by its path, which
+  /// a load looks up again, and a file of another device with its
+  /// contents. Then the asynchronous results and the suspended disc reads.
+  void _saveFiles(StateWriter writer) {
+    writer.int32(_nextFd);
+    writer.int32(_files.length);
+    for (final MapEntry(key: fd, value: file) in _files.entries) {
+      final kind = file.node != null
+          ? 1
+          : file.msNode != null
+              ? 2
+              : 0;
+      writer.ints([fd, kind, file.access, file.append ? 1 : 0, file.unit, //
+        file.position, file.dirty ? 1 : 0]);
+      writer.string(file.path);
+      writer.bytes(kind == 0 ? file.content : const <int>[]);
+    }
+    writer.ints([for (final e in _async.entries) ...[e.key, e.value]]);
+    writer.ints([
+      for (final MapEntry(key: id, value: w) in _discWaits.entries)
+        ...[id, w.fd, w.at, w.length, w.attempts]
+    ]);
+  }
+
+  void _loadFiles(StateReader reader) {
+    _nextFd = reader.int32();
+    final count = reader.int32();
+    for (var i = 0; i < count; i++) {
+      final x = reader.ints();
+      final path = reader.string();
+      final content = reader.bytes();
+      final (fd, kind, access, append, unit) = (x[0], x[1], x[2], x[3], x[4]);
+      final _OpenFile file;
+      if (kind == 1) {
+        final (_, rel) = _resolve(path);
+        final node = unit == 2048 ? disc?.wholeDisc : disc?.lookup(rel);
+        if (node == null) continue;
+        file = _OpenFile.disc(path, node, unit: unit);
+      } else if (kind == 2) {
+        final (_, rel) = _resolve(path);
+        final node = memStick.lookup(rel);
+        if (node == null) continue;
+        file = _OpenFile.stick(path, node, access, append != 0);
+      } else {
+        file = _OpenFile(path)..content.addAll(content);
+      }
+      file
+        ..position = x[5]
+        ..dirty = x[6] != 0;
+      _files[fd] = file;
+    }
+    final asyncs = reader.ints();
+    for (var i = 0; i + 1 < asyncs.length; i += 2) {
+      _async[asyncs[i]] = asyncs[i + 1];
+    }
+    final waits = reader.ints();
+    for (var i = 0; i + 4 < waits.length; i += 5) {
+      _discWaits[waits[i]] =
+          _DiscWait(waits[i + 1], waits[i + 2], waits[i + 3])
+            ..attempts = waits[i + 4];
+    }
   }
 
   void loadState(StateReader reader) {
@@ -2985,10 +3049,16 @@ class PspKernel {
           ..waitMode = x[3]
           ..waitOutAt = x[4];
       }
+    }
+    _files.clear();
+    _dirs.clear();
+    _async.clear();
+    _discWaits.clear();
+    if (reader.version >= 7) {
+      _loadFiles(reader);
     } else {
       _sas.init(256, PspSas.voiceCount, 0);
     }
-    _discWaits.clear();
     current = threads[currentId];
     _nextDelayWake = 0x7fffffffffffffff;
     for (final thread in threads.values) {
