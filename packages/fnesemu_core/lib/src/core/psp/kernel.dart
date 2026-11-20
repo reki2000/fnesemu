@@ -1649,7 +1649,7 @@ class PspKernel {
     });
     on(0x4571cc64, (cpu, _) => 0); // AvcDecodeFlush
     on(0x800c44df, (cpu, _) {
-      _mpeg.silence(_arg(cpu, 2)); // AtracDecode(mpeg, au, buffer, init)
+      _mpeg.decodeAudio(_arg(cpu, 2)); // AtracDecode(mpeg, au, buffer, init)
       return 0;
     });
 
