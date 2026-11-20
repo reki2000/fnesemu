@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../cdrom_drive.dart';
 import '../../core.dart';
+import '../../media_decoder.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../types.dart';
@@ -41,6 +42,14 @@ class Psp extends Core {
 
   @override
   void setSram(Sram sram) => memStick.attach(sram);
+
+  MediaDecoder? _mediaDecoder;
+
+  @override
+  set mediaDecoder(MediaDecoder? decoder) {
+    _mediaDecoder = decoder;
+    _kernel?.mediaDecoder = decoder;
+  }
   int _mediaId = 0;
   int _line = 0;
   int _nextLineAt = 0;
@@ -162,6 +171,7 @@ class Psp extends Core {
         _audioOut?.call(AudioBuffer(44100, 2, samples));
     kernel.disc = _disc;
     kernel.memStick = memStick;
+    kernel.mediaDecoder = _mediaDecoder;
     _kernel = kernel;
     final main = kernel.startModule(image);
     cpu.copyFrom(main.state);

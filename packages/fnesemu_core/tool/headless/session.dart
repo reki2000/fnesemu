@@ -23,6 +23,7 @@ import '../cdrom_drive.dart';
 import '../input_sequence.dart';
 import '../local_disc.dart';
 import '../ps_io.dart';
+import 'media_decoder.dart';
 import 'options.dart';
 
 /// the options that set up the core, shared by the subcommands that run it
@@ -44,7 +45,8 @@ const mediaFlags = {
   "--fixed-clock",
   "--log-cd",
   "--jit-stats",
-  "--frame-runner"
+  "--frame-runner",
+  "--media-decoder"
 };
 const mediaAliases = {
   "-b": "--bios",
@@ -75,7 +77,9 @@ const mediaUsage = """
                      the drive format defaults to 80; resume later states
                      without this option)
   --jit on|off      select native compilation for ps, n64, ss, 32x or dc
-  -r, --frame-runner run whole frames inside the core instead of exec()""";
+  -r, --frame-runner run whole frames inside the core instead of exec()
+  --media-decoder    decodes the movies and music of the media with
+                     mp_media_decoder (psp; libavcodec on Linux)""";
 
 /// the core name and the media files of the positional arguments
 (String, List<String>) coreAndFiles(Options o) {
@@ -305,6 +309,7 @@ class Session {
     }
     final exe = o["--exe"];
     if (exe != null) core.setRom(File(exe).readAsBytesSync());
+    if (o.flag("--media-decoder")) core.mediaDecoder = openMediaDecoder();
 
     final session =
         Session._(name, core, drive, pad, buttons, o.flag("--frame-runner"))

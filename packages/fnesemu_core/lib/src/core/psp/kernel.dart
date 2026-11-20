@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import '../../media_decoder.dart';
 import '../../pad_button.dart';
 import '../../pad_source.dart';
 import '../../util/state.dart';
@@ -265,6 +266,12 @@ class PspKernel {
   final _audioChannels = List.generate(8, (_) => _AudioChannel());
   late final _sas = PspSas(mem);
   late final _mpeg = PspMpeg(mem);
+
+  /// Decodes the movies; null plays them with black pictures.
+  set mediaDecoder(MediaDecoder? decoder) {
+    _mpeg.closeVideo();
+    _mpeg.decoder = decoder;
+  }
   final _puts = <int, _Put>{};
 
   /// Set by a handler that sent the processor into guest code of its own
@@ -1553,13 +1560,17 @@ class PspKernel {
       mem.write32(_arg(cpu, 0), _arg(cpu, 1));
       mem.write32(_arg(cpu, 3) + 40, _arg(cpu, 0));
       _mpeg
+        ..closeVideo()
         ..ringbuffer = _arg(cpu, 3)
         ..videoOn = false
         ..audioOn = false
         ..flush();
       return 0;
     });
-    on(0x606a4649, (cpu, _) => 0); // Delete
+    on(0x606a4649, (cpu, _) {
+      _mpeg.closeVideo(); // Delete
+      return 0;
+    });
     on(0xa780cf7e, (cpu, _) => 1); // MallocAvcEsBuf
     on(0xceb870b1, (cpu, _) => 0); // FreeAvcEsBuf
     on(0xf8dcb679, (cpu, _) {
@@ -1629,9 +1640,10 @@ class PspKernel {
       return 0;
     });
     on(0x0e3c2e9d, (cpu, _) {
-      // AvcDecode(mpeg, au, frameWidth, buffer, init): a black picture
+      // AvcDecode(mpeg, au, frameWidth, buffer, init): the picture of the
+      // unit that GetAvcAu took
       final bufferAt = mem.read32(_arg(cpu, 3));
-      _mpeg.blackPicture(bufferAt, _arg(cpu, 2));
+      _mpeg.decodePicture(bufferAt, _arg(cpu, 2));
       if (cpu.r[8] != 0) mem.write32(cpu.r[8], 1);
       return 0;
     });
