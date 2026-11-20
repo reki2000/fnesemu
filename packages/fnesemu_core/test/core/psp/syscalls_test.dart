@@ -28,6 +28,14 @@ const _freeFpl = 0xf6414a71;
 const _registerSubIntr = 0xca04a2b9;
 const _enableSubIntr = 0xfb8e22ec;
 const _lockVolatile = 0x3e0271d3;
+const _setFrameBuf = 0x289d82fe;
+const _getFrameBuf = 0xeeda2e54;
+const _createEventFlag = 0x55c20a00;
+const _setEventFlag = 0x1fb15a32;
+const _clearEventFlag = 0x812346e4;
+const _pollEventFlag = 0x30fd48f0;
+const _sleepThread = 0x9ace131e;
+const _wakeupThread = 0xd59ead2f;
 
 void main() {
   late PspMemory mem;
@@ -46,7 +54,7 @@ void main() {
         [_setSdk, _getSdk, _setCompiler, _printf, _allocBlock]
       ),
       ('ModuleMgrForUser', [_moduleId, _moduleByAddress]),
-      ('sceDisplay', [_displayFps]),
+      ('sceDisplay', [_displayFps, _setFrameBuf, _getFrameBuf]),
       ('InterruptManager', [_registerSubIntr, _enableSubIntr]),
       ('sceSuspendForUser', [_lockVolatile]),
       (
@@ -58,7 +66,13 @@ void main() {
           _deleteFpl,
           _allocateFpl,
           _tryAllocateFpl,
-          _freeFpl
+          _freeFpl,
+          _createEventFlag,
+          _setEventFlag,
+          _clearEventFlag,
+          _pollEventFlag,
+          _sleepThread,
+          _wakeupThread,
         ]
       ),
     ]);
@@ -86,6 +100,49 @@ void main() {
     call(_displayFps);
     expect(cpu.f[0], 60.0);
     expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('the frame buffer query writes each value to its own pointer', () {
+    expect(call(_setFrameBuf, [0x04000000, 512, 3, 1]), 0);
+    const at = 0x09000000;
+    for (var i = 0; i < 16; i += 4) {
+      mem.write32(at + i, 0xdeadbeef);
+    }
+    expect(call(_getFrameBuf, [at, at + 8, at + 4, 1]), 0);
+    expect(mem.read32(at) & 0x1fffffff, 0x04000000);
+    expect(mem.read32(at + 4), 3);
+    expect(mem.read32(at + 8), 512);
+    expect(mem.read32(at + 12), 0xdeadbeef);
+  });
+
+  test('an event flag poll matches all or any bits and clears them', () {
+    const out = 0x09000000;
+    final flag = call(_createEventFlag, [0, 0, 0x5, 0]);
+    expect(flag, greaterThan(0));
+    // all of 0x7 is not set yet; any of it is
+    expect(call(_pollEventFlag, [flag, 0x7, 0, out]).toUnsigned(32),
+        0x800201af);
+    expect(call(_pollEventFlag, [flag, 0x6, 1 | 0x20, out]), 0);
+    expect(mem.read32(out), 0x5);
+    // the any-bit wait cleared the waited bits 0x6, leaving 0x1
+    expect(call(_setEventFlag, [flag, 0x10]), 0);
+    expect(call(_pollEventFlag, [flag, 0x11, 0 | 0x10, out]), 0);
+    expect(mem.read32(out), 0x11);
+    expect(call(_pollEventFlag, [flag, 0x1, 1, out]).toUnsigned(32),
+        0x800201af);
+    expect(call(_setEventFlag, [flag, 0xff]), 0);
+    expect(call(_clearEventFlag, [flag, 0x0f]), 0);
+    expect(call(_pollEventFlag, [flag, 0xf0, 1, out]).toUnsigned(32),
+        0x800201af);
+    expect(call(_pollEventFlag, [flag, 0x0f, 0, out]), 0);
+    expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('a wake-up before the sleep lets the sleep return at once', () {
+    final main = kernel.current!;
+    expect(call(_wakeupThread, [main.id]), 0);
+    expect(call(_sleepThread), 0);
+    expect(main.status, PspThreadStatus.running);
   });
 
   test('k0 of a thread points at the cleared top of its stack', () {

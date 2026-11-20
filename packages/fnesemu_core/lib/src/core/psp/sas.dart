@@ -246,6 +246,28 @@ class PspSas {
     return shift >= 0 ? step << shift : step >> -shift;
   }
 
+  /// The paused voices, one bit per voice.
+  int get pauseFlags {
+    var flags = 0;
+    for (var i = 0; i < voiceCount; i++) {
+      if (_voices[i].paused) flags |= 1 << i;
+    }
+    return flags;
+  }
+
+  /// Pauses or resumes the voices whose bits are set in [voices].
+  int setPause(int voices, bool pause) {
+    for (var i = 0; i < voiceCount; i++) {
+      if (voices & (1 << i) != 0) _voices[i].paused = pause;
+    }
+    return 0;
+  }
+
+  int setGrain(int samples) {
+    grain = samples.clamp(0x40, 0x800);
+    return 0;
+  }
+
   int envelopeHeight(int index) => _voice(index)?.height ?? errorVoice;
 
   /// The voices that do not play, one bit per voice.
