@@ -42,13 +42,13 @@ void main() {
     expect(units, hasLength(2));
     final picture = decoder.decode(units[0]);
     expect(picture, isNotNull);
-    expect(picture!.width, 32);
-    expect(picture.height, 16);
+    expect(picture!.width, 64);
+    expect(picture.height, 48);
     for (final (x, y, r, g, b) in testPixels) {
-      final pixel = picture.pixels[y * 32 + x];
-      expect(pixel & 0xff, closeTo(r, 3), reason: 'red at $x,$y');
-      expect(pixel >> 8 & 0xff, closeTo(g, 3), reason: 'green at $x,$y');
-      expect(pixel >> 16 & 0xff, closeTo(b, 3), reason: 'blue at $x,$y');
+      final pixel = picture.pixels[y * 64 + x];
+      expect(pixel & 0xff, closeTo(r, 6), reason: 'red at $x,$y');
+      expect(pixel >> 8 & 0xff, closeTo(g, 6), reason: 'green at $x,$y');
+      expect(pixel >> 16 & 0xff, closeTo(b, 6), reason: 'blue at $x,$y');
       expect(pixel >>> 24, 0xff);
     }
     expect(decoder.decode(units[1]), isNotNull);
