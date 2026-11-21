@@ -1,6 +1,6 @@
 # mp_media_decoder
 
-Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and music of their media. H.264 goes through the decoder of the operating system, and ATRAC3plus through a shared libavcodec that the package loads at run time.
+Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and music of their media. H.264 goes through the decoder of the operating system, and ATRAC3plus through a shared libavcodec under the LGPL that the package loads at run time.
 
 `MediaDecoders.open()` finds the decoders of the platform. `openH264()` returns a `VideoDecoder` that takes one access unit at a time as an Annex B byte stream and returns the latest finished picture as RGBA pixels. A decoder may hold pictures back for reordering, so the picture can belong to an earlier unit. `openAtrac3plus()` returns an `AudioDecoder` that takes one frame of the block size at a time and returns interleaved 16-bit samples. A codec without a decoder on the platform returns null, and the caller plays the media without a picture or sound.
 
@@ -8,17 +8,27 @@ Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and 
 
 | Platform | H.264 | ATRAC3plus |
 |---|---|---|
-| Linux | libavcodec (no decoder of the system) | libavcodec |
+| Linux | GStreamer | libavcodec |
 | Android | MediaCodec (not yet) | libavcodec |
 | macOS, iOS | VideoToolbox (not yet) | libavcodec |
 | Windows | Media Foundation (not yet) | libavcodec |
 | Web | none yet | none yet |
 
+## GStreamer
+
+Linux has no H.264 decoder of its own, so the package uses GStreamer, the media framework of the desktop. It opens `libgstreamer-1.0.so.0` and `libgstapp-1.0.so.0` (LGPL) at run time and builds the pipeline `appsrc ! decodebin ! videoconvert ! appsink` with RGBA output. decodebin picks an H.264 decoder from the plugins installed on the system, such as `gstreamer1.0-libav` or `gstreamer1.0-plugins-bad` (openh264) on Debian and Ubuntu; without one, H.264 stays unsupported. The package does not ship a plugin, so the license and the patent terms of the decoder are those of the system.
+
+The pipeline decodes on its own threads. `decode()` waits up to 30 ms for the picture of the unit it was given, and counts a wait that runs out as one more unit that the decoder holds back for reordering, so later calls do not wait for it.
+
 ## libavcodec
 
-The package does not link libavcodec. It opens the shared library by name (`libavcodec.so.61` to `.58` with the libavutil of the same release on Linux, `avcodec-61.dll` and so on on Windows, `libavcodec.61.dylib` and so on on Apple platforms), so the library stays separate and replaceable, as the LGPL asks of a program that uses it. The bindings use only functions, the AVOptions of the codec context (`ar`, `ch_layout` or `ac`, `block_align`, `threads`) and the leading fields of `AVPacket` and `AVFrame`, which keep their layout across the major versions 58 to 61. Linux distributions ship the library; the other platforms need a build of it next to the app, which the package does not provide yet.
+The package does not link libavcodec. It opens the shared library by its file name (`libavcodec.so.61` to `.58` with the libavutil of the same release on Linux, `avcodec-61.dll` and so on on Windows, `libavcodec.61.dylib` and so on on Apple platforms), so the library stays separate and replaceable, as the LGPL asks of a program that uses it. It searches the directory named by `MP_MEDIA_DECODER_LIBAV_DIR`, the directory of the executable, its `lib` and the `Frameworks` of a macOS bundle before the names of the system.
 
-H.264 pictures come out as RGBA through the BT.601 matrix, in video range, or full range for the `yuvj420p` format. The decoder runs with one thread, so it adds no frame-threading delay.
+Only a build under the LGPL is used: the package checks `avcodec_license()` and `avutil_license()` and skips any other build. Linux distributions usually ship a GPL build, which the package therefore does not use.
+
+`tool/build_libav_atrac.sh` builds the library that the app ships: a pinned FFmpeg release configured with only the ATRAC3 and ATRAC3plus decoders, without GPL, version 3 or nonfree parts, and without system libraries. It checks the SHA-256 of the source tarball and puts the license text and the tarball beside the libraries, so that the source of the shipped build can be offered with it.
+
+The bindings use only functions, the AVOptions of the codec context (`ar`, `ch_layout` or `ac`, `block_align`) and the leading fields of `AVPacket` and `AVFrame`, which keep their layout across the major versions 58 to 61.
 
 ## Example
 
@@ -26,4 +36,4 @@ H.264 pictures come out as RGBA through the BT.601 matrix, in video range, or fu
 
 ## Tests
 
-`dart test` decodes a small H.264 stream of the ffmpeg test pattern and opens an ATRAC3plus decoder. The tests skip a codec that has no decoder on the machine. `cd example && flutter test` checks the access unit splitting and the PSMF reader of the example.
+`dart test` decodes a small H.264 stream of the ffmpeg test pattern and opens an ATRAC3plus decoder. Set `MP_MEDIA_DECODER_LIBAV_DIR` to the output directory of `tool/build_libav_atrac.sh` to test the ATRAC3plus decoder with that build. The tests skip a codec that has no decoder on the machine. `cd example && flutter test` checks the access unit splitting and the PSMF reader of the example.

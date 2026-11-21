@@ -5,13 +5,13 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import 'types.dart';
-import 'yuv.dart';
 
-// The decoders of a shared libavcodec found at run time. The package does
-// not link it: the library is loaded by name, so it stays a separate,
-// replaceable library. Only functions and the leading fields of AVPacket
-// and AVFrame are used, which keep their layout across the major versions
-// 58 to 61; the codec settings go through AVOptions.
+// The ATRAC3plus decoder of a shared libavcodec found at run time. The
+// package does not link it: the library is opened by its file name, so it
+// stays a separate, replaceable library, and only a build under the LGPL is
+// used. Only functions and the leading fields of AVPacket and AVFrame are
+// used, which keep their layout across the major versions 58 to 61; the
+// codec settings go through AVOptions.
 
 typedef _FindDecoderC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _FindDecoder = Pointer<Void> Function(Pointer<Utf8>);
@@ -35,20 +35,24 @@ typedef _OptSetInt = int Function(Pointer<Void>, Pointer<Utf8>, int, int);
 typedef _OptSetC = Int32 Function(
     Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Int32);
 typedef _OptSet = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int);
+typedef _LicenseC = Pointer<Utf8> Function();
+typedef _License = Pointer<Utf8> Function();
 
 // AVPacket: buf, pts, dts, data
 const _packetData = 24;
 
 // AVFrame: data[8], linesize[8], extended_data, width, height, nb_samples,
 // format
-const _frameLinesize = 64, _frameWidth = 104, _frameHeight = 108;
 const _frameSamples = 112, _frameFormat = 116;
 
-// AVPixelFormat and AVSampleFormat values
-const _yuv420p = 0, _yuvj420p = 12, _nv12 = 23;
+// AVSampleFormat values
 const _s16 = 1, _flt = 3, _s16p = 6, _fltp = 8;
 
-/// A shared libavcodec and its libavutil.
+/// The environment variable that names a directory to search for the
+/// libraries before the others.
+const libavDirVariable = 'MP_MEDIA_DECODER_LIBAV_DIR';
+
+/// A shared libavcodec and its libavutil, both under the LGPL.
 class LibAvcodec {
   LibAvcodec._(DynamicLibrary codec, DynamicLibrary util, this.name)
       : _findDecoder = codec.lookupFunction<_FindDecoderC, _FindDecoder>(
@@ -97,9 +101,9 @@ class LibAvcodec {
   final _OptSetInt _optSetInt;
   final _OptSet _optSet;
 
-  /// The library names to try, newest first, as pairs of libavcodec and
-  /// the libavutil of the same release.
-  static List<(String, String)> get _candidates {
+  /// The library file names to try, newest first, as pairs of libavcodec
+  /// and the libavutil of the same release.
+  static List<(String, String)> get _names {
     const versions = [(61, 59), (60, 58), (59, 57), (58, 56)];
     if (Platform.isWindows) {
       return [for (final (c, u) in versions) ('avcodec-$c.dll', 'avutil-$u.dll')];
@@ -117,23 +121,65 @@ class LibAvcodec {
     ];
   }
 
+  /// The directories to search before the names of the system: the one of
+  /// [libavDirVariable], then the ones where the app ships the libraries
+  /// (beside the executable, its `lib`, and the `Frameworks` of a macOS
+  /// bundle).
+  static List<String> get _directories {
+    final exe = File(Platform.resolvedExecutable).parent.path;
+    final sep = Platform.pathSeparator;
+    return [
+      if (Platform.environment[libavDirVariable] case final dir?
+          when dir.isNotEmpty)
+        dir,
+      exe,
+      '$exe${sep}lib',
+      if (Platform.isMacOS) '$exe$sep..${sep}Frameworks',
+    ];
+  }
+
   static LibAvcodec? _loaded;
   static bool _tried = false;
 
-  /// The first libavcodec that loads, or null when none does.
+  /// The first libavcodec under the LGPL that loads, or null when none
+  /// does. A build under the GPL, as Linux distributions ship, is skipped.
   static LibAvcodec? load() {
     if (_tried) return _loaded;
     _tried = true;
-    for (final (codecName, utilName) in _candidates) {
+    final sep = Platform.pathSeparator;
+    final paths = [
+      for (final dir in _directories)
+        for (final (codec, util) in _names)
+          ('$dir$sep$codec', '$dir$sep$util'),
+      ..._names,
+    ];
+    for (final (codecPath, utilPath) in paths) {
+      if (codecPath.contains(sep) && !File(codecPath).existsSync()) continue;
       try {
-        final util = DynamicLibrary.open(utilName);
-        final codec = DynamicLibrary.open(codecName);
-        return _loaded = LibAvcodec._(codec, util, codecName);
+        final util = DynamicLibrary.open(utilPath);
+        final codec = DynamicLibrary.open(codecPath);
+        if (!_isLgpl(codec, 'avcodec_license') ||
+            !_isLgpl(util, 'avutil_license')) {
+          continue;
+        }
+        return _loaded = LibAvcodec._(codec, util, codecPath);
       } on ArgumentError {
         // not this version
       }
     }
     return null;
+  }
+
+  /// Whether the license string that [function] of [library] returns is
+  /// the LGPL, as configure records it.
+  static bool _isLgpl(DynamicLibrary library, String function) {
+    try {
+      final license =
+          library.lookupFunction<_LicenseC, _License>(function)();
+      return license != nullptr && license.toDartString().startsWith('LGPL');
+    } on ArgumentError {
+      return false;
+    }
   }
 
   /// Whether the library has a decoder called [decoder].
@@ -172,13 +218,6 @@ class LibAvcodec {
     final holder = calloc<Pointer<Void>>()..value = pointer;
     free(holder);
     calloc.free(holder);
-  }
-
-  /// An H.264 decoder that outputs each picture without frame threading
-  /// delay; null when the library has none.
-  VideoDecoder? openH264() {
-    final context = _open('h264', (c) => _setInt(c, 'threads', 1));
-    return context == null ? null : _AvVideoDecoder(this, context);
   }
 
   /// An ATRAC3plus decoder for frames of [blockAlign] bytes; null when the
@@ -237,8 +276,6 @@ abstract class _AvStream {
   Pointer<Uint8> _plane(int index) => Pointer<Uint8>.fromAddress(
       (_frame.cast<Uint8>() + index * 8).cast<IntPtr>().value);
 
-  int _linesize(int index) => _int(_frameLinesize + index * 4);
-
   void flush() {
     if (_context != nullptr) _lib._flushBuffers(_context);
   }
@@ -249,57 +286,6 @@ abstract class _AvStream {
     LibAvcodec._freePointer(_lib._packetFree, _packet);
     LibAvcodec._freePointer(_lib._frameFree, _frame);
     _context = nullptr;
-  }
-}
-
-class _AvVideoDecoder extends _AvStream implements VideoDecoder {
-  _AvVideoDecoder(super.lib, super.context);
-
-  DecodedPicture? _latest;
-
-  @override
-  DecodedPicture? decode(Uint8List unit) {
-    _send(unit);
-    while (_receive()) {
-      _latest = _picture() ?? _latest;
-    }
-    return _latest;
-  }
-
-  DecodedPicture? _picture() {
-    final width = _int(_frameWidth), height = _int(_frameHeight);
-    final format = _int(_frameFormat);
-    if (width <= 0 || height <= 0) return null;
-    final lumaStride = _linesize(0);
-    final luma = _plane(0).asTypedList(lumaStride * height);
-    final chromaRows = (height + 1) >> 1;
-    switch (format) {
-      case _yuv420p || _yuvj420p:
-        final chromaStride = _linesize(1);
-        return DecodedPicture(
-            width,
-            height,
-            yuv420ToRgba(
-                width,
-                height,
-                luma,
-                lumaStride,
-                _plane(1).asTypedList(chromaStride * chromaRows),
-                _plane(2).asTypedList(_linesize(2) * chromaRows),
-                chromaStride,
-                fullRange: format == _yuvj420p));
-      case _nv12:
-        final chromaStride = _linesize(1);
-        final chroma = _plane(1).asTypedList(chromaStride * chromaRows);
-        return DecodedPicture(
-            width,
-            height,
-            yuv420ToRgba(width, height, luma, lumaStride, chroma,
-                Uint8List.sublistView(chroma, 1), chromaStride,
-                chromaStep: 2));
-      default:
-        return null;
-    }
   }
 }
 
