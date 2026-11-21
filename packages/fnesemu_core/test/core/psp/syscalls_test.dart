@@ -34,6 +34,7 @@ const _createEventFlag = 0x55c20a00;
 const _setEventFlag = 0x1fb15a32;
 const _clearEventFlag = 0x812346e4;
 const _pollEventFlag = 0x30fd48f0;
+const _referEventFlagStatus = 0xa66b0120;
 const _sleepThread = 0x9ace131e;
 const _wakeupThread = 0xd59ead2f;
 const _ioOpen = 0x109f50bc;
@@ -76,6 +77,7 @@ void main() {
           _setEventFlag,
           _clearEventFlag,
           _pollEventFlag,
+          _referEventFlagStatus,
           _sleepThread,
           _wakeupThread,
         ]
@@ -140,6 +142,19 @@ void main() {
     expect(call(_pollEventFlag, [flag, 0xf0, 1, out]).toUnsigned(32),
         0x800201af);
     expect(call(_pollEventFlag, [flag, 0x0f, 0, out]), 0);
+    expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('the status of an event flag shows its attributes and pattern', () {
+    final flag = call(_createEventFlag, [0, 0x200, 0x5, 0]);
+    expect(call(_setEventFlag, [flag, 0x30]), 0);
+    const info = 0x09000000;
+    expect(call(_referEventFlagStatus, [flag, info]), 0);
+    expect(mem.read32(info + 36), 0x200);
+    expect(mem.read32(info + 44), 0x35);
+    expect(mem.read32(info + 48), 0);
+    expect(call(_referEventFlagStatus, [flag + 99, info]).toUnsigned(32),
+        0x800201a9);
     expect(kernel.unknownCalls, isEmpty);
   });
 
