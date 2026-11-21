@@ -6,6 +6,7 @@ import '../../pad_button.dart';
 import '../../pad_source.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
+import 'atrac.dart';
 import 'disc.dart';
 import 'elf.dart';
 import 'ge.dart';
@@ -266,11 +267,15 @@ class PspKernel {
   final _audioChannels = List.generate(8, (_) => _AudioChannel());
   late final _sas = PspSas(mem);
   late final _mpeg = PspMpeg(mem);
+  late final _atrac = PspAtrac(mem);
 
   /// Decodes the movies; null plays them with black pictures.
   set mediaDecoder(MediaDecoder? decoder) {
     _mpeg.closeVideo();
     _mpeg.decoder = decoder;
+    _atrac
+      ..closeAll()
+      ..decoder = decoder;
   }
   final _puts = <int, _Put>{};
 
@@ -1653,6 +1658,44 @@ class PspKernel {
       return 0;
     });
 
+    // sceAtrac3plus: the ATRAC player, for files held whole in memory
+    on(0x780f88d1, (cpu, _) => _atrac.allocate(_arg(cpu, 0))); // GetAtracID
+    on(0x7a20e7af, // SetDataAndGetID(buffer, size)
+        (cpu, _) => _atrac.setDataAndGetId(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0x0e2a73ab, // SetData(id, buffer, size)
+        (cpu, _) => _atrac.setData(_arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2)));
+    on(0x61eb33f5, (cpu, _) => _atrac.release(_arg(cpu, 0)));
+    on(0x6a8c3cd5, // DecodeData(id, out, count, end, remainFrame)
+        (cpu, _) => _atrac.decode(_arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2),
+            _arg(cpu, 3), _arg(cpu, 4)));
+    on(0xa2bba8be, // GetSoundSample(id, end, loopStart, loopEnd)
+        (cpu, _) => _atrac.soundSample(
+            _arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
+    on(0x868120b5,
+        (cpu, _) => _atrac.setLoopNum(_arg(cpu, 0), _arg(cpu, 1).toSigned(32)));
+    on(0x644e5607, // ResetPlayPosition(id, sample, first, second)
+        (cpu, _) => _atrac.resetPlayPosition(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0x9ae849a7,
+        (cpu, _) => _atrac.remainFrame(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0x36faabfb,
+        (cpu, _) => _atrac.nextSample(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0xd6a5f2f7, (cpu, _) => _atrac.maxSample(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0xe23e3a35,
+        (cpu, _) => _atrac.nextDecodePosition(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0x31668baa, (cpu, _) => _atrac.channel(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0xa554a158, (cpu, _) => _atrac.bitrate(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0xfaa4f89b, // GetLoopStatus(id, count, status)
+        (cpu, _) =>
+            _atrac.loopStatus(_arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2)));
+    on(0x5d268707, // GetStreamDataInfo(id, write, available, offset)
+        (cpu, _) => _atrac.streamDataInfo(
+            _arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
+    on(0x7db31251, (cpu, _) => 0); // AddStreamData
+    on(0xca3ca3d2, // GetBufferInfoForReseting(id, sample, info)
+        (cpu, _) => _atrac.bufferInfoForResetting(_arg(cpu, 0), _arg(cpu, 2)));
+    on(0x83e85ea0, // GetSecondBufferInfo
+        (cpu, _) => PspAtrac.errorSecondBufferNotNeeded);
+
     // sceSasCore: the software synthesizer. The first argument of every
     // call is the guest's work area; this kernel keeps one synthesizer.
     on(0x42778a9f,
@@ -2841,6 +2884,7 @@ class PspKernel {
       ]);
     }
     _saveFiles(writer);
+    _atrac.saveState(writer);
   }
 
   /// Saves the open files: a disc or memory stick file by its path, which
@@ -3056,6 +3100,7 @@ class PspKernel {
     _discWaits.clear();
     if (reader.version >= 7) {
       _loadFiles(reader);
+      _atrac.loadState(reader);
     } else {
       _sas.init(256, PspSas.voiceCount, 0);
     }
