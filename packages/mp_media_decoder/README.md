@@ -9,8 +9,8 @@ Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and 
 | Platform | H.264 | ATRAC3plus |
 |---|---|---|
 | Linux | GStreamer | libavcodec |
-| Android | MediaCodec (not yet) | libavcodec |
-| macOS, iOS | VideoToolbox (not yet) | libavcodec |
+| Android | MediaCodec | libavcodec |
+| macOS, iOS | VideoToolbox | libavcodec |
 | Windows | Media Foundation | libavcodec |
 | Web | none yet | none yet |
 
@@ -23,6 +23,14 @@ The pipeline decodes on its own threads. `decode()` waits up to 30 ms for the pi
 ## Media Foundation
 
 Windows decodes H.264 with the H.264 decoder transform of Media Foundation (`CLSID_MSH264DecoderMFT`), driven through its COM interfaces from Dart. The transform decodes on the calling thread. It runs in low latency mode, so that each picture comes out as soon as the order of display allows, and gives NV12 pictures, which the package converts to RGBA. The transform does not decode pictures below 48x48. The N editions of Windows have no Media Foundation unless the media feature pack is installed, and H.264 stays unsupported there.
+
+## MediaCodec
+
+Android decodes H.264 with MediaCodec through the C API of the NDK (`libmediandk.so`), in synchronous mode with byte buffers. It prefers the software decoders of the Android Open Source Project (`c2.android.avc.decoder`, then `OMX.google.h264.decoder`), whose byte buffers hold planar YUV 4:2:0, and falls back to the decoder that the device picks for the type. For that decoder, the semi-planar color formats are read as NV12 and the others as planar, which may be wrong for the vendor formats of some devices. The codec decodes on its own threads, and `decode()` waits for the picture as the GStreamer decoder does. This backend has not run on a device yet.
+
+## VideoToolbox
+
+macOS and iOS decode H.264 with a VideoToolbox decompression session behind a small C shim (`src/videotoolbox.c`), which `hook/build.dart` builds for those platforms only. VideoToolbox gives its pictures to a callback that may run on a thread of its own, which Dart code cannot serve, so the shim keeps the latest picture under a lock. It turns the Annex B units into the length-prefixed form of the format description made from the parameter sets, decodes synchronously with temporal processing so that the pictures come in the order of display, and copies the BGRA picture out as RGBA. This backend has not run on a device yet.
 
 ## libavcodec
 

@@ -33,6 +33,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.3"
+  code_assets:
+    dependency: transitive
+    description:
+      name: code_assets
+      sha256: "1ef22a0be3af9370bd9481ac76db114db92bfe75d5ca2b2d7bc911764478a4d9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.0"
   collection:
     dependency: transitive
     description:
@@ -41,6 +49,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.19.1"
+  crypto:
+    dependency: transitive
+    description:
+      name: crypto
+      sha256: e3626ae6270383c9e3a549f34c9e4cd26c09ae6a9adaab2bf4737a00340efdc4
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.8"
   fake_async:
     dependency: transitive
     description:
@@ -57,6 +73,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  file:
+    dependency: transitive
+    description:
+      name: file
+      sha256: a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.0.1"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -75,6 +99,22 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  glob:
+    dependency: transitive
+    description:
+      name: glob
+      sha256: "218aeb56050c714f62a3182775320dfa04602b55074873e24e31bbd39bda96fb"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.0"
+  hooks:
+    dependency: transitive
+    description:
+      name: hooks
+      sha256: eaac480a35ec0814146c2c48d96aaa829e0e44a7662c88ae84c9edf4bc35651f
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.0"
   leak_tracker:
     dependency: transitive
     description:
@@ -107,6 +147,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.1.1"
+  logging:
+    dependency: transitive
+    description:
+      name: logging
+      sha256: c8245ada5f1717ed44271ed1c26b8ce85ca3228fd2ffdb75468ab01979309d61
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.3.0"
   matcher:
     dependency: transitive
     description:
@@ -127,10 +175,10 @@ packages:
     dependency: transitive
     description:
       name: meta
-      sha256: c82594181e3312f3d0695fc95aaaf7758d75b8d4ae2bbecf223b9fd5109a059d
+      sha256: "307249ce4ff29d58a18e97f6345f539382eb9c9c29ecda628900f31de0443dd9"
       url: "https://pub.dev"
     source: hosted
-    version: "1.18.3"
+    version: "1.19.0"
   mp_audio_stream:
     dependency: "direct main"
     description:
@@ -146,6 +194,14 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  native_toolchain_c:
+    dependency: transitive
+    description:
+      name: native_toolchain_c
+      sha256: "120b6fc66acd8a5ddeaeb1e59b78836bb3ec9919bd9d9dfb1e2401985710c2c0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.19.6"
   path:
     dependency: transitive
     description:
@@ -154,6 +210,38 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  platform:
+    dependency: transitive
+    description:
+      name: platform
+      sha256: a36d119c13416516a7b5913fbe8af8531e11633d784c550b2125f76c758524ec
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.2.0"
+  process:
+    dependency: transitive
+    description:
+      name: process
+      sha256: "4242ba3508d37e01808bdf71ad1d5bb93a8d671bf2e7450e6b1b353fb0808891"
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.0.6"
+  pub_semver:
+    dependency: transitive
+    description:
+      name: pub_semver
+      sha256: "261236774e8b1d69cfc6b9eabbc96c40f25e7a2d6b171f3385d4f65d5734fb24"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.1"
+  record_use:
+    dependency: transitive
+    description:
+      name: record_use
+      sha256: "1cb8564af8d43b464294411db9217f5ec04891c6f22ee2c32d73ae05e88a6bd2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.1"
   sky_engine:
     dependency: transitive
     description: flutter
@@ -231,6 +319,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.2"
+  yaml:
+    dependency: transitive
+    description:
+      name: yaml
+      sha256: f67cdd8e07d3c6329146aaef1ba043542b3134c12489f553ca9a7435d1068aea
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.4"
 sdks:
   dart: ">=3.13.0 <4.0.0"
   flutter: ">=3.22.0"
