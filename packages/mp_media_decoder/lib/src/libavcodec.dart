@@ -4,12 +4,14 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import 'libav_bundled.dart';
 import 'types.dart';
 
-// The ATRAC3plus decoder of a shared libavcodec found at run time. The
-// package does not link it: the library is opened by its file name, so it
-// stays a separate, replaceable library, and only a build under the LGPL is
-// used. Only functions and the leading fields of AVPacket and AVFrame are
+// The ATRAC3plus decoder of a shared libavcodec found at run time: the
+// mmd_libav that the build hook bundles (libav_bundled.dart), or a
+// libavcodec and libavutil opened by their file names. The package does not
+// link either, so the library stays separate and replaceable, and only a
+// build under the LGPL is used. Only functions and the leading fields of AVPacket and AVFrame are
 // used, which keep their layout across the major versions 58 to 61; the
 // codec settings go through AVOptions.
 
@@ -54,33 +56,46 @@ const libavDirVariable = 'MP_MEDIA_DECODER_LIBAV_DIR';
 
 /// A shared libavcodec and its libavutil, both under the LGPL.
 class LibAvcodec {
-  LibAvcodec._(DynamicLibrary codec, DynamicLibrary util, this.name)
-      : _findDecoder = codec.lookupFunction<_FindDecoderC, _FindDecoder>(
-            'avcodec_find_decoder_by_name'),
-        _allocContext = codec
-            .lookupFunction<_PtrOfPtrC, _PtrOfPtr>('avcodec_alloc_context3'),
-        _open2 = codec.lookupFunction<_Open2C, _Open2>('avcodec_open2'),
-        _sendPacket =
-            codec.lookupFunction<_TwoPtrC, _TwoPtr>('avcodec_send_packet'),
-        _receiveFrame =
-            codec.lookupFunction<_TwoPtrC, _TwoPtr>('avcodec_receive_frame'),
-        _flushBuffers =
-            codec.lookupFunction<_VoidPtrC, _VoidPtr>('avcodec_flush_buffers'),
-        _freeContext =
-            codec.lookupFunction<_FreePtrC, _FreePtr>('avcodec_free_context'),
+  LibAvcodec._(Pointer<Void> Function(String) symbol, this.name)
+      : _findDecoder = symbol('avcodec_find_decoder_by_name')
+            .cast<NativeFunction<_FindDecoderC>>()
+            .asFunction(),
+        _allocContext = symbol('avcodec_alloc_context3')
+            .cast<NativeFunction<_PtrOfPtrC>>()
+            .asFunction(),
+        _open2 =
+            symbol('avcodec_open2').cast<NativeFunction<_Open2C>>().asFunction(),
+        _sendPacket = symbol('avcodec_send_packet')
+            .cast<NativeFunction<_TwoPtrC>>()
+            .asFunction(),
+        _receiveFrame = symbol('avcodec_receive_frame')
+            .cast<NativeFunction<_TwoPtrC>>()
+            .asFunction(),
+        _flushBuffers = symbol('avcodec_flush_buffers')
+            .cast<NativeFunction<_VoidPtrC>>()
+            .asFunction(),
+        _freeContext = symbol('avcodec_free_context')
+            .cast<NativeFunction<_FreePtrC>>()
+            .asFunction(),
         _packetAlloc =
-            codec.lookupFunction<_NewPtrC, _NewPtr>('av_packet_alloc'),
+            symbol('av_packet_alloc').cast<NativeFunction<_NewPtrC>>().asFunction(),
         _packetFree =
-            codec.lookupFunction<_FreePtrC, _FreePtr>('av_packet_free'),
-        _newPacket =
-            codec.lookupFunction<_NewPacketC, _NewPacket>('av_new_packet'),
-        _packetUnref =
-            codec.lookupFunction<_VoidPtrC, _VoidPtr>('av_packet_unref'),
-        _frameAlloc = util.lookupFunction<_NewPtrC, _NewPtr>('av_frame_alloc'),
-        _frameFree = util.lookupFunction<_FreePtrC, _FreePtr>('av_frame_free'),
-        _optSetInt =
-            util.lookupFunction<_OptSetIntC, _OptSetInt>('av_opt_set_int'),
-        _optSet = util.lookupFunction<_OptSetC, _OptSet>('av_opt_set');
+            symbol('av_packet_free').cast<NativeFunction<_FreePtrC>>().asFunction(),
+        _newPacket = symbol('av_new_packet')
+            .cast<NativeFunction<_NewPacketC>>()
+            .asFunction(),
+        _packetUnref = symbol('av_packet_unref')
+            .cast<NativeFunction<_VoidPtrC>>()
+            .asFunction(),
+        _frameAlloc =
+            symbol('av_frame_alloc').cast<NativeFunction<_NewPtrC>>().asFunction(),
+        _frameFree =
+            symbol('av_frame_free').cast<NativeFunction<_FreePtrC>>().asFunction(),
+        _optSetInt = symbol('av_opt_set_int')
+            .cast<NativeFunction<_OptSetIntC>>()
+            .asFunction(),
+        _optSet =
+            symbol('av_opt_set').cast<NativeFunction<_OptSetC>>().asFunction();
 
   /// the file name of the libavcodec that was loaded
   final String name;
@@ -121,17 +136,14 @@ class LibAvcodec {
     ];
   }
 
-  /// The directories to search before the names of the system: the one of
-  /// [libavDirVariable], then the ones where the app ships the libraries
-  /// (beside the executable, its `lib`, and the `Frameworks` of a macOS
-  /// bundle).
+  /// The directories where the app may keep a libavcodec of its own,
+  /// searched after the bundled one and before the names of the system:
+  /// beside the executable, its `lib`, and the `Frameworks` of a macOS
+  /// bundle.
   static List<String> get _directories {
     final exe = File(Platform.resolvedExecutable).parent.path;
     final sep = Platform.pathSeparator;
     return [
-      if (Platform.environment[libavDirVariable] case final dir?
-          when dir.isNotEmpty)
-        dir,
       exe,
       '$exe${sep}lib',
       if (Platform.isMacOS) '$exe$sep..${sep}Frameworks',
@@ -142,16 +154,43 @@ class LibAvcodec {
   static bool _tried = false;
 
   /// The first libavcodec under the LGPL that loads, or null when none
-  /// does. A build under the GPL, as Linux distributions ship, is skipped.
+  /// does: the one in the directory of [libavDirVariable], the one bundled
+  /// by the build hook, then the ones in [_directories] and of the system.
+  /// A build under the GPL, as Linux distributions ship, is skipped.
   static LibAvcodec? load() {
     if (_tried) return _loaded;
     _tried = true;
+    final dir = Platform.environment[libavDirVariable] ?? '';
+    return _loaded = (dir.isEmpty ? null : _search([dir], system: false)) ??
+        _bundled() ??
+        _search(_directories, system: true);
+  }
+
+  /// The library that the build hook bundled; null without one.
+  static LibAvcodec? _bundled() {
+    final symbol = bundledLibavSymbols();
+    if (symbol == null) return null;
+    bool lgpl(String function) {
+      final license = symbol(function)
+          .cast<NativeFunction<_LicenseC>>()
+          .asFunction<_License>()();
+      return license != nullptr && license.toDartString().startsWith('LGPL');
+    }
+
+    if (!lgpl('avcodec_license') || !lgpl('avutil_license')) return null;
+    return LibAvcodec._(symbol, bundledLibavName);
+  }
+
+  /// The first pair of libraries in [directories], or of the system when
+  /// [system], that loads and is under the LGPL.
+  static LibAvcodec? _search(List<String> directories,
+      {required bool system}) {
     final sep = Platform.pathSeparator;
     final paths = [
-      for (final dir in _directories)
+      for (final dir in directories)
         for (final (codec, util) in _names)
           ('$dir$sep$codec', '$dir$sep$util'),
-      ..._names,
+      if (system) ..._names,
     ];
     for (final (codecPath, utilPath) in paths) {
       if (codecPath.contains(sep) && !File(codecPath).existsSync()) continue;
@@ -162,7 +201,14 @@ class LibAvcodec {
             !_isLgpl(util, 'avutil_license')) {
           continue;
         }
-        return _loaded = LibAvcodec._(codec, util, codecPath);
+        return LibAvcodec._(
+            (symbol) => (symbol.startsWith('avcodec_') ||
+                        symbol.startsWith('av_packet') ||
+                        symbol == 'av_new_packet'
+                    ? codec
+                    : util)
+                .lookup<Void>(symbol),
+            codecPath);
       } on ArgumentError {
         // not this version
       }
