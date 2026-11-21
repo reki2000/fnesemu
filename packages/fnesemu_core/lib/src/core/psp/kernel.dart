@@ -978,6 +978,27 @@ class PspKernel {
     on(0x328c546a,
         withCallbacks((cpu, _) => _waitEventFlag(cpu, poll: false)));
     on(0x30fd48f0, (cpu, _) => _waitEventFlag(cpu, poll: true));
+    on(0xa66b0120, (cpu, _) {
+      // ReferEventFlagStatus(id, info): the size, the name, the
+      // attributes, the initial and current patterns and the number of
+      // waiting threads. The kernel keeps neither the name nor the
+      // initial pattern; the name is left empty and the initial pattern
+      // reads as the current one.
+      final flag = _eventFlags[_arg(cpu, 0)];
+      if (flag == null) return _unknownEventFlag;
+      final at = _arg(cpu, 1);
+      final waiting = threads.values
+          .where((t) =>
+              t.status == PspThreadStatus.waitEvent &&
+              t.waitEvent == _arg(cpu, 0))
+          .length;
+      mem.write8(at + 4, 0);
+      mem.write32(at + 36, flag.attr);
+      mem.write32(at + 40, flag.pattern);
+      mem.write32(at + 44, flag.pattern);
+      mem.write32(at + 48, waiting);
+      return 0;
+    });
     on(0xe81caf8f, (cpu, _) {
       // CreateCallback(name, func, common): owned by the calling thread
       final id = _nextId++;
@@ -1614,6 +1635,24 @@ class PspKernel {
               (word >> 8 & 0xff) << 16 |
               (word >> 16 & 0xff) << 8 |
               word >>> 24);
+      return 0;
+    });
+    on(0x611e9e11, (cpu, _) {
+      // QueryStreamSize(header, size): the big-endian word at byte 12 of
+      // a PSMF header, the size of the program stream
+      final word = mem.read32(_arg(cpu, 0) + 12);
+      mem.write32(
+          _arg(cpu, 1),
+          (word & 0xff) << 24 |
+              (word >> 8 & 0xff) << 16 |
+              (word >> 16 & 0xff) << 8 |
+              word >>> 24);
+      return 0;
+    });
+    on(0x740fccd1, (cpu, _) {
+      // AvcDecodeStop(mpeg, frameWidth, buffer, status): no picture is
+      // held back, so none comes out
+      if (_arg(cpu, 3) != 0) mem.write32(_arg(cpu, 3), 0);
       return 0;
     });
     on(0x42560f23, (cpu, _) {
