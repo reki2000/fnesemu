@@ -231,6 +231,23 @@ void main() {
       expect((pixel10 >> 16) & 0xff, closeTo(0x80, 1));
     });
 
+    test('a doubled source alpha scales the added source', () {
+      mem.write32(0x04000000 + (20 * 512 + 10) * 4, 0xff000040);
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0x21, 1), // blending on
+            _cmd(0xdf, 0x0a6), // add, double source alpha, fixed
+            _cmd(0xe1, 0xffffff), // the fixed destination factor: one
+            _cmd(0x04, 0x60002),
+          ],
+          0x20ff0000); // blue at an eighth of full alpha
+      ge.enqueue(cpu, list, 0);
+      final pixel10 = pixel(10, 20);
+      expect(pixel10 & 0xff, 0x40);
+      expect((pixel10 >> 16) & 0xff, closeTo(0x40, 1));
+    });
+
     test('a textured sprite samples the texture', () {
       // A 2x2 texture at VRAM offset 0x10000: red, green, blue, white.
       const texAt = 0x10000;

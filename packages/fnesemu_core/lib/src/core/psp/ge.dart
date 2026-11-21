@@ -1334,6 +1334,16 @@ extension PspGeRaster on PspGe {
         return dstA;
       case 5:
         return 1 - dstA;
+      // The doubled alphas. How the hardware limits one minus a doubled
+      // alpha above one half is unclear; it stays at zero here.
+      case 6:
+        return 2 * srcA;
+      case 7:
+        return math.max(0.0, 1 - 2 * srcA);
+      case 8:
+        return 2 * dstA;
+      case 9:
+        return math.max(0.0, 1 - 2 * dstA);
       case 10: // the fixed color's matching channel
         return (fixed >> (channel * 8) & 0xff) / 255;
       default:
