@@ -16,6 +16,7 @@ import 'mpeg.dart';
 import 'printf.dart';
 import 'rtc.dart';
 import 'sas.dart';
+import 'utility.dart';
 
 /// Thread states of the kernel scheduler.
 class PspThreadStatus {
@@ -268,6 +269,7 @@ class PspKernel {
   late final _sas = PspSas(mem);
   late final _mpeg = PspMpeg(mem);
   late final _atrac = PspAtrac(mem);
+  late final _savedata = PspSavedataDialog(mem, () => _memStick);
 
   /// Decodes the movies; null plays them with black pictures.
   set mediaDecoder(MediaDecoder? decoder) {
@@ -828,6 +830,14 @@ class PspKernel {
       }
       return null;
     });
+
+    // sceUtility: the save data dialog. Its update call has nothing to
+    // draw. The module loading and the message dialog stay unknown calls,
+    // which return zero.
+    on(0x50c4cd57, (cpu, _) => _savedata.initStart(_arg(cpu, 0)));
+    on(0x8874dbe0, (cpu, _) => _savedata.getStatus());
+    on(0xd4b95ffb, (cpu, _) => 0);
+    on(0x9790b33c, (cpu, _) => _savedata.shutdownStart());
 
     // sceSuspendForUser: power locks do nothing. The volatile memory is
     // taken to be the 4 MiB below the user module area, handed to the game
@@ -2885,6 +2895,7 @@ class PspKernel {
     }
     _saveFiles(writer);
     _atrac.saveState(writer);
+    writer.ints([_savedata.status, _savedata.param, _savedata.mode]);
   }
 
   /// Saves the open files: a disc or memory stick file by its path, which
@@ -3103,6 +3114,17 @@ class PspKernel {
       _atrac.loadState(reader);
     } else {
       _sas.init(256, PspSas.voiceCount, 0);
+    }
+    _savedata
+      ..status = PspSavedataDialog.statusNone
+      ..param = 0
+      ..mode = -1;
+    if (reader.version >= 8) {
+      final x = reader.ints();
+      _savedata
+        ..status = x[0]
+        ..param = x[1]
+        ..mode = x[2];
     }
     current = threads[currentId];
     _nextDelayWake = 0x7fffffffffffffff;
