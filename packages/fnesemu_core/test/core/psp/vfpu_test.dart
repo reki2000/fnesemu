@@ -136,6 +136,28 @@ void main() {
       expect(cpu.v[12], floatBits(0.5));
     });
 
+    test('row pairs and triples run along the row their low bits name',
+        () {
+      final (cpu, _) = run((a) {
+        for (var i = 0; i < 3; i++) {
+          a.li(Reg.t0, floatBits(i + 1.0));
+          a.word(mtv(Reg.t0, reg(1, 0, i))); // C100 = 1, 2, 3
+        }
+        for (var c = 0; c < 4; c++) {
+          a.li(Reg.t0, floatBits(c + 5.0));
+          a.word(mtv(Reg.t0, reg(1, c, 3))); // R103 = 5, 6, 7, 8
+        }
+        a.word(0xd0008423); // vmov.t R003, C100: row 3, columns 0-2
+        a.word(0xd0008449); // vmov.t C211, C100: column 1, rows 1-3
+        a.word(0xd0006782); // vmov.p C020, R123: row 3, columns 2-3
+      });
+      expect([cpu.v[12], cpu.v[13], cpu.v[14]],
+          [floatBits(1), floatBits(2), floatBits(3)]);
+      expect([cpu.v[37], cpu.v[41], cpu.v[45]],
+          [floatBits(1), floatBits(2), floatBits(3)]);
+      expect([cpu.v[2], cpu.v[6]], [floatBits(7), floatBits(8)]);
+    });
+
     test('moves preserve denormals and NaN payloads', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x000116c2); // a positive denormal
@@ -189,6 +211,26 @@ void main() {
       expect(cpu.v[13], 0x01000000);
     });
 
+    test('vf2h truncates and flushes values below the half range', () {
+      final (cpu, _) = run((a) {
+        a.li(Reg.t0, 0x3f801fff); // 1.0 plus mantissa bits a half drops
+        a.word(mtv(Reg.t0, reg(1, 0, 0)));
+        a.li(Reg.t0, 0x38000000); // 2^-15, below the smallest normal half
+        a.word(mtv(Reg.t0, reg(1, 0, 1)));
+        a.word(0xd032048c); // vf2h.p S300, C100
+      }, steps: 20);
+      expect(cpu.v[48], 0x00003c00);
+    });
+
+    test('viim converts its signed immediate to a float', () {
+      final (cpu, _) = run((a) {
+        a.word(0xdf0000ff); // viim.s S000, 255
+        a.word(0xdf01ffff); // viim.s S010, -1
+      });
+      expect(cpu.v[0], 0x437f0000);
+      expect(cpu.v[1], 0xbf800000);
+    });
+
     test('vf2iz maps a NaN to the largest integer', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, 0x7fc00000); // NaN
@@ -218,6 +260,74 @@ void main() {
       });
       // 1 + 2 + 3 from the lanes, plus 3 * 1/2 from the constant lane.
       expect(cpu.v[0], floatBits(7.5));
+    });
+
+    test('vmmul reads its first source transposed', () {
+      final (cpu, _) = run((a) {
+        // M100 = [[1, 2], [3, 4]], M200 = [[5, 6], [7, 8]] by rows
+        final m1 = [1.0, 2.0, 3.0, 4.0], m2 = [5.0, 6.0, 7.0, 8.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(m1[i]));
+          a.word(mtv(Reg.t0, reg(1, i % 2, i ~/ 2)));
+          a.li(Reg.t0, floatBits(m2[i]));
+          a.word(mtv(Reg.t0, reg(2, i % 2, i ~/ 2)));
+        }
+        a.word(0xf0080480); // vmmul.p M000, M100, M200
+      }, steps: 40);
+      // transpose(M100) * M200 = [[26, 30], [38, 44]]
+      expect([cpu.v[0], cpu.v[1], cpu.v[4], cpu.v[5]],
+          [floatBits(26), floatBits(30), floatBits(38), floatBits(44)]);
+    });
+
+    test('vtfm reads its matrix transposed like vmmul', () {
+      final (cpu, _) = run((a) {
+        // M100 = [[1, 2], [3, 4]] by rows, C200 = (5, 6)
+        final m1 = [1.0, 2.0, 3.0, 4.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(m1[i]));
+          a.word(mtv(Reg.t0, reg(1, i % 2, i ~/ 2)));
+        }
+        a.li(Reg.t0, floatBits(5));
+        a.word(mtv(Reg.t0, reg(2, 0, 0)));
+        a.li(Reg.t0, floatBits(6));
+        a.word(mtv(Reg.t0, reg(2, 0, 1)));
+        a.word(0xf0880480); // vtfm2.p C000, M100, C200
+      }, steps: 40);
+      // transpose(M100) * (5, 6) = (23, 34)
+      expect([cpu.v[0], cpu.v[4]], [floatBits(23), floatBits(34)]);
+    });
+
+    test('vidt writes the identity line its operand names', () {
+      final (cpu, _) = run((a) {
+        a.word(0xd0038087); // vidt.q, column 3 of M1
+        a.word(0xd00380a6); // vidt.q, row 2 of M1
+        a.word(0xd0038049); // vidt.t, column 1 of M2 from row 1
+      });
+      // column 3 of M1: one at row 3
+      expect([cpu.v[16 + 3], cpu.v[16 + 7], cpu.v[16 + 11], cpu.v[16 + 15]],
+          [floatBits(0), floatBits(0), floatBits(0), floatBits(1)]);
+      // row 2 of M1: one at column 2
+      expect([cpu.v[24], cpu.v[25], cpu.v[26], cpu.v[27]],
+          [floatBits(0), floatBits(0), floatBits(1), floatBits(0)]);
+      // rows 1-3 of column 1 of M2: one at row 1
+      expect([cpu.v[32 + 5], cpu.v[32 + 9], cpu.v[32 + 13]],
+          [floatBits(1), floatBits(0), floatBits(0)]);
+    });
+
+    test('vhdp does not read the last lane of its first source', () {
+      final (cpu, _) = run((a) {
+        // C100 = (1, 2, 3, NaN), C200 = (1, 1, 1, 5)
+        final s = [1.0, 2.0, 3.0, double.nan];
+        final t = [1.0, 1.0, 1.0, 5.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(s[i]));
+          a.word(mtv(Reg.t0, reg(1, 0, i)));
+          a.li(Reg.t0, floatBits(t[i]));
+          a.word(mtv(Reg.t0, reg(2, 0, i)));
+        }
+        a.word(0x66088480); // vhdp.q S000, C100, C200
+      });
+      expect(cpu.v[0], floatBits(11));
     });
 
     test('vcrsp forms its components in reverse order', () {
@@ -280,6 +390,51 @@ void main() {
   });
 
   group('control registers', () {
+    test('vcmov moves on a set or clear code, or lane by lane', () {
+      final (cpu, _) = run((a) {
+        // C100 = (1, 2, 3, 4), C200 = (1, 0, 3, 0)
+        final c1 = [1.0, 2.0, 3.0, 4.0], c2 = [1.0, 0.0, 3.0, 0.0];
+        for (var i = 0; i < 4; i++) {
+          a.li(Reg.t0, floatBits(c1[i]));
+          a.word(mtv(Reg.t0, reg(1, 0, i)));
+          a.li(Reg.t0, floatBits(c2[i]));
+          a.word(mtv(Reg.t0, reg(2, 0, i)));
+        }
+        a.word(0xd006808c); // vzero.q C300
+        a.word(0xd0068090); // vzero.q C400
+        a.word(0xd0068094); // vzero.q C500
+        a.word(0x6c088481); // vcmp.q EQ, C100, C200: lanes 0 and 2
+        a.word(0xd2a6848c); // vcmovt.q C300, C100, 6
+        a.word(0xd2ae8490); // vcmovf.q C400, C100, 6
+        a.word(0xd2a98494); // vcmovf.q C500, C100, 1: code 1 is clear
+      }, steps: 60);
+      List<int> column(int m) =>
+          [for (var i = 0; i < 4; i++) cpu.v[m * 16 + i * 4]];
+      expect(column(3),
+          [floatBits(1), floatBits(0), floatBits(3), floatBits(0)]);
+      expect(column(4),
+          [floatBits(0), floatBits(2), floatBits(0), floatBits(4)]);
+      expect(column(5), [for (final x in [1.0, 2.0, 3.0, 4.0]) floatBits(x)]);
+    });
+
+    test('vcmp tells NaN and infinity apart', () {
+      int lane0(int cond, int bits) {
+        final (cpu, _) = run((a) {
+          a.li(Reg.t0, bits);
+          a.word(mtv(Reg.t0, reg(1, 0, 0)));
+          a.word(0x6c040400 | cond); // vcmp.s cond, S100, S100
+        }, steps: 20);
+        return cpu.vcc & 1;
+      }
+
+      const nan = 0x7fc00000, inf = 0x7f800000, one = 0x3f800000;
+      // EN, EI, ES, NN, NI, NS on NaN, infinity and 1.0
+      final conds = [9, 10, 11, 13, 14, 15];
+      expect([for (final c in conds) lane0(c, nan)], [1, 0, 1, 0, 1, 0]);
+      expect([for (final c in conds) lane0(c, inf)], [0, 1, 1, 1, 0, 0]);
+      expect([for (final c in conds) lane0(c, one)], [0, 0, 0, 1, 1, 1]);
+    });
+
     test('the random state registers mask writes to twenty bits', () {
       final (cpu, _) = run((a) {
         a.li(Reg.t0, -1);

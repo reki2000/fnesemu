@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/core_controller.dart';
 import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core/psp/module.dart';
 import 'package:fnesemu_core/src/core/psp/psp.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -120,7 +122,8 @@ class _SlowDrive extends FakeCdromDrive {
   }
 }
 
-_Iso _gameIso(Uint8List bootElf) {
+/// a game disc with [bootElf] as BOOT.BIN, and [eboot] as EBOOT.BIN
+_Iso _gameIso(Uint8List bootElf, {List<int>? eboot}) {
   final iso = _Iso();
   iso.pvd(20);
   iso.directory(20, [
@@ -133,6 +136,7 @@ _Iso _gameIso(Uint8List bootElf) {
   ]);
   iso.directory(22, [
     (30, bootElf.length, false, 'BOOT.BIN;1'.codeUnits),
+    if (eboot != null) (60, eboot.length, false, 'EBOOT.BIN;1'.codeUnits),
   ]);
   iso.directory(23, [
     (40, _hello.length, false, 'HELLO.TXT;1'.codeUnits),
@@ -142,6 +146,7 @@ _Iso _gameIso(Uint8List bootElf) {
   iso.data(40, _hello.codeUnits);
   iso.data(41, [for (var i = 0; i < _bigSize; i++) _bigByte(i)]);
   iso.data(50, 'top-level\n'.codeUnits);
+  if (eboot != null) iso.data(60, eboot);
   return iso;
 }
 
@@ -177,6 +182,49 @@ Uint8List _bootProgram() {
     a.jal(stub(_nidClose));
     a.nop();
     a.jal(stubs['LoadExecForUser/$_nidExitGame'] ?? 0);
+    a.nop();
+    return a.finish();
+  }
+
+  final probe = buildTestElf(code: assemble(const {}), imports: imports);
+  return buildTestElf(code: assemble(probe.$2.stubOf), imports: imports).$1;
+}
+
+/// The raw disc program: opens the umd device at 0x09101000, seeks to
+/// sector 40 and reads one sector into 0x09102000. The results of the
+/// open, the seek and the read go to 0x09100000.
+Uint8List _umdProgram() {
+  const imports = [
+    (_io, [_nidOpen, _nidLseek32, _nidRead, _nidClose]),
+    ('LoadExecForUser', [_nidExitGame]),
+  ];
+  List<int> assemble(Map<String, int> stubs) {
+    int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
+    final a = Asm(0x08800000);
+    a.li(Reg.s7, 0x09100000);
+    a.li(Reg.a0, 0x09101000);
+    a.li(Reg.a1, 1);
+    a.li(Reg.a2, 0);
+    a.jal(stub(_io, _nidOpen));
+    a.nop();
+    a.sw(Reg.v0, 0, Reg.s7);
+    a.addiu(Reg.s0, Reg.v0, 0);
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.li(Reg.a1, 40);
+    a.li(Reg.a2, 0);
+    a.jal(stub(_io, _nidLseek32));
+    a.nop();
+    a.sw(Reg.v0, 4, Reg.s7);
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.li(Reg.a1, 0x09102000);
+    a.li(Reg.a2, 1);
+    a.jal(stub(_io, _nidRead));
+    a.nop();
+    a.sw(Reg.v0, 8, Reg.s7);
+    a.addiu(Reg.a0, Reg.s0, 0);
+    a.jal(stub(_io, _nidClose));
+    a.nop();
+    a.jal(stub('LoadExecForUser', _nidExitGame));
     a.nop();
     return a.finish();
   }
@@ -443,18 +491,48 @@ void main() {
     expect(await module.identifyDisc(other.drive()), isNull);
   });
 
+  test('controller initialization waits for the disc boot executable',
+      () async {
+    final disc = _gameIso(_bootProgram());
+    final drive = _SlowDrive(disc.rawSectors(), 16, 5);
+    final controller = CoreController((_) {}, (_) {}, (_) {}, Sram());
+    addTearDown(controller.stop);
+    await controller.init('psp', drive: drive);
+    expect(await controller.saveState(), isNotEmpty);
+    expect(drive.hold, 0);
+  });
+
   test('boots the disc boot file and reads through it', () async {
     final core = Psp();
     addTearDown(core.dispose);
-    core.setCdromDrive(_gameIso(_bootProgram()).drive());
-    for (var i = 0; i < 400 && core.dump().startsWith('psp: no media'); i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    expect(core.dump().startsWith('psp: no media'), isFalse);
+    await core.setCdromDrive(_gameIso(_bootProgram()).drive());
     core.mem.writeBytes(
         0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
     _runToEnd(core);
     expect(core.kernelLog, contains(_hello));
+  });
+
+  test('a boot file of zeros leaves the boot to EBOOT.BIN', () async {
+    final boot = _bootProgram();
+    final core = Psp();
+    addTearDown(core.dispose);
+    await core.setCdromDrive(
+        _gameIso(Uint8List(boot.length), eboot: boot).drive());
+    core.mem.writeBytes(
+        0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
+    _runToEnd(core);
+    expect(core.kernelLog, contains(_hello));
+  });
+
+  test('an encrypted boot file is reported as not supported', () async {
+    final encrypted = [...'~PSP'.codeUnits, ...List.filled(400, 1)];
+    final core = Psp();
+    addTearDown(core.dispose);
+    await expectLater(
+        core.setCdromDrive(
+            _gameIso(Uint8List(64), eboot: encrypted).drive()),
+        throwsA(isA<FormatException>()
+            .having((e) => e.message, 'message', contains('encrypted'))));
   });
 
   test('a read waits for a sector the drive is still loading', () async {
@@ -464,11 +542,7 @@ void main() {
     // first five reads; the mount never touches it, only the guest's
     // read does, and that read must wait instead of coming back empty.
     final drive = _SlowDrive(_gameIso(_bootProgram()).rawSectors(), 40, 5);
-    core.setCdromDrive(drive);
-    for (var i = 0; i < 400 && core.dump().startsWith('psp: no media'); i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    expect(core.dump().startsWith('psp: no media'), isFalse);
+    await core.setCdromDrive(drive);
     core.mem.writeBytes(
         0x09100000, [...'disc0:/PSP_GAME/DATA/HELLO.TXT'.codeUnits, 0]);
     _runToEnd(core);
@@ -476,14 +550,27 @@ void main() {
     expect(core.kernelLog, contains(_hello));
   });
 
+  test('the umd device reads the disc by sectors', () async {
+    final core = Psp();
+    addTearDown(core.dispose);
+    core.setRom(_umdProgram());
+    await core.setCdromDrive(_gameIso(_bootProgram()).drive());
+    core.mem.writeBytes(0x09101000, [...'umd0:'.codeUnits, 0]);
+    _runToEnd(core);
+    expect(core.mem.read32(0x09100000), greaterThan(0));
+    expect(core.mem.read32(0x09100004), 40);
+    expect(core.mem.read32(0x09100008), 1);
+    final text = [
+      for (var i = 0; i < _hello.length; i++) core.mem.read8(0x09102000 + i)
+    ];
+    expect(String.fromCharCodes(text), _hello);
+  });
+
   test('file operations on the mounted disc', () async {
     final core = Psp();
     addTearDown(core.dispose);
     core.setRom(_opsProgram());
-    core.setCdromDrive(_gameIso(_bootProgram()).drive());
-    // The mount attaches the drive to the already created kernel; it
-    // completes on its own because the fake drive answers at once.
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await core.setCdromDrive(_gameIso(_bootProgram()).drive());
     void putString(int at, String text) =>
         core.mem.writeBytes(at, [...text.codeUnits, 0]);
     putString(0x09101000, 'disc0:/PSP_GAME/DATA/HELLO.TXT');

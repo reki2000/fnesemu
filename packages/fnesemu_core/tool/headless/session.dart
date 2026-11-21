@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
@@ -10,6 +11,7 @@ import 'package:fnesemu_core/src/core/md/md.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/ps2/ps2.dart';
+import 'package:fnesemu_core/src/core/psp/psp.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/pad_source.dart';
@@ -21,6 +23,7 @@ import '../cdrom_drive.dart';
 import '../input_sequence.dart';
 import '../local_disc.dart';
 import '../ps_io.dart';
+import 'media_decoder.dart';
 import 'options.dart';
 
 /// the options that set up the core, shared by the subcommands that run it
@@ -42,7 +45,8 @@ const mediaFlags = {
   "--fixed-clock",
   "--log-cd",
   "--jit-stats",
-  "--frame-runner"
+  "--frame-runner",
+  "--media-decoder"
 };
 const mediaAliases = {
   "-b": "--bios",
@@ -54,7 +58,8 @@ const mediaAliases = {
 
 const mediaUsage = """
   <core> <rom|bios> [disc]   the core (nes fds pce md mdcd 32x ps ps2 ss snes gb gba n64
-                             sms mk3 smstms gg ws wsc dc) and its media
+                             sms mk3 smstms gg ws wsc dc psp) and its media;
+                             psp takes an executable, or a disc image alone
   -i, --input SEQ    the button presses, in the syntax of tool/input_sequence.dart
   -b, --bios FILE    gba / fds: BIOS; dc: flash image (positional media is boot ROM)
   -3, --boot A,B,C   32x: the boot roms (main 256B, master 2048B, slave 1024B)
@@ -72,7 +77,9 @@ const mediaUsage = """
                      the drive format defaults to 80; resume later states
                      without this option)
   --jit on|off      select native compilation for ps, n64, ss, 32x or dc
-  -r, --frame-runner run whole frames inside the core instead of exec()""";
+  -r, --frame-runner run whole frames inside the core instead of exec()
+  --media-decoder    decodes the movies and music of the media with
+                     mp_media_decoder (psp)""";
 
 /// the core name and the media files of the positional arguments
 (String, List<String>) coreAndFiles(Options o) {
@@ -246,14 +253,19 @@ class Session {
       (core as Md)
           .setExpansionBootRoms(main: roms[0], master: roms[1], slave: roms[2]);
     }
+    // psp boots the boot file of a disc given alone, without an executable
+    final discOnly = core is Psp &&
+        files.length == 1 &&
+        DiscFileKind.of(files[0]) == DiscFileKind.image;
+    final discFile = discOnly ? files[0] : files.length > 1 ? files[1] : null;
     SimpleCdromDrive? drive;
-    if (files.length > 1) {
+    if (discFile != null) {
       drive = SimpleCdromDrive();
-      await drive.insert(localDisc(files[1]));
-      if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
+      await drive.insert(localDisc(discFile));
+      if (!drive.status.isReady) throw "cannot read disc: $discFile";
     }
     // the md cdrom core needs the disc before the bios
-    if (name == "mdcd" && drive != null) core.setCdromDrive(drive);
+    if (name == "mdcd" && drive != null) await core.setCdromDrive(drive);
     if (core is Dc) {
       final path = files[0].toLowerCase();
       if (path.endsWith('.dc') || path.endsWith('.dc.zip')) {
@@ -273,13 +285,13 @@ class Session {
     } else if (core is Ps2) {
       if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
       core.setBiosFiles([loadRom(files[0])]);
-    } else {
+    } else if (!discOnly) {
       if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
       core.setRom(loadRom(files[0]));
     }
     // a boot after a disc-less bios state attaches the disc at the boot
     if (name != "mdcd" && drive != null && dcBootFrame == null) {
-      core.setCdromDrive(drive);
+      await core.setCdromDrive(drive);
     }
     // ps2 looks up the media type and the disc ID in the background. Wait for
     // the lookups, so that the result does not depend on how soon the first
@@ -297,6 +309,7 @@ class Session {
     }
     final exe = o["--exe"];
     if (exe != null) core.setRom(File(exe).readAsBytesSync());
+    if (o.flag("--media-decoder")) core.mediaDecoder = openMediaDecoder();
 
     final session =
         Session._(name, core, drive, pad, buttons, o.flag("--frame-runner"))

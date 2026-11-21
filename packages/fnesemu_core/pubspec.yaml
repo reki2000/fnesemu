@@ -18,4 +18,6 @@ dev_dependencies:
     path: ../cdrom_image
   image: ^4.3.0
   lints: ^5.0.0
+  mp_media_decoder: # tool/: the movies and music of the media
+    path: ../mp_media_decoder
   test: ^1.21.1

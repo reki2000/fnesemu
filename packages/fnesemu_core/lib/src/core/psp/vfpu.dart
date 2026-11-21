@@ -66,28 +66,26 @@ extension PspVfpuExec on Allegrex {
   ///
   /// The operand names an anchor element by its matrix, its row (bits
   /// 6-5) and its column (bits 1-0); bit 5 also gives the direction,
-  /// down a column when clear and along a row when set. A pair's
-  /// anchor sits in the half of the matrix bit 6 selects (rows or
-  /// columns 0-1 or 2-3), a triple's anchor is offset by bit 6 alone,
-  /// and a quad starts at the edge.
+  /// down a column when clear and along a row when set. A vector's
+  /// bits 1-0 name the column it runs down, or the row it runs along.
+  /// Bit 6 places its first lane: a pair starts at lane 0 or 2, a
+  /// triple at lane 0 or 1, and a quad at lane 0.
   List<int> _elems(int operand, int count) {
     final matrix = (operand >> 2) & 7;
     final base = matrix * 16;
-    final column = operand & 3;
+    final line = operand & 3;
     if (count == 1) {
-      return [base + ((operand >> 5) & 3) * 4 + column];
+      return [base + ((operand >> 5) & 3) * 4 + line];
     }
     final half = (operand >> 6) & 1;
+    final start = count == 2 ? half * 2 : (count == 3 ? half : 0);
     if (operand & 0x20 == 0) {
-      final row = count == 2 ? half * 2 : (count == 3 ? half : 0);
       return [
-        for (var i = 0; i < count; i++) base + (row + i) * 4 + column
+        for (var i = 0; i < count; i++) base + (start + i) * 4 + line
       ];
     }
-    final row = count == 2 ? half * 2 : (count == 3 ? half : column);
-    final start = count == 4 ? 0 : column;
     return [
-      for (var i = 0; i < count; i++) base + row * 4 + start + i
+      for (var i = 0; i < count; i++) base + line * 4 + start + i
     ];
   }
 
@@ -447,10 +445,11 @@ extension PspVfpuExec on Allegrex {
         _writeDest(vd, 1, [sum]);
         return true;
       case 0x194: // VHDP: the dot product with the last used lane's
-        // product replaced by the second source's lane itself
-        var sum = b[n - 1] - a[n - 1] * b[n - 1];
+        // product replaced by the second source's lane itself; the first
+        // source's last lane is not read, so a NaN there does not matter
+        var sum = 0.0;
         for (var i = 0; i < 4; i++) {
-          sum += a[i] * b[i];
+          sum += i == n - 1 ? b[i] : a[i] * b[i];
         }
         _writeDest(vd, 1, [sum]);
         return true;
@@ -518,13 +517,13 @@ extension PspVfpuExec on Allegrex {
         6 => x >= y, // GE
         7 => x > y, // GT
         8 => x == 0, // EZ
-        9 => _isNormal(x), // EN
+        9 => x.isNaN, // EN
         10 => x.isInfinite, // EI
-        11 => x.isNaN, // ES
+        11 => x.isNaN || x.isInfinite, // ES
         12 => x != 0, // NZ
-        13 => !_isNormal(x), // NN
+        13 => !x.isNaN, // NN
         14 => !x.isInfinite, // NI
-        15 => !x.isNaN, // NS
+        15 => !x.isNaN && !x.isInfinite, // NS
         _ => false,
       };
       if (result) {
@@ -542,12 +541,6 @@ extension PspVfpuExec on Allegrex {
     return true;
   }
 
-  static bool _isNormal(double x) =>
-      x != 0 &&
-      !x.isNaN &&
-      !x.isInfinite &&
-      x.abs() >= 1.1754943508222875e-38;
-
   /// VFPU5: the prefix instructions and the immediate moves.
   bool _vfpu5(int w) {
     final func = (w >> 23) & 7;
@@ -561,9 +554,9 @@ extension PspVfpuExec on Allegrex {
       case 4: // VPFXD
         vpfxd = w & 0xfffff;
         return true;
-      case 6: // VIIM: the immediate becomes the register's raw bits
+      case 6: // VIIM: the signed immediate converts to a float
         final at = _elems((w >> 16) & 0x7f, 1)[0];
-        v[at] = (w & 0xffff).toSigned(16) & 0xffffffff;
+        v[at] = _bits((w & 0xffff).toSigned(16).toDouble());
         return true;
       case 7: // VFIM: the immediate is a half-precision float
         final at = _elems((w >> 16) & 0x7f, 1)[0];
@@ -590,39 +583,21 @@ extension PspVfpuExec on Allegrex {
     return (sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13);
   }
 
+  /// The half-precision bits of a single: the mantissa is truncated,
+  /// values below the smallest normal half become a signed zero and
+  /// values above the largest become infinity.
   static int _floatToHalf(int bits) {
     final sign = (bits >> 31) & 1;
     final exp = (bits >> 23) & 0xff;
     final mant = bits & 0x7fffff;
     if (exp == 0xff) {
       // Infinities keep no mantissa; a NaN keeps its low ten bits.
-      return (sign << 15) | 0x7c00 | (mant == 0 ? 0 : mant & 0x3ff);
+      return (sign << 15) | 0x7c00 | (mant & 0x3ff);
     }
-    var e = exp - 127 + 15;
+    final e = exp - 127 + 15;
     if (e >= 31) return (sign << 15) | 0x7c00;
-    if (e <= 0) {
-      if (e < -10) return sign << 15;
-      var m = mant | 0x800000;
-      final shift = 14 - e;
-      final rest = m & ((1 << shift) - 1);
-      m >>= shift;
-      if (rest > (1 << (shift - 1)) ||
-          (rest == (1 << (shift - 1)) && m & 1 != 0)) {
-        m++;
-      }
-      return (sign << 15) | m;
-    }
-    var m = mant >> 13;
-    final rest = mant & 0x1fff;
-    if (rest > 0x1000 || (rest == 0x1000 && m & 1 != 0)) {
-      m++;
-      if (m == 0x400) {
-        m = 0;
-        e++;
-        if (e == 31) return (sign << 15) | 0x7c00;
-      }
-    }
-    return (sign << 15) | (e << 10) | m;
+    if (e <= 0) return sign << 15;
+    return (sign << 15) | (e << 10) | (mant >> 13);
   }
 
   /// COP2: moves between the integer core and the coprocessor, the
@@ -745,11 +720,23 @@ extension PspVfpuExec on Allegrex {
         return true;
       }
       if (sub == 1) {
-        // VCMOV: copy when the named condition code is set.
-        final code = (w >> 16) & 31;
-        if ((vcc >> (code & 7)) & 1 != 0) {
+        // VCMOVT (bit 19 clear) and VCMOVF (bit 19 set): copy when the
+        // named condition code is set or clear. Code 6 tests each lane
+        // against its own condition code bit; code 7 is unspecified.
+        final code = (w >> 16) & 7;
+        final want = (w >> 19) & 1 == 0 ? 1 : 0;
+        bool moves(int lane) =>
+            code < 6 && (vcc >> code) & 1 == want ||
+            code == 6 && (vcc >> lane) & 1 == want;
+        if (code == 6) {
           final a = _readSource(vs, vpfxs, n);
-          _writeDest(vd, n, a);
+          final lanes = _elems(vd, n);
+          _writeDest(vd, n, [
+            for (var i = 0; i < n; i++)
+              moves(i) ? a[i] : _floatOf(v[lanes[i]]),
+          ]);
+        } else if (moves(0)) {
+          _writeDest(vd, n, _readSource(vs, vpfxs, n));
         } else {
           _consumePrefixes();
         }
@@ -766,9 +753,15 @@ extension PspVfpuExec on Allegrex {
       return true;
     }
     switch (sel) {
-      case 0x03: // VIDT: the basis vector of the destination's anchor
-        final anchor = _elems(vd, 1)[0] % 16;
-        final along = vd & 0x20 != 0 ? anchor % 4 : anchor ~/ 4;
+      case 0x03: // VIDT: the destination's line of the identity matrix.
+        // Column c (or row r) of the identity has its one at row c (or
+        // column r), so the one sits at the lane of that index, counted
+        // from the vector's first lane; a single is one on the diagonal.
+        final half = (vd >> 6) & 1;
+        final start = n == 2 ? half * 2 : (n == 3 ? half : 0);
+        final along = n == 1
+            ? (((vd >> 5) & 3) == (vd & 3) ? 0 : -1)
+            : (vd & 3) - start;
         _writeDest(vd, n, [
           for (var i = 0; i < n; i++) i == along ? 1.0 : 0.0,
         ]);
@@ -1252,12 +1245,15 @@ extension PspVfpuExec on Allegrex {
       final n = _sizeOf(w);
       if (func == 0) {
         // VMMUL: the product of the two source matrices over the
-        // size's submatrix; a zero result is a positive zero here.
+        // size's submatrix, the first one read transposed, so a
+        // transposed first operand gives the plain product. A game
+        // composing a translation with a model matrix needs this order.
+        // A zero result is a positive zero here.
         for (var r = 0; r < n; r++) {
           for (var c = 0; c < n; c++) {
             var sum = 0.0;
             for (var k = 0; k < n; k++) {
-              sum += _matrixAt(vs, r, k) * _matrixAt(vt, k, c);
+              sum += _matrixAt(vs, k, r) * _matrixAt(vt, k, c);
             }
             _writeMatrixElement(vd, r, c, sum == 0 ? 0.0 : sum);
           }
@@ -1278,6 +1274,8 @@ extension PspVfpuExec on Allegrex {
     if (func >= 1 && func <= 3) {
       // VTFM and VHTFM of size func + 1; the homogeneous form's size
       // field names one lane fewer and its last term is a constant one.
+      // Lane i is the dot product of the vector with line i of the
+      // matrix read transposed, as VMMUL reads its first source.
       final size = _sizeOf(w);
       final homogeneous = size == func;
       final count = func + 1;
@@ -1287,7 +1285,7 @@ extension PspVfpuExec on Allegrex {
         var sum = 0.0;
         for (var j = 0; j < count; j++) {
           final term = homogeneous && j == count - 1 ? 1.0 : a[j];
-          sum += _matrixAt(vs, i, j) * term;
+          sum += _matrixAt(vs, j, i) * term;
         }
         out[i] = sum;
       }

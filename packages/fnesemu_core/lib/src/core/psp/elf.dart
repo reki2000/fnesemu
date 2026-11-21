@@ -24,8 +24,10 @@ class PspModuleImage {
   /// The first address past the loaded segments, in user memory.
   final int end;
   final List<PspImport> imports;
+  final List<({int start, int end})> segments;
   const PspModuleImage(
-      this.name, this.entry, this.gp, this.base, this.end, this.imports);
+      this.name, this.entry, this.gp, this.base, this.end, this.imports,
+      this.segments);
 }
 
 /// Loads the executable formats of the handheld: plain 32-bit little-endian
@@ -59,12 +61,14 @@ class PspElf {
     final shoff = data.getUint32(32, Endian.little);
     final shnum = data.getUint16(48, Endian.little);
     final shstrndx = data.getUint16(50, Endian.little);
-    if (shoff == 0 || shstrndx >= shnum) return false;
+    if (shoff == 0 || shstrndx >= shnum || shoff + shnum * 40 > body.length) {
+      return false;
+    }
     final strOff = data.getUint32(shoff + shstrndx * 40 + 16, Endian.little);
     const wanted = '.rodata.sceModuleInfo';
     for (var i = 0; i < shnum; i++) {
       final nameAt = strOff + data.getUint32(shoff + i * 40, Endian.little);
-      if (nameAt + wanted.length > body.length) continue;
+      if (nameAt + wanted.length >= body.length) continue;
       var match = true;
       for (var j = 0; j < wanted.length; j++) {
         if (body[nameAt + j] != wanted.codeUnitAt(j)) {
@@ -79,19 +83,31 @@ class PspElf {
 
   /// The executable bytes inside a PBP package.
   static Uint8List pbpExecutable(Uint8List body) {
+    if (body.length < 40) throw const FormatException('Truncated PBP header');
     final data = ByteData.sublistView(body);
     final at = data.getUint32(32, Endian.little);
     final next = data.getUint32(36, Endian.little);
     final end = next > at ? next : body.length;
-    if (at >= end || end > body.length) {
+    if (at < 40 || at >= end || end > body.length) {
       throw const FormatException('PBP has no executable section');
     }
     return Uint8List.sublistView(body, at, end);
   }
 
+  /// True if [body] starts with the header of an encrypted executable.
+  static bool isEncrypted(Uint8List body) =>
+      body.length >= 4 &&
+      body[0] == 0x7e &&
+      body[1] == 0x50 &&
+      body[2] == 0x53 &&
+      body[3] == 0x50;
+
   static PspModuleImage load(PspMemory mem, Uint8List body) {
     if (isPbp(body)) body = pbpExecutable(body);
-    if (!isElf(body)) {
+    if (isEncrypted(body)) {
+      throw const FormatException('encrypted executables are not supported');
+    }
+    if (!isElf(body) || body.length < 52) {
       throw const FormatException('not an ELF executable');
     }
     final data = ByteData.sublistView(body);
@@ -104,6 +120,10 @@ class PspElf {
     final entry = u32(24);
     final phoff = u32(28), shoff = u32(32);
     final phnum = u16(44), shnum = u16(48), shstrndx = u16(50);
+    if (phoff + phnum * 32 > body.length ||
+        shoff + shnum * 40 > body.length) {
+      throw const FormatException('Truncated ELF header table');
+    }
 
     var minVaddr = 0x7fffffff, maxEnd = 0;
     for (var i = 0; i < phnum; i++) {
@@ -117,12 +137,19 @@ class PspElf {
       throw const FormatException('ELF has no loadable segments');
     }
     final base = type == 0xffa0 || minVaddr < PspMemory.ramAt ? _userBase : 0;
+    final segments = <({int start, int end})>[];
 
     for (var i = 0; i < phnum; i++) {
       final at = phoff + i * 32;
       if (u32(at) != 1) continue;
       final offset = u32(at + 4), vaddr = u32(at + 8) + base;
       final filesz = u32(at + 16), memsz = u32(at + 20);
+      final phys = PspMemory.physical(vaddr);
+      if (filesz > memsz || offset + filesz > body.length ||
+          phys < PspMemory.ramAt || phys + memsz > PspMemory.ramEnd) {
+        throw const FormatException('Invalid ELF load segment');
+      }
+      segments.add((start: phys, end: phys + memsz));
       mem.writeBytes(
           vaddr, Uint8List.sublistView(body, offset, offset + filesz));
       for (var j = filesz; j < memsz; j++) {
@@ -145,6 +172,9 @@ class PspElf {
     var moduleInfoAt = -1;
     var stubTop = 0, stubEnd = 0;
     final relocState = _RelocState();
+    final segmentAddrs = [
+      for (var i = 0; i < phnum; i++) u32(phoff + i * 32 + 8)
+    ];
     for (var i = 0; i < shnum; i++) {
       final at = shoff + i * 40;
       final shType = u32(at + 4);
@@ -152,7 +182,8 @@ class PspElf {
           shOffset = u32(at + 16),
           shSize = u32(at + 20);
       if (shType == 9 || shType == 0x700000a0) {
-        _relocate(mem, body, shOffset, shSize, base, relocState);
+        _relocate(
+            mem, body, shOffset, shSize, base, segmentAddrs, relocState);
       }
       final name = sectionName(at);
       if (name == '.rodata.sceModuleInfo') moduleInfoAt = shAddr + base;
@@ -161,7 +192,7 @@ class PspElf {
         stubEnd = stubTop + shSize;
       }
     }
-    relocState.finish(mem, base);
+    relocState.finish(mem);
 
     var gp = 0;
     var moduleName = '';
@@ -191,30 +222,42 @@ class PspElf {
       at += (words >= 5 ? words : 5) * 4;
     }
     return PspModuleImage(
-        moduleName, entry + base, gp, base, maxEnd + base, imports);
+        moduleName, entry + base, gp, base, maxEnd + base, imports, segments);
   }
 
+  /// Applies the relocations at [offset] of [body]. The info word of an
+  /// entry names two program headers besides the type: the location is
+  /// relative to the address of the first, and the address the entry
+  /// refers to is relative to that of the second.
   static void _relocate(PspMemory mem, Uint8List body, int offset,
-      int size, int base, _RelocState state) {
+      int size, int base, List<int> segmentAddrs, _RelocState state) {
     if (base == 0) return;
     final data = ByteData.sublistView(body);
     for (var at = offset; at + 8 <= offset + size; at += 8) {
-      final rOffset = data.getUint32(at, Endian.little) + base;
       final rInfo = data.getUint32(at + 4, Endian.little);
+      final offsetBase = (rInfo >> 8) & 0xff, addrBase = (rInfo >> 16) & 0xff;
+      if (offsetBase >= segmentAddrs.length ||
+          addrBase >= segmentAddrs.length) {
+        throw const FormatException('Invalid ELF relocation');
+      }
+      final rOffset = data.getUint32(at, Endian.little) +
+          segmentAddrs[offsetBase] +
+          base;
+      final addend = segmentAddrs[addrBase] + base;
       switch (rInfo & 0xff) {
         case 2: // word
-          mem.write32(rOffset, mem.read32(rOffset) + base);
+          mem.write32(rOffset, mem.read32(rOffset) + addend);
         case 4: // jump target field
           final word = mem.read32(rOffset);
           mem.write32(
               rOffset,
               (word & 0xfc000000) |
-                  (((word & 0x3ffffff) + (base >> 2)) & 0x3ffffff));
-        case 5: // high half (a lui): registers with the state, which
-          // pairs it with the low halves that use its register.
-          state.addHi(mem, rOffset, base);
+                  (((word & 0x3ffffff) + (addend >> 2)) & 0x3ffffff));
+        case 5: // high half (a lui): collected by the state, which
+          // pairs it with a low half that uses its register.
+          state.addHi(mem, rOffset, addend);
         case 6: // low half
-          state.addLo(mem, rOffset, base);
+          state.addLo(mem, rOffset, addend);
       }
     }
   }
@@ -222,77 +265,64 @@ class PspElf {
 
 /// Pairing state for the high/low half relocations of one module.
 ///
-/// The relocation stream does not pair a high half (a lui) with its
-/// low halves in any fixed order: several high halves can share one
-/// low half where control flow merges, one high half serves many low
-/// halves, and a low half can be listed before its high half. The
-/// link between them is the register: a low half uses the register
-/// its high half loads. High halves keep their original immediate
-/// because completing a pair rewrites the word it came from.
+/// A low half's relocated value does not depend on its high half: it is
+/// the low 16 bits of its immediate plus the address it refers to. A
+/// high half needs the immediate of a low half for the carry, and the
+/// stream does not pair them in a fixed order: several high halves can
+/// share one low half where control flow merges, one high half serves
+/// many low halves, and a low half can be listed before its high half.
+/// The link between them is the register: a low half uses the register
+/// its high half loads. So the halves are collected first, and each
+/// high half takes the nearest low half after it in the stream that
+/// uses its register, unless another high half of that register comes
+/// first; failing that, the nearest such low half before it.
 class _RelocState {
-  /// Every high half seen, as (location, immediate, destination
-  /// register, paired) in stream order.
-  final _his = <(int, int, int, bool)>[];
-
-  /// Low halves seen before any matching high half, as (location,
-  /// immediate, base register).
-  final _earlyLos = <(int, int, int)>[];
-
-  void _writePair(PspMemory mem, (int, int, int, bool) hi, int loAt,
-      int loImm, int base) {
-    final target = ((hi.$2 << 16) + loImm + base) & 0xffffffff;
-    final hiWord = mem.read32(hi.$1), loWord = mem.read32(loAt);
-    mem.write32(hi.$1,
-        (hiWord & 0xffff0000) | (((target + 0x8000) >>> 16) & 0xffff));
-    mem.write32(loAt, (loWord & 0xffff0000) | (target & 0xffff));
-  }
+  /// Every half in stream order, as (is high, location, immediate,
+  /// register, the value the entry adds). The register is the
+  /// destination of a high half and the base of a low half.
+  final _halves = <(bool, int, int, int, int)>[];
 
   void addHi(PspMemory mem, int at, int base) {
     final word = mem.read32(at);
-    final hi = (at, word & 0xffff, (word >> 16) & 31, false);
-    _his.add(hi);
-    // Low halves that arrived before this high half pair with it now.
-    _earlyLos.removeWhere((lo) {
-      if (lo.$3 != hi.$3) return false;
-      _writePair(mem, hi, lo.$1, lo.$2, base);
-      return true;
-    });
+    _halves.add((true, at, word & 0xffff, (word >> 16) & 31, base));
   }
 
   void addLo(PspMemory mem, int at, int base) {
     final word = mem.read32(at);
-    final rs = (word >> 21) & 31;
-    final loImm = (word & 0xffff).toSigned(16);
-    var paired = false;
-    (int, int, int, bool)? latest;
-    for (var i = 0; i < _his.length; i++) {
-      final hi = _his[i];
-      if (hi.$3 != rs) continue;
-      latest = hi;
-      if (!hi.$4) {
-        _writePair(mem, hi, at, loImm, base);
-        _his[i] = (hi.$1, hi.$2, hi.$3, true);
-        paired = true;
-      }
-    }
-    if (paired) return;
-    if (latest != null) {
-      // A shared high half serving one more low half.
-      _writePair(mem, latest, at, loImm, base);
-    } else {
-      _earlyLos.add((at, loImm, rs));
-    }
+    _halves.add(
+        (false, at, (word & 0xffff).toSigned(16), (word >> 21) & 31, base));
   }
 
-  /// Relocates low halves whose high half never appeared (the high
-  /// half is zero, e.g. an address formed from the gp register) on
-  /// their own.
-  void finish(PspMemory mem, int base) {
-    for (final lo in _earlyLos) {
-      final word = mem.read32(lo.$1);
-      mem.write32(
-          lo.$1, (word & 0xffff0000) | ((lo.$2 + base) & 0xffff));
+  /// The immediate of the low half that completes the high half at
+  /// [index], or zero when none uses its register.
+  int _partner(int index) {
+    final reg = _halves[index].$4;
+    for (var i = index + 1; i < _halves.length; i++) {
+      final (isHi, _, imm, r, _) = _halves[i];
+      if (r != reg) continue;
+      if (isHi) break;
+      return imm;
     }
-    _earlyLos.clear();
+    for (var i = index - 1; i >= 0; i--) {
+      final (isHi, _, imm, r, _) = _halves[i];
+      if (!isHi && r == reg) return imm;
+    }
+    return 0;
+  }
+
+  /// Writes every collected half.
+  void finish(PspMemory mem) {
+    for (var i = 0; i < _halves.length; i++) {
+      final (isHi, at, imm, _, base) = _halves[i];
+      final word = mem.read32(at);
+      if (isHi) {
+        final target = ((imm << 16) + _partner(i) + base) & 0xffffffff;
+        mem.write32(
+            at, (word & 0xffff0000) | (((target + 0x8000) >>> 16) & 0xffff));
+      } else {
+        mem.write32(at, (word & 0xffff0000) | ((imm + base) & 0xffff));
+      }
+    }
+    _halves.clear();
   }
 }

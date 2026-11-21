@@ -57,6 +57,31 @@ void main() {
     expect((hi << 16) + lo, target); // the pair still forms the pointer
   });
 
+  test('a later low half of another segment leaves a pair intact', () {
+    // The a0 pair at 0 and 4 refers to the second segment, at 0x20000. A
+    // later low half on a0 refers to the first segment; it must not
+    // rewrite the high half of the pair.
+    final code = <int>[
+      (0x0f << 26) | (4 << 16) | 0, // lui a0, 0
+      (0x23 << 26) | (4 << 21) | (4 << 16) | 0x20, // lw a0, 0x20(a0)
+      (0x23 << 26) | (4 << 21) | (4 << 16) | 0x4, // lw a0, 4(a0)
+      0,
+      0,
+    ];
+    final (bytes, _) = buildTestElf(
+      code: code,
+      prx: true,
+      secondSegmentAt: 0x20000,
+      relocs: [(0, 5 | 1 << 16), (4, 6 | 1 << 16), (8, 6)],
+    );
+    final mem = PspMemory();
+    PspElf.load(mem, bytes);
+    const base = 0x08804000;
+    final hi = mem.read32(base) & 0xffff;
+    final lo = (mem.read32(base + 4) & 0xffff).toSigned(16);
+    expect((hi << 16) + lo, base + 0x20000 + 0x20);
+  });
+
   test('a jump relocation shifts the target field', () {
     final code = <int>[
       (0x02 << 26) | (0x10 >> 2), // j 0x10 (segment relative)
@@ -67,6 +92,43 @@ void main() {
     PspElf.load(mem, bytes);
     final word = mem.read32(0x08804000);
     expect((word & 0x3ffffff) << 2, 0x10 + 0x08804000);
+  });
+
+  test('a relocation follows the segments its info names', () {
+    // The second segment starts at 8. The pair at 0 and the word at 8
+    // refer to offset 0x28 of it, 0x30; the word at 12 is listed at
+    // offset 4 of it.
+    final code = <int>[
+      (0x0f << 26) | (8 << 16) | 0, // lui t0, 0
+      (0x09 << 26) | (8 << 21) | (8 << 16) | 0x28, // addiu t0, t0, 0x28
+      0x28,
+      0x30,
+    ];
+    final (bytes, _) = buildTestElf(
+      code: code,
+      prx: true,
+      secondSegmentAt: 8,
+      relocs: [
+        (0, 5 | 1 << 16),
+        (4, 6 | 1 << 16),
+        (8, 2 | 1 << 16),
+        (4, 2 | 1 << 8),
+      ],
+    );
+    final mem = PspMemory();
+    PspElf.load(mem, bytes);
+    const base = 0x08804000;
+    final hi = mem.read32(base) & 0xffff;
+    final lo = (mem.read32(base + 4) & 0xffff).toSigned(16);
+    expect((hi << 16) + lo, base + 0x30);
+    expect(mem.read32(base + 8), base + 0x30);
+    expect(mem.read32(base + 12), base + 0x30);
+  });
+
+  test('a relocation naming a missing segment is rejected', () {
+    final (bytes, _) =
+        buildTestElf(code: [0], prx: true, relocs: [(0, 2 | 1 << 16)]);
+    expect(() => PspElf.load(PspMemory(), bytes), throwsFormatException);
   });
 
   test('pbp packages unwrap to their executable', () {

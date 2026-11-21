@@ -12,6 +12,7 @@ class PspMemory {
   static const scratchSize = 0x4000;
   static const vramAt = 0x04000000;
   static const vramSize = 0x200000;
+  static const vramMirrors = 0x800000;
   static const ramAt = 0x08000000;
   static const ramSize = 0x2000000;
   static const ramEnd = ramAt + ramSize;
@@ -35,8 +36,12 @@ class PspMemory {
 
   (ByteData, int) _region(int phys) {
     if (phys >= ramAt && phys < ramEnd) return (_ramData, phys - ramAt);
-    if (phys >= vramAt && phys < vramAt + vramSize) {
-      return (_vramData, phys - vramAt);
+    // Video memory repeats every 2 MiB up to 0x04800000; games read the
+    // depth buffer as a texture through such a mirror. Some mirrors may
+    // present the depth buffer in another layout on the hardware, which
+    // is not verified here, so all of them read the memory as stored.
+    if (phys >= vramAt && phys < vramAt + vramMirrors) {
+      return (_vramData, (phys - vramAt) & (vramSize - 1));
     }
     if (phys >= scratchAt && phys < scratchAt + scratchSize) {
       return (_scratchData, phys - scratchAt);
@@ -106,9 +111,9 @@ class PspMemory {
     return out;
   }
 
-  void writeBytes(int addr, List<int> bytes, [int offset = 0]) {
+  void writeBytes(int addr, List<int> bytes) {
     for (var i = 0; i < bytes.length; i++) {
-      write8(addr + i, bytes[offset + i]);
+      write8(addr + i, bytes[i]);
     }
   }
 

@@ -18,6 +18,7 @@ import 'debug/game_layout.dart';
 import 'floating_game_menu.dart';
 import 'game_list.dart';
 import 'key_handler.dart';
+import 'media_decoder/media_decoder.dart';
 import 'pad_input.dart';
 import 'recent_game.dart';
 import 'rom_archive.dart';
@@ -237,6 +238,9 @@ class MainPageState extends State<MainPage> {
 
     _padInput = PadInput()..enabled = false;
     _controller.input = _padInput;
+    final mediaDecoder = openMediaDecoder();
+    _log.info("media decoders: ${mediaDecoder.name}");
+    _controller.mediaDecoder = mediaDecoder;
     _keyHandler = KeyHandler(controller: _controller, input: _padInput);
     _inputLifecycle = AppLifecycleListener(
         onInactive: _padInput.clear,
