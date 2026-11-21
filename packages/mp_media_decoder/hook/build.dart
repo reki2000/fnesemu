@@ -20,7 +20,32 @@ const _release =
     'https://github.com/reki2000/fnesemu/releases/download/libav-atrac-7.1.1-1';
 
 /// the SHA-256 of the library of each target of the build script
-const _sha256 = <String, String>{};
+const _sha256 = {
+  'android-arm':
+      'de81c26ad75822a969cf830fe03931a25093f8fbcd367c2104214715ce3b4fdb',
+  'android-arm64':
+      '4734f2e4bab6da7eca45a675bb2a179aa4f83732b9294303bce2d029544d49d8',
+  'android-x64':
+      '373aa41781dc88ad707466faef518da0a306de35cc8a54363a3d37247b379621',
+  'ios-arm64':
+      'e1d944f666c72465b838bfc187901db301d03e740dcca5b5daf82ed766a39303',
+  'iossim-arm64':
+      '649ffc0d19f52d05bcf4fd01776cb6b8c2420eac09973b6bb50ecb5b1e30d05e',
+  'iossim-x64':
+      '6042f2df9894e63d8c5b8ffaae13bfc801b26630889b3d5b8c51f89da7fd4485',
+  'linux-arm64':
+      '40f2d0afb976c39184e771a6b74f24d0b3ab021bcecafeddbf479d1a026cf483',
+  'linux-x64':
+      'a6d3b412c1488acd9c1f80df29fbdc4eb6f9b750e53454c0a06e75fad2e4aba5',
+  'macos-arm64':
+      '799a78715ce61912ea0032ad249009548be58dcdbaa8c8d61024d6a839dad492',
+  'macos-x64':
+      '031527b599f8b6efca20ca6f8a3b7b721e17de8e0d109d125f442f8a29da1515',
+  'windows-arm64':
+      '644dce2fec1aadf610c1303d868777cbcbcc8212d914072d7c4320879895838d',
+  'windows-x64':
+      '1005136c0f1a7d93e5448ac975a7f14f0fe345daf9f8edbba0545503fe4fa55c',
+};
 
 void main(List<String> args) async {
   await build(args, (input, output) async {

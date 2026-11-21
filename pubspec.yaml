@@ -41,4 +41,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/app_icon.svg
+    - assets/licenses/LGPL-2.1.txt
 

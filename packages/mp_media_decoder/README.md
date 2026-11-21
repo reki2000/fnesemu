@@ -1,6 +1,6 @@
 # mp_media_decoder
 
-Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and music of their media. H.264 goes through the decoder of the operating system, and ATRAC3plus through a shared libavcodec under the LGPL that the package loads at run time.
+Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and music of their media. H.264 goes through the decoder of the operating system, and ATRAC3plus through a shared libavcodec under the LGPL that the package bundles and loads at run time.
 
 `MediaDecoders.open()` finds the decoders of the platform. `openH264()` returns a `VideoDecoder` that takes one access unit at a time as an Annex B byte stream and returns the latest finished picture as RGBA pixels. A decoder may hold pictures back for reordering, so the picture can belong to an earlier unit. `openAtrac3plus()` returns an `AudioDecoder` that takes one frame of the block size at a time and returns interleaved 16-bit samples. A codec without a decoder on the platform returns null, and the caller plays the media without a picture or sound.
 
@@ -34,11 +34,30 @@ macOS and iOS decode H.264 with a VideoToolbox decompression session behind a sm
 
 ## libavcodec
 
-The package does not link libavcodec. It opens the shared library by its file name (`libavcodec.so.61` to `.58` with the libavutil of the same release on Linux, `avcodec-61.dll` and so on on Windows, `libavcodec.61.dylib` and so on on Apple platforms), so the library stays separate and replaceable, as the LGPL asks of a program that uses it. It searches the directory named by `MP_MEDIA_DECODER_LIBAV_DIR`, the directory of the executable, its `lib` and the `Frameworks` of a macOS bundle before the names of the system.
+The package does not link libavcodec. It loads it at run time, so the library stays separate and replaceable, as the LGPL asks of a program that uses it, and it tries these in order:
+
+1. the libraries in the directory named by `MP_MEDIA_DECODER_LIBAV_DIR`;
+2. `mmd_libav`, the library that `hook/build.dart` bundles;
+3. the libraries in the directory of the executable, its `lib` and the `Frameworks` of a macOS bundle;
+4. the libraries of the system by their file names.
+
+In a directory, the package looks for `mmd_libav` under the file name of the platform (`libmmd_libav.so`, `mmd_libav.dll`, `libmmd_libav.dylib`) or of a release asset (`mmd_libav-linux-x64.so` and so on), then for a libavcodec with the libavutil of the same release (`libavcodec.so.61` to `.58` on Linux, `avcodec-61.dll` and so on on Windows, `libavcodec.61.dylib` and so on on Apple platforms).
 
 Only a build under the LGPL is used: the package checks `avcodec_license()` and `avutil_license()` and skips any other build. Linux distributions usually ship a GPL build, which the package therefore does not use.
 
-`tool/build_libav_atrac.sh` builds the library that the app ships: a pinned FFmpeg release configured with only the ATRAC3 and ATRAC3plus decoders, without GPL, version 3 or nonfree parts, and without system libraries. It checks the SHA-256 of the source tarball and puts the license text and the tarball beside the libraries, so that the source of the shipped build can be offered with it.
+`tool/build_libav_atrac.sh TARGET OUT_DIR` builds `mmd_libav` for one target of the app (`linux-x64`, `android-arm64`, `windows-x64`, `macos-arm64`, `ios-arm64`, `iossim-arm64` and so on). It configures a pinned FFmpeg release with only the ATRAC3 and ATRAC3plus decoders, without GPL, version 3 or nonfree parts, without system libraries and without assembly, and checks the SHA-256 of the source tarball. It then links the static libavcodec and libavutil into one shared library that exports only the functions that the package calls and needs only the C library and the threads of the system.
+
+The `Release libav-atrac` workflow (`.github/workflows/libav-atrac.yaml`) runs the script for every target when a `libav-atrac-<FFmpeg version>-<build>` tag is pushed. It publishes the libraries, their SHA-256, the FFmpeg source tarball, the text of the LGPL and the script as a GitHub Release. The build hook downloads the library of the target from the release that `_release` names, checks it against the SHA-256 in `_sha256`, keeps it in the shared output directory of the hooks, and bundles it as a code asset. A new build of the library takes a new tag and an update of both constants. The user-defines of the package change the bundling:
+
+```yaml
+hooks:
+  user_defines:
+    mp_media_decoder:
+      libav_file: path/to/mmd_libav-linux-x64.so # bundle this build instead
+      bundle_libav: false # bundle no library
+```
+
+`dart build cli` does not bundle the native assets of a dev dependency, so a command-line tool of a package that has this one as a dev dependency finds the library through `MP_MEDIA_DECODER_LIBAV_DIR` or the other locations instead.
 
 The bindings use only functions, the AVOptions of the codec context (`ar`, `ch_layout` or `ac`, `block_align`) and the leading fields of `AVPacket` and `AVFrame`, which keep their layout across the major versions 58 to 61.
 
@@ -48,4 +67,4 @@ The bindings use only functions, the AVOptions of the codec context (`ar`, `ch_l
 
 ## Tests
 
-`dart test` decodes a small (64x48) H.264 stream of the ffmpeg test pattern and opens an ATRAC3plus decoder. Set `MP_MEDIA_DECODER_LIBAV_DIR` to the output directory of `tool/build_libav_atrac.sh` to test the ATRAC3plus decoder with that build. The tests skip a codec that has no decoder on the machine. `cd example && flutter test` checks the access unit splitting and the PSMF reader of the example.
+`dart test` decodes a small (64x48) H.264 stream of the ffmpeg test pattern and opens an ATRAC3plus decoder. The build hook bundles `mmd_libav` for the tests too; set `MP_MEDIA_DECODER_LIBAV_DIR` to the output directory of `tool/build_libav_atrac.sh` to test another build. The tests skip a codec that has no decoder on the machine. `cd example && flutter test` checks the access unit splitting and the PSMF reader of the example.

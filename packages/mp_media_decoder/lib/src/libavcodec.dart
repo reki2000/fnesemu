@@ -187,9 +187,13 @@ class LibAvcodec {
       {required bool system}) {
     final sep = Platform.pathSeparator;
     final paths = [
-      for (final dir in directories)
+      for (final dir in directories) ...[
+        // mmd_libav, the output of tool/build_libav_atrac.sh, which holds
+        // both libraries
+        for (final file in _combined(dir)) (file, file),
         for (final (codec, util) in _names)
           ('$dir$sep$codec', '$dir$sep$util'),
+      ],
       if (system) ..._names,
     ];
     for (final (codecPath, utilPath) in paths) {
@@ -214,6 +218,25 @@ class LibAvcodec {
       }
     }
     return null;
+  }
+
+  /// The files of mmd_libav in [dir], under the name of the platform or of
+  /// a release asset (mmd_libav-TARGET).
+  static List<String> _combined(String dir) {
+    final ext = Platform.isWindows
+        ? '.dll'
+        : (Platform.isMacOS || Platform.isIOS ? '.dylib' : '.so');
+    try {
+      return [
+        for (final entry in Directory(dir).listSync())
+          if (entry is File &&
+              entry.path.endsWith(ext) &&
+              RegExp(r'(^|[/\\])(lib)?mmd_libav[-.]').hasMatch(entry.path))
+            entry.path,
+      ]..sort();
+    } on FileSystemException {
+      return const [];
+    }
   }
 
   /// Whether the license string that [function] of [library] returns is

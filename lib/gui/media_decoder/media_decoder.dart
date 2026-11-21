@@ -1,6 +1,6 @@
 // Opens the decoders that the app gives the cores as a MediaDecoder: H.264
-// through the decoder of the operating system and ATRAC3plus through a
-// shared LGPL libavcodec, from mp_media_decoder.
+// through the decoder of the operating system and ATRAC3plus through the
+// LGPL libavcodec that mp_media_decoder bundles.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/app_api.dart';
