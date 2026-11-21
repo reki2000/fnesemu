@@ -26,7 +26,7 @@ Windows decodes H.264 with the H.264 decoder transform of Media Foundation (`CLS
 
 ## MediaCodec
 
-Android decodes H.264 with MediaCodec through the C API of the NDK (`libmediandk.so`), in synchronous mode with byte buffers. It prefers the software decoders of the Android Open Source Project (`c2.android.avc.decoder`, then `OMX.google.h264.decoder`), whose byte buffers hold planar YUV 4:2:0, and falls back to the decoder that the device picks for the type. For that decoder, the semi-planar color formats are read as NV12 and the others as planar, which may be wrong for the vendor formats of some devices. The codec decodes on its own threads, and `decode()` waits for the picture as the GStreamer decoder does. This backend has not run on a device yet.
+Android decodes H.264 with MediaCodec through the C API of the NDK (`libmediandk.so`), in synchronous mode with byte buffers. It uses the decoder that the device picks for the type, and the software decoders of the Android Open Source Project (`c2.android.avc.decoder`, then `OMX.google.h264.decoder`) on a device that picks none. A software decoder holds several pictures back when the stream does not state its reordering depth, which a hardware decoder does not. The planar color formats and the flexible format of the software decoders are read as I420, and the semi-planar formats and the other formats of the vendors as NV12, which may be wrong for some devices. The codec decodes on its own threads, and `decode()` waits for the picture as the GStreamer decoder does. It has run on a Pixel 7 with its hardware decoder.
 
 ## VideoToolbox
 
