@@ -16,7 +16,7 @@ Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and 
 
 ## GStreamer
 
-Linux has no H.264 decoder of its own, so the package uses GStreamer, the media framework of the desktop. It opens `libgstreamer-1.0.so.0` and `libgstapp-1.0.so.0` (LGPL) at run time and builds the pipeline `appsrc ! decodebin ! videoconvert ! appsink` with RGBA output. decodebin picks an H.264 decoder from the plugins installed on the system, such as `gstreamer1.0-libav` or `gstreamer1.0-plugins-bad` (openh264) on Debian and Ubuntu; without one, H.264 stays unsupported. The package does not ship a plugin, so the license and the patent terms of the decoder are those of the system.
+Linux has no H.264 decoder of its own, so the package uses GStreamer, the media framework of the desktop. It opens `libgstreamer-1.0.so.0` and `libgstapp-1.0.so.0` (LGPL) at run time and builds the pipeline `appsrc ! <decoder> ! videoconvert ! appsink` with RGBA output. The decoder is the H.264 decoder of the highest rank among the plugins installed on the system, such as `gstreamer1.0-libav` or `gstreamer1.0-plugins-bad` (openh264) on Debian and Ubuntu; without one, H.264 stays unsupported. A decoder with the `max-threads` property gets one thread, so that frame threading holds no pictures back. The package does not ship a plugin, so the license and the patent terms of the decoder are those of the system.
 
 The pipeline decodes on its own threads. `decode()` waits up to 30 ms for the picture of the unit it was given, and counts a wait that runs out as one more unit that the decoder holds back for reordering, so later calls do not wait for it.
 
