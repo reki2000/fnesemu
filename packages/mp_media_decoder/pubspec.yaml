@@ -9,6 +9,7 @@ environment:
 
 dependencies:
   code_assets: ^2.1.0
+  crypto: ^3.0.3
   ffi: ^2.1.0
   hooks: ^2.0.2
   native_toolchain_c: ^0.19.2
