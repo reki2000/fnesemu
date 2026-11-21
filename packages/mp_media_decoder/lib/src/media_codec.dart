@@ -73,8 +73,10 @@ const _yuv420Flexible = 0x7f420888;
 const _mime = 'video/avc';
 
 /// The software decoders of the Android Open Source Project, which every
-/// device has and whose byte buffers hold planar YUV 4:2:0, before the
-/// decoder that the device picks for the type.
+/// device has and whose byte buffers hold planar YUV 4:2:0, for a device
+/// that picks no decoder for the type. The decoder of the device comes
+/// first: a software decoder holds several pictures back when the stream
+/// does not state its reordering depth.
 const _decoderNames = ['c2.android.avc.decoder', 'OMX.google.h264.decoder'];
 
 /// The NDK media library.
@@ -168,12 +170,13 @@ class MediaCodecLibrary {
   /// A new H.264 decoder and whether its byte buffers are known to hold
   /// planar pictures.
   (Pointer<Void>, bool)? _create() => using((arena) {
+    final codec = _createByType(_mime.toNativeUtf8(allocator: arena));
+    if (codec != nullptr) return (codec, false);
     for (final name in _decoderNames) {
       final codec = _createByName(name.toNativeUtf8(allocator: arena));
       if (codec != nullptr) return (codec, true);
     }
-    final codec = _createByType(_mime.toNativeUtf8(allocator: arena));
-    return codec == nullptr ? null : (codec, false);
+    return null;
   });
 
   /// An H.264 decoder; null when none starts.
@@ -301,13 +304,15 @@ class _CodecVideoDecoder implements VideoDecoder {
     _shownWidth = _get(format, 'crop-right', _width - 1) - _left + 1;
     _shownHeight = _get(format, 'crop-bottom', _height - 1) - _top + 1;
     final color = _get(format, 'color-format', _yuv420Flexible);
-    // The software decoders give planar pictures in byte buffers. Of the
-    // others, the semi-planar formats say so; a flexible or a vendor format
-    // is taken as planar, which may be wrong for some devices.
+    // The software decoders give planar pictures in byte buffers and say
+    // that they are flexible. A hardware decoder names its format, and the
+    // formats of the vendors are mostly variants of NV12, so they are taken
+    // as semi-planar, which may be wrong for some devices.
     _planar = switch (color) {
       _yuv420SemiPlanar || _yuv420PackedSemiPlanar => false,
       _yuv420Planar || _yuv420PackedPlanar => true,
-      _ => _knownPlanar || color == _yuv420Flexible,
+      _yuv420Flexible => true,
+      _ => _knownPlanar,
     };
     _lib._deleteFormat(format);
   }
