@@ -6,8 +6,9 @@ import 'package:ffi/ffi.dart';
 import 'types.dart';
 
 // The H.264 decoder of Linux: a GStreamer pipeline that takes the access
-// units from an appsrc, lets decodebin pick the decoder plugin installed
-// on the system, and converts the pictures to RGBA for an appsink. The
+// units from an appsrc, decodes them with the H.264 decoder of the highest
+// rank among the plugins installed on the system, and converts the
+// pictures to RGBA for an appsink. The
 // package opens the shared GStreamer libraries (LGPL) at run time; which
 // plugin decodes, and under what license, is the choice of the system.
 // The pipeline runs on GStreamer's own threads and calls no Dart code.
@@ -53,6 +54,15 @@ typedef _Filter =
     Pointer<Void> Function(Pointer<Void>, Pointer<Void>, int, int);
 typedef _CapsC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _Caps = Pointer<Void> Function(Pointer<Utf8>);
+typedef _NameC = Pointer<Utf8> Function(Pointer<Void>);
+typedef _Name = Pointer<Utf8> Function(Pointer<Void>);
+typedef _FreeC = Void Function(Pointer<Void>);
+typedef _Free = void Function(Pointer<Void>);
+typedef _FindPropertyC = Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>);
+typedef _FindProperty = Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>);
+typedef _SetIntC = Void Function(
+    Pointer<Void>, Pointer<Utf8>, VarArgs<(Int32, Pointer<Void>)>);
+typedef _SetInt = void Function(Pointer<Void>, Pointer<Utf8>, int, Pointer<Void>);
 
 // GstState
 const _stateNull = 1, _statePlaying = 4;
@@ -61,7 +71,7 @@ const _stateNull = 1, _statePlaying = 4;
 const _stateChangeFailure = 0;
 
 // GstElementFactoryListType: decoders of video, and GstRank marginal
-const _factoryDecoder = 1, _factoryMediaVideo = 1 << 50, _rankMarginal = 64;
+const _factoryDecoder = 1, _factoryMediaVideo = 1 << 49, _rankMarginal = 64;
 
 // GstPadDirection
 const _padSink = 2;
@@ -71,15 +81,24 @@ const _padSink = 2;
 const _mapInfoSize = 104, _mapData = 16, _mapSize = 24, _mapRead = 1;
 
 const _caps = 'video/x-h264,stream-format=byte-stream,alignment=au';
-const _pipeline =
+
+/// The pipeline around the decoder element [decoder].
+String _pipeline(String decoder) =>
     'appsrc name=src format=bytes caps="$_caps" '
-    '! decodebin ! videoconvert ! video/x-raw,format=RGBA '
+    '! $decoder name=dec ! videoconvert ! video/x-raw,format=RGBA '
     '! appsink name=sink sync=false';
 
 /// The shared GStreamer libraries.
 class GStreamer {
-  GStreamer._(DynamicLibrary core, DynamicLibrary app)
-    : _parseLaunch = core.lookupFunction<_ParseLaunchC, _ParseLaunch>(
+  GStreamer._(DynamicLibrary core, DynamicLibrary app, DynamicLibrary glib,
+      DynamicLibrary gobject)
+    : _objectName = core.lookupFunction<_NameC, _Name>('gst_object_get_name'),
+      _free = glib.lookupFunction<_FreeC, _Free>('g_free'),
+      _findProperty = gobject.lookupFunction<_FindPropertyC, _FindProperty>(
+        'g_object_class_find_property',
+      ),
+      _setInt = gobject.lookupFunction<_SetIntC, _SetInt>('g_object_set'),
+      _parseLaunch = core.lookupFunction<_ParseLaunchC, _ParseLaunch>(
         'gst_parse_launch',
       ),
       _getByName = core.lookupFunction<_GetByNameC, _GetByName>(
@@ -144,6 +163,10 @@ class GStreamer {
   final _Caps _capsFromString;
   final _Push _push;
   final _Pull _pull;
+  final _Name _objectName;
+  final _Free _free;
+  final _FindProperty _findProperty;
+  final _SetInt _setInt;
 
   static GStreamer? _loaded;
   static bool _tried = false;
@@ -155,44 +178,70 @@ class GStreamer {
     try {
       final core = DynamicLibrary.open('libgstreamer-1.0.so.0');
       final app = DynamicLibrary.open('libgstapp-1.0.so.0');
+      final glib = DynamicLibrary.open('libglib-2.0.so.0');
+      final gobject = DynamicLibrary.open('libgobject-2.0.so.0');
       final init = core.lookupFunction<_InitCheckC, _InitCheck>(
         'gst_init_check',
       );
       if (init(nullptr, nullptr, nullptr) == 0) return null;
-      return _loaded = GStreamer._(core, app);
+      return _loaded = GStreamer._(core, app, glib, gobject);
     } on ArgumentError {
       return null;
     }
   }
 
-  bool? _hasH264;
+  String? _decoder;
+  bool _searched = false;
 
   /// Whether a decoder plugin takes H.264.
-  bool get hasH264 => _hasH264 ??= using<bool>((arena) {
+  bool get hasH264 => _h264Decoder != null;
+
+  /// The name of the H.264 decoder element of the highest rank; the list
+  /// of factories comes sorted by rank.
+  String? get _h264Decoder {
+    if (_searched) return _decoder;
+    _searched = true;
+    return _decoder = using<String?>((arena) {
     final all = _listFactories(
       _factoryDecoder | _factoryMediaVideo,
       _rankMarginal,
     );
-    if (all == nullptr) return false;
+    if (all == nullptr) return null;
     final caps = _capsFromString(_caps.toNativeUtf8(allocator: arena));
     final h264 = _filterFactories(all, caps, _padSink, 0);
     _unrefMiniObject(caps);
     _freeFactories(all);
-    if (h264 == nullptr) return false;
+    if (h264 == nullptr) return null;
+    final name = _objectName(h264.cast<Pointer<Void>>().value);
+    final decoder = name.toDartString();
+    _free(name.cast());
     _freeFactories(h264);
-    return true;
+    return decoder;
   });
+  }
 
   /// An H.264 decoder; null when no plugin takes H.264 or the pipeline
   /// does not start.
   VideoDecoder? openH264() {
-    if (!hasH264) return null;
+    final decoder = _h264Decoder;
+    if (decoder == null) return null;
     return using((arena) {
       final pipeline = _parseLaunch(
-        _pipeline.toNativeUtf8(allocator: arena),
+        _pipeline(decoder).toNativeUtf8(allocator: arena),
         nullptr,
       );
       if (pipeline == nullptr) return null;
+      // One thread, so that the decoder holds no pictures back for frame
+      // threading; a decoder without the property keeps its own way.
+      final dec = _getByName(pipeline, 'dec'.toNativeUtf8(allocator: arena));
+      if (dec != nullptr) {
+        final threads = 'max-threads'.toNativeUtf8(allocator: arena);
+        if (_findProperty(dec.cast<Pointer<Void>>().value, threads) !=
+            nullptr) {
+          _setInt(dec, threads, 1, nullptr);
+        }
+        _unrefObject(dec);
+      }
       final src = _getByName(pipeline, 'src'.toNativeUtf8(allocator: arena));
       final sink = _getByName(pipeline, 'sink'.toNativeUtf8(allocator: arena));
       if (src == nullptr ||
