@@ -30,52 +30,80 @@ class PspDisc {
   final int baseLba;
 
   final PspDiscNode root;
+  final int _discId;
 
   /// The boot executable read at mount time: the unencrypted boot file
   /// when present, else the encrypted one.
   Uint8List? bootBytes;
 
-  PspDisc._(this.drive, this.baseLba, this.root);
+  PspDisc._(this.drive, this.baseLba, this.root, this._discId);
+
+  /// A file of all the sectors from [baseLba] to the end of the disc.
+  late final wholeDisc = PspDiscNode(
+      Iso9660Entry(
+          '', 0, max(0, drive.status.toc.totalSectors - baseLba) * 2048, false),
+      null);
 
   /// Parses the file system of the disc in [drive], or returns null
   /// when the drive holds no ISO 9660 volume.
-  static Future<PspDisc?> mount(CdromDrive drive) async {
+  static Future<PspDisc?> mount(CdromDrive drive,
+      {required bool readBoot}) async {
     final base = drive.firstDataLba;
     if (base == null) return null;
-    final iso = Iso9660(
-        (lba) async => userData(await drive.readWhenReady(base + lba)));
+    final discId = drive.status.discId;
+    final iso = Iso9660((lba) async {
+      if (drive.status.discId != discId) return Uint8List(0);
+      final raw = await drive.readWhenReady(base + lba);
+      return drive.status.discId == discId ? userData(raw) : Uint8List(0);
+    });
     final rootEntry = await iso.root;
     if (rootEntry == null) return null;
     final root = PspDiscNode(rootEntry, null);
-    // a directory is walked once, so a record which points back to a
-    // directory above it does not loop
-    final walked = {rootEntry.lba};
+    final ancestors = <int>{root.entry.lba};
     Future<void> walk(PspDiscNode node) async {
       for (final entry in await iso.list(node.entry)) {
-        if (entry.name == '.' || entry.name == '..') continue;
+        if (entry.name == '.' || entry.name == '..' ||
+            (entry.isDirectory && ancestors.contains(entry.lba))) {
+          continue;
+        }
         final child = PspDiscNode(entry, node);
         node.children.add(child);
-        if (entry.isDirectory && walked.add(entry.lba)) await walk(child);
+        if (entry.isDirectory) {
+          ancestors.add(entry.lba);
+          await walk(child);
+          ancestors.remove(entry.lba);
+        }
       }
     }
 
     await walk(root);
-    final disc = PspDisc._(drive, base, root);
-    final boot = disc.lookup('PSP_GAME/SYSDIR/BOOT.BIN') ??
-        disc.lookup('PSP_GAME/SYSDIR/EBOOT.BIN');
-    if (boot != null) {
-      disc.bootBytes = await iso
-          .readFile((lba: boot.entry.lba, size: boot.entry.size));
+    final disc = PspDisc._(drive, base, root, discId);
+    if (readBoot) {
+      for (final name in const ['BOOT.BIN', 'EBOOT.BIN']) {
+        final boot = disc.lookup('PSP_GAME/SYSDIR/$name');
+        if (boot == null || boot.isDirectory) continue;
+        final bytes =
+            await iso.readFile((lba: boot.entry.lba, size: boot.entry.size));
+        // a boot file of zeros is a placeholder for the encrypted one
+        if (bytes != null && bytes.any((byte) => byte != 0)) {
+          disc.bootBytes = bytes;
+          break;
+        }
+      }
     }
     return disc;
   }
 
+  bool get isMounted => drive.status.discId == _discId;
+
   /// The node at [path], a `/`-separated path from the root whose
   /// components match case-insensitively, or null.
   PspDiscNode? lookup(String path) {
+    if (!isMounted) return null;
     var node = root;
     for (final part in path.split('/')) {
       if (part.isEmpty || part == '.') continue;
+      if (!node.isDirectory) return null;
       if (part == '..') {
         node = node.parent ?? node;
         continue;
@@ -96,6 +124,7 @@ class PspDisc {
   /// Up to [length] bytes of [entry] starting at [offset], or null
   /// while the drive has not loaded one of the needed sectors.
   Uint8List? readBytes(Iso9660Entry entry, int offset, int length) {
+    if (!isMounted) return Uint8List(0);
     if (offset < 0) offset = 0;
     if (offset >= entry.size || length <= 0) return Uint8List(0);
     final out = Uint8List(min(offset + length, entry.size) - offset);
@@ -105,7 +134,7 @@ class PspDisc {
       final raw = drive.read(baseLba + entry.lba + at ~/ 2048);
       if (raw == null) return null;
       final user = userData(raw);
-      if (user.isEmpty) return null;
+      if (user.isEmpty) return Uint8List.sublistView(out, 0, done);
       final from = at % 2048;
       final take = min(2048 - from, out.length - done);
       out.setRange(done, done + take, user, from);

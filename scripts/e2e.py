@@ -327,7 +327,7 @@ def source_hash() -> str:
     h = hashlib.sha256()
     h.update(b"cli-native-assets-v1")
     files = [CORE_PKG / "pubspec.lock"] + sorted((CORE_PKG / "lib").rglob("*.dart")) + sorted((CORE_PKG / "tool").rglob("*.dart"))
-    for package in ("mp_jit_recompiler", "cdrom_image", "mp_pixel_image"):
+    for package in ("mp_jit_recompiler", "cdrom_image", "mp_pixel_image", "mp_media_decoder"):
         root = CORE_PKG.parent / package
         files += [root / "pubspec.yaml"]
         for directory, suffix in (("lib", "*.dart"), ("hook", "*.dart"), ("src", "*.c")):

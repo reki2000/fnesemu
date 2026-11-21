@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/core_factory.dart';
+import 'package:fnesemu_core/src/core/psp/memory.dart';
 import 'package:fnesemu_core/src/core/psp/psp.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/pad_source.dart';
@@ -33,7 +34,7 @@ const _imports = [
 /// results around a delay, and exits after joining it. Stub addresses
 /// depend on the code size, so the program is assembled twice: a probe
 /// pass yields the layout, the second pass calls the real stubs.
-Uint8List buildProgram() {
+Uint8List buildProgram({int workerDelay = 1000}) {
   List<int> assemble(Map<String, int> stubs) {
     int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
     final a = Asm(0x08800000);
@@ -85,7 +86,7 @@ Uint8List buildProgram() {
     a.li(Reg.t0, 0x08900000);
     a.li(Reg.t1, 0xcafebabe);
     a.sw(Reg.t1, 0, Reg.t0);
-    a.li(Reg.a0, 1000);
+    a.li(Reg.a0, workerDelay);
     a.jal(stub('ThreadManForUser', _nidDelayThread));
     a.nop();
     a.li(Reg.t1, 0x0d15ea5e);
@@ -102,6 +103,14 @@ Uint8List buildProgram() {
 }
 
 void main() {
+  test('video memory repeats every 2 MiB', () {
+    final mem = PspMemory();
+    mem.write16(0x04088000, 0x1234);
+    expect(mem.read16(0x04288000), 0x1234);
+    expect(mem.read16(0x04688000), 0x1234);
+    expect(mem.read16(0x04888000), 0);
+  });
+
   test('the factory resolves the psp core and its files', () {
     expect(CoreFactory.system('psp').id, 'psp');
     expect(CoreFactory.of('psp'), isA<Psp>());
@@ -118,6 +127,39 @@ void main() {
     final core = Psp();
     expect(core.buttons.length, 20);
     expect(core.axes, [PadAxis.leftX, PadAxis.leftY]);
+  });
+
+  test('instruction stepping preserves the scanline deadline', () {
+    final a = Asm(0x08800000);
+    a.nop();
+    a.j(2, 0x08800004);
+    a.nop();
+    final (rom, _) = buildTestElf(code: a.finish());
+    final core = Psp()..setRom(rom);
+    final pc = core.cpu.pc;
+    final step = core.exec(true);
+    expect(step.elapsedClocks, 1);
+    expect(step.scanlineRendered, isFalse);
+    expect(core.cpu.pc, pc + 4);
+    final line = core.exec(false);
+    expect(line.scanlineRendered, isTrue);
+    expect(line.elapsedClocks, core.clocksInScanline);
+  });
+
+  test('a saved delay wakes after the 32-bit clock range', () {
+    final rom = buildProgram(workerDelay: 22000000);
+    final core = Psp()..setRom(rom);
+    for (var frame = 0; frame < 1200; frame++) {
+      expect(core.runFrame(core.scanlinesInFrame).stopped, isFalse);
+    }
+    expect(core.cpu.clocks, greaterThan(1 << 32));
+    final restored = Psp()..setRom(rom);
+    restored.loadState(core.saveState());
+    expect(restored.cpu.clocks, core.cpu.clocks);
+    for (var frame = 0; frame < 200; frame++) {
+      if (restored.runFrame(restored.scanlinesInFrame).stopped) break;
+    }
+    expect(restored.mem.read32(0x08900008), 0x0d15ea5e);
   });
 
   group('homebrew run', () {
@@ -157,8 +199,9 @@ void main() {
       final image = core.imageBuffer();
       expect(image.width, 480);
       expect(image.height, 272);
-      expect(image.buffer[0], 0x11223344);
-      expect(image.buffer[1], 0x55667788);
+      // the display shows no alpha: the stored 0x11 and 0x55 read opaque
+      expect(image.buffer[0], 0xff223344);
+      expect(image.buffer[1], 0xff667788);
     });
 
     test('a saved state resumes to the same outcome', () {

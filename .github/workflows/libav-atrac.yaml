@@ -1,0 +1,145 @@
+name: Release libav-atrac
+
+# Builds mmd_libav, the ATRAC-only LGPL libavcodec of
+# packages/mp_media_decoder/tool/build_libav_atrac.sh, for every target of
+# the app, and publishes it with the FFmpeg source, its license and the
+# build script as a GitHub Release. The build hook of mp_media_decoder
+# downloads the libraries from it. Push a tag libav-atrac-<FFmpeg
+# version>-<build> to run it; the tag names the release.
+
+on:
+  push:
+    tags: ['libav-atrac-*']
+
+permissions:
+  contents: read
+
+env:
+  SCRIPT: packages/mp_media_decoder/tool/build_libav_atrac.sh
+
+jobs:
+  linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: linux-x64
+          - runner: ubuntu-22.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sh "$SCRIPT" ${{ matrix.target }} out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-${{ matrix.target }}
+          path: out/mmd_libav-*
+
+  android:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - run: |
+          for target in android-arm64 android-arm android-x64; do
+            sh "$SCRIPT" "$target" out "build-$target"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-android
+          path: out/mmd_libav-*
+
+  windows:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      LLVM_MINGW: llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64
+      LLVM_MINGW_SHA256: 55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install llvm-mingw
+        run: |
+          curl -sSfLO "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/$LLVM_MINGW.tar.xz"
+          echo "$LLVM_MINGW_SHA256  $LLVM_MINGW.tar.xz" | sha256sum -c -
+          tar xf "$LLVM_MINGW.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$LLVM_MINGW/bin" >> "$GITHUB_PATH"
+      - run: |
+          for target in windows-x64 windows-arm64; do
+            sh "$SCRIPT" "$target" out "build-$target"
+          done
+      - name: Check that the DLLs need only system DLLs
+        run: |
+          for dll in out/*.dll; do
+            llvm-objdump -p "$dll" | grep 'DLL Name'
+            ! llvm-objdump -p "$dll" | grep 'DLL Name' |
+              grep -viE 'kernel32|api-ms-win-|ucrtbase|bcrypt|advapi32|user32|msvcrt'
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-windows
+          path: out/mmd_libav-*
+
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: |
+          for target in macos-x64 macos-arm64 ios-arm64 iossim-arm64 iossim-x64; do
+            sh "$SCRIPT" "$target" out "build-$target"
+          done
+      - name: Show the dependencies
+        run: for lib in out/*.dylib; do otool -L "$lib"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-apple
+          path: out/mmd_libav-*
+
+  release:
+    needs: [linux, android, windows, apple]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: libs
+          pattern: lib-*
+          merge-multiple: true
+      - name: Add the source and the license
+        run: |
+          version=$(sed -n 's/^version=//p' "$SCRIPT")
+          curl -sSfLo libs/ffmpeg-$version.tar.xz "https://ffmpeg.org/releases/ffmpeg-$version.tar.xz"
+          sha=$(sed -n 's/^sha256=//p' "$SCRIPT")
+          echo "$sha  libs/ffmpeg-$version.tar.xz" | sha256sum -c -
+          tar xOf libs/ffmpeg-$version.tar.xz ffmpeg-$version/COPYING.LGPLv2.1 > libs/LICENSE.ffmpeg.txt
+          cp "$SCRIPT" libs/
+          cat libs/*.sha256 > libs/SHA256SUMS
+          rm libs/*.sha256
+          ls -l libs
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<NOTES
+          mmd_libav: libavcodec and libavutil of FFmpeg with only the ATRAC3 and ATRAC3plus decoders, built under the LGPL version 2.1 or later by \`build_libav_atrac.sh\` from the FFmpeg source in this release. The build hook of mp_media_decoder bundles these libraries into fnesemu.
+          NOTES
+          gh release create "$TAG" libs/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --latest=false

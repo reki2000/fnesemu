@@ -323,6 +323,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  mp_media_decoder:
+    dependency: "direct main"
+    description:
+      path: "packages/mp_media_decoder"
+      relative: true
+    source: path
+    version: "0.1.0"
   mp_pixel_image:
     dependency: "direct main"
     description:

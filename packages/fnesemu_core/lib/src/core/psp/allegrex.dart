@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../util/state.dart';
 import 'memory.dart';
 import 'vfpu.dart';
 
@@ -43,6 +44,45 @@ class AllegrexState {
   /// mantissa carries the generator's state.
   final rcx = Uint32List(8);
 
+  void saveState(StateWriter writer) {
+    writer.ints(r);
+    writer.bytes(Uint8List.sublistView(f));
+    writer.ints(cop0);
+    writer.int32(hi);
+    writer.int32(lo);
+    writer.int32(pc);
+    writer.int32(nextPc);
+    writer.int32(fcr31);
+    writer.int32(fcc);
+    writer.boolean(linked);
+    writer.bytes(Uint8List.sublistView(v));
+    writer.int32(vpfxs);
+    writer.int32(vpfxt);
+    writer.int32(vpfxd);
+    writer.int32(vcc);
+    writer.ints(rcx);
+  }
+
+  void loadState(StateReader reader, {bool hasVfpu = true}) {
+    reader.intsInto(r);
+    reader.bytesInto(Uint8List.sublistView(f));
+    reader.intsInto(cop0);
+    hi = reader.int32();
+    lo = reader.int32();
+    pc = reader.int32();
+    nextPc = reader.int32();
+    fcr31 = reader.int32();
+    fcc = reader.int32();
+    linked = reader.boolean();
+    if (!hasVfpu) return;
+    reader.bytesInto(Uint8List.sublistView(v));
+    vpfxs = reader.int32();
+    vpfxt = reader.int32();
+    vpfxd = reader.int32();
+    vcc = reader.int32();
+    reader.intsInto(rcx);
+  }
+
   void copyFrom(AllegrexState other) {
     r.setAll(0, other.r);
     f.setAll(0, other.f);
@@ -70,6 +110,8 @@ class AllegrexState {
 /// one delay slot and loads have none, as on the hardware. One instruction
 /// is one clock; the surrounding core owns all timing decisions.
 class Allegrex extends AllegrexState {
+  static const clockHz = 222000000;
+
   final PspMemory mem;
   int clocks = 0;
 
@@ -597,7 +639,15 @@ class Allegrex extends AllegrexState {
           case 0x02: // WSBH swaps the bytes inside each halfword
             _set(rd, ((v >>> 8) & 0x00ff00ff) | ((v << 8) & 0xff00ff00));
             return true;
-          case 0x0d: // BITREV reverses the bit order
+          case 0x03: // WSBW reverses the bytes of the word
+            _set(
+                rd,
+                ((v >>> 24) & 0xff) |
+                    ((v >>> 8) & 0xff00) |
+                    ((v << 8) & 0xff0000) |
+                    ((v << 24) & 0xff000000));
+            return true;
+          case 0x14: // BITREV reverses the bit order
             var rev = 0, x = v;
             for (var i = 0; i < 32; i++) {
               rev = (rev << 1) | (x & 1);
