@@ -2,11 +2,14 @@ import 'dart:io';
 
 import 'gstreamer.dart';
 import 'libavcodec.dart';
+import 'media_codec.dart';
 import 'media_foundation.dart';
 import 'types.dart';
+import 'videotoolbox.dart';
 
 /// The decoders of this platform: H.264 through the decoder of the
-/// operating system (GStreamer on Linux, Media Foundation on Windows), and
+/// operating system (GStreamer on Linux, Media Foundation on Windows,
+/// MediaCodec on Android, VideoToolbox on macOS and iOS), and
 /// ATRAC3plus through a shared libavcodec under the LGPL.
 class MediaDecoders {
   MediaDecoders._(this._avcodec, this._h264, this._h264Name);
@@ -27,6 +30,13 @@ class MediaDecoders {
     if (Platform.isWindows) {
       return MediaDecoders._(
           avcodec, MediaFoundation.load()?.openH264, 'Media Foundation');
+    }
+    if (Platform.isAndroid) {
+      return MediaDecoders._(
+          avcodec, MediaCodecLibrary.load()?.openH264, 'MediaCodec');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return MediaDecoders._(avcodec, VideoToolbox.openH264, 'VideoToolbox');
     }
     return MediaDecoders._(avcodec, null, '');
   }
