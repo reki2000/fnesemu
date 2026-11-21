@@ -1352,10 +1352,11 @@ extension PspGeRaster on PspGe {
     // Through vertices address texels directly; transformed ones use
     // normalized coordinates scaled by the texture size.
     final throughTex = regs[0x12] & 0x800000 != 0;
-    // The scale and offset apply to the texture coordinate mapping only,
-    // not to the texture matrix or environment mapping.
+    // The scale and offset apply to the texture coordinate mapping of
+    // transformed vertices only, not to the texture matrix, environment
+    // mapping or the texel coordinates of through vertices.
     var tu = u, tv = w;
-    if (throughTex || regs[0xc0] & 3 == 0) {
+    if (!throughTex && regs[0xc0] & 3 == 0) {
       tu = u * PspGe._floatArg(regs[0x48]) + PspGe._floatArg(regs[0x4a]);
       tv = w * PspGe._floatArg(regs[0x49]) + PspGe._floatArg(regs[0x4b]);
     }

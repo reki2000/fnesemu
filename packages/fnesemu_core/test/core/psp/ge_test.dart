@@ -259,6 +259,33 @@ void main() {
       expect(pixel(29, 39), 0xffffff);
     });
 
+    test('a through sprite ignores the texture scale', () {
+      // A 2x2 texture at VRAM offset 0x10000: red, green, blue, white.
+      const texAt = 0x10000;
+      mem.write32(0x04000000 + texAt, 0xff0000ff);
+      mem.write32(0x04000000 + texAt + 4, 0xff00ff00);
+      mem.write32(0x04000000 + texAt + 8, 0xffff0000);
+      mem.write32(0x04000000 + texAt + 12, 0xffffffff);
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xa0, texAt),
+            _cmd(0xa8, 2),
+            _cmd(0xb8, 0x101),
+            _cmd(0xc3, 3),
+            _cmd(0x48, 0x400000), // texture scale 2.0
+            _cmd(0x49, 0x400000),
+            _cmd(0xc9, 3),
+            _cmd(0x1e, 1),
+            _cmd(0x04, 0x60002),
+          ],
+          0xffffffff);
+      ge.enqueue(cpu, list, 0);
+      expect(pixel(15, 25), 0x0000ff);
+      expect(pixel(25, 25), 0x00ff00);
+      expect(pixel(15, 35), 0xff0000);
+    });
+
     test('a palette texture resolves through the loaded CLUT', () {
       const texAt = 0x10000;
       mem.vram[texAt] = 0;
@@ -312,12 +339,14 @@ void main() {
             _cmd(0xc4, 1),
             _cmd(0x48, 0x3f8000),
             _cmd(0x49, 0x3f8000),
-            _cmd(0x4a, 0x420000), // texture offset u 32.0
             _cmd(0xc9, 3),
             _cmd(0x1e, 1),
             _cmd(0x04, 0x60002),
           ],
           0xffffffff);
+      // the sprite's texels start at u 32
+      mem.write32(0x08801000, _floatBits(32));
+      mem.write32(0x08801000 + 24, _floatBits(34));
       ge.enqueue(cpu, list, 0);
       expect(pixel(10, 20), 0xffffff);
       expect(pixel(29, 20), 0x000000);
@@ -346,12 +375,14 @@ void main() {
             _cmd(0xc4, 1),
             _cmd(0x48, 0x3f8000),
             _cmd(0x49, 0x3f8000),
-            _cmd(0x4b, 0x3f8000), // texture offset v 1.0
             _cmd(0xc9, 3),
             _cmd(0x1e, 1),
             _cmd(0x04, 0x60002),
           ],
           0xffffffff);
+      // the sprite's texels start at v 1
+      mem.write32(0x08801000 + 4, _floatBits(1));
+      mem.write32(0x08801000 + 28, _floatBits(3));
       ge.enqueue(cpu, list, 0);
       expect(pixel(10, 20), 0xffffff);
       expect(pixel(29, 20), 0x000000);
