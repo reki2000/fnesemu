@@ -198,6 +198,7 @@ class PspGe {
     var budget = 1000000;
     _stack.clear();
     _offsetStack.clear();
+    var signal = -1;
     while (budget-- > 0) {
       if (entry.stall != 0 && pc == entry.stall) {
         entry.pc = pc;
@@ -209,10 +210,17 @@ class PspGe {
       final op = word >>> 24;
       final arg = word & 0xffffff;
       if (op != 0x04) regs[op] = arg;
+      // the behavior of a SIGNAL just before this command, or -1
+      final signalBefore = signal;
+      signal = op == 0x0e ? (arg >> 16) & 0xff : -1;
       switch (op) {
         case 0x00: // NOP
           break;
         case 0x0c: // END
+          // An END right after a SIGNAL completes the signal command
+          // pair, as the public GE command lists describe, and the list
+          // goes on; a pausing signal stops the list there.
+          if (signalBefore >= 0 && signalBefore != 3) break;
           entry.pc = pc;
           entry.state = stateDone;
           return;
