@@ -135,6 +135,21 @@ void main() {
       expect(pixel(10, 20), 0x0000ff);
     });
 
+    test('an END paired with a SIGNAL does not end the list', () {
+      final list = _writeList(
+          mem,
+          [
+            _cmd(0xd3, 0x101),
+            _cmd(0x0e, 0x0100c8), // SIGNAL: call the handler, go on
+            _cmd(0x0c, 0),
+            _cmd(0x04, 0x60002),
+          ],
+          0xff0000ff);
+      final id = ge.enqueue(cpu, list, 0);
+      expect(ge.listState(id), PspGe.stateDone);
+      expect(pixel(10, 20), 0x0000ff);
+    });
+
     test('a jump after ORIGIN is relative to the ORIGIN command', () {
       final list = _writeList(
           mem,
