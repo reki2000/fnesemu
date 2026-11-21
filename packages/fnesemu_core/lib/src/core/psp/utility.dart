@@ -14,9 +14,9 @@ import 'memstick.dart';
 /// player would pick an entry from a list, the dialog takes the entry the
 /// block's focus names.
 ///
-/// The offsets of the parameter block follow the public SDK headers. The
-/// error codes are as recalled from the public SDK error list, not checked
-/// against hardware.
+/// The offsets of the parameter block and the mode numbers follow the
+/// public SDK headers. The error codes are as recalled from the public SDK
+/// error list, not checked against hardware.
 class PspSavedataDialog {
   PspSavedataDialog(this.mem, this._stick);
 
@@ -108,9 +108,15 @@ class PspSavedataDialog {
     switch (mode) {
       case 0: // automatic load
       case 2: // load
+      case 15: // read, secure and plain
+      case 16:
         return _load(at, _string(at + _saveName, 20));
       case 1: // automatic save
       case 3: // save
+      case 13: // make data, secure and plain
+      case 14:
+      case 17: // write, secure and plain
+      case 18:
         return _save(at, _string(at + _saveName, 20));
       case 4: // load from a list
         final name = _pick(at, forSave: false);
@@ -122,12 +128,21 @@ class PspSavedataDialog {
         if (name == null) return resultCancel;
         _writeString(at + _saveName, name, 20);
         return _save(at, name);
-      case 7: // delete
-        return _delete(at, _string(at + _saveName, 20));
-      default:
-        // The list deletion and the modes that only report sizes or
-        // lists: a player leaving the dialog.
+      case 6: // delete from a list: a player leaving the dialog
         return resultCancel;
+      case 7: // delete
+      case 9: // automatic delete
+      case 10: // single delete
+      case 21: // delete data
+        return _delete(at, _string(at + _saveName, 20));
+      case 19: // erase a file, secure and plain
+      case 20:
+        return _erase(at, _string(at + _saveName, 20));
+      default:
+        // The modes that report sizes, lists and files (8, 11, 12 and
+        // 22) succeed without filling in their reports, as the calls did
+        // before the dialog existed; the games seen so far go on.
+        return 0;
     }
   }
 
@@ -206,6 +221,14 @@ class PspSavedataDialog {
       memStick.remove(child);
     }
     memStick.remove(dir);
+    return 0;
+  }
+
+  int _erase(int at, String saveName) {
+    final file =
+        memStick.lookup('${_dir(at, saveName)}/${_string(at + _fileName, 13)}');
+    if (file == null || file.isDirectory) return errorDeleteNoData;
+    memStick.remove(file);
     return 0;
   }
 

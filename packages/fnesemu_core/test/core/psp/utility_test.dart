@@ -95,6 +95,15 @@ void main() {
     expect(stick.lookup('PSP/SAVEDATA/GAME00000SLOT2/DATA.BIN')!.content, [9]);
   });
 
+  test('a size query succeeds and a plain read loads', () {
+    expect(run(22, 'SLOT1'), 0);
+    run(18, 'SLOT1', bytes: [7, 8]);
+    expect(run(16, 'SLOT1'), 0);
+    expect(mem.readBytes(_data, 2), [7, 8]);
+    expect(run(20, 'SLOT1'), 0);
+    expect(run(16, 'SLOT1'), PspSavedataDialog.errorLoadNoData);
+  });
+
   test('a second dialog cannot start before the first ends', () {
     expect(dialog.initStart(_param), 0);
     expect(dialog.initStart(_param), isNot(0));
