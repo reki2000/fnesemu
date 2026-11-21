@@ -79,7 +79,7 @@ const mediaUsage = """
   --jit on|off      select native compilation for ps, n64, ss, 32x or dc
   -r, --frame-runner run whole frames inside the core instead of exec()
   --media-decoder    decodes the movies and music of the media with
-                     mp_media_decoder (psp; libavcodec on Linux)""";
+                     mp_media_decoder (psp)""";
 
 /// the core name and the media files of the positional arguments
 (String, List<String>) coreAndFiles(Options o) {
