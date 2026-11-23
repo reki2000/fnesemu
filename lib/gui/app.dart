@@ -384,7 +384,6 @@ class MainPageState extends State<MainPage> {
         builder: (_) => BenchResultsDialog(
             results: results,
             machine: _storage.setting(_benchmarkMachineKey) ?? benchPlatform,
-            version: _BenchmarkRun.version,
             date: DateTime.now(),
             host: host,
             onMachine: (machine) =>

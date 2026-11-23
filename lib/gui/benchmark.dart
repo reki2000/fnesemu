@@ -102,6 +102,30 @@ class _ZipArchive implements BenchArchive {
   Future<void> close() async {}
 }
 
+/// the build of the app, from the `--dart-define` values of the release
+/// build: APP_VERSION, GIT_COMMIT and BUILD_TIME. Local builds have none.
+class AppBuild {
+  final String version, commit, time;
+
+  const AppBuild({this.version = '', this.commit = '', this.time = ''});
+
+  static const current = AppBuild(
+      version: String.fromEnvironment('APP_VERSION'),
+      commit: String.fromEnvironment('GIT_COMMIT'),
+      time: String.fromEnvironment('BUILD_TIME'));
+
+  /// the commit, shortened as git does, or the version without one
+  String get shortCommit => commit.isEmpty
+      ? (version.isEmpty ? 'dev' : version)
+      : commit.substring(0, commit.length < 8 ? commit.length : 8);
+
+  Map<String, Object?> toJson() => {
+        'version': version.isEmpty ? 'dev' : version,
+        if (commit.isNotEmpty) 'gitCommit': commit,
+        if (time.isNotEmpty) 'buildTime': time,
+      };
+}
+
 /// one scene of `bench.json`
 class BenchScene {
   final String name, core, state;
@@ -161,13 +185,14 @@ class BenchResult {
   /// OS, CPU and GPU
   Map<String, Object?> record(
           {required String machine,
-          required String version,
+          required AppBuild build,
           required DateTime date,
           Map<String, Object?> host = const {}}) =>
       {
         'date': date.toIso8601String().substring(0, 10),
         'machine': machine,
-        'commit': version,
+        'commit': build.shortCommit,
+        ...build.toJson(),
         'core': scene.core,
         'case': scene.name,
         if (timing case final t?) ...{
@@ -213,7 +238,7 @@ int? discRank(String name, String path) {
 class BenchResultsDialog extends StatefulWidget {
   final List<BenchResult> results;
   final String machine;
-  final String version;
+  final AppBuild build;
   final DateTime date;
   final Map<String, Object?> host;
 
@@ -224,7 +249,7 @@ class BenchResultsDialog extends StatefulWidget {
       {super.key,
       required this.results,
       required this.machine,
-      required this.version,
+      this.build = AppBuild.current,
       required this.date,
       this.host = const {},
       required this.onMachine});
@@ -239,7 +264,7 @@ class _BenchResultsDialogState extends State<BenchResultsDialog> {
   String get _lines => widget.results
       .map((r) => jsonEncode(r.record(
           machine: _machine.text,
-          version: widget.version,
+          build: widget.build,
           date: widget.date,
           host: widget.host)))
       .join('\n');
@@ -271,6 +296,16 @@ class _BenchResultsDialogState extends State<BenchResultsDialog> {
                       if (widget.host['cpuMaxMHz'] case final mhz?) '$mhz MHz',
                       widget.host['gpu'],
                     ].nonNulls.join(' · '),
+                    style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                    [
+                      widget.build.version.isEmpty
+                          ? 'dev'
+                          : widget.build.version,
+                      if (widget.build.commit.isNotEmpty)
+                        widget.build.shortCommit,
+                      if (widget.build.time.isNotEmpty) widget.build.time,
+                    ].join(' · '),
                     style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 12),
                 for (final r in widget.results)

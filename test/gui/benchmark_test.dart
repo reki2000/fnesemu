@@ -58,18 +58,25 @@ void main() {
         cpuMHzEnd: 2400);
     final record = ok.record(
         machine: 'm',
-        version: 'v',
+        build: const AppBuild(
+            version: '1.2.3',
+            commit: '0123456789abcdef',
+            time: '2026-11-23T01:02:03Z'),
         date: DateTime(2026, 11, 23),
         host: {'cpu': 'c', 'cpuMaxMHz': 4900, 'gpu': 'Software'});
     expect((record['jit'], record['cpuMHzEnd']), (true, 2400));
     expect(record['host'], {'cpu': 'c', 'cpuMaxMHz': 4900, 'gpu': 'Software'});
     expect(record['date'], '2026-11-23');
-    expect(
-        (record['machine'], record['commit'], record['case']), ('m', 'v', 'a'));
+    expect((record['machine'], record['commit'], record['case']),
+        ('m', '01234567', 'a'));
+    expect((record['version'], record['gitCommit'], record['buildTime']),
+        ('1.2.3', '0123456789abcdef', '2026-11-23T01:02:03Z'));
     expect((record['fps'], record['coreFps'], record['msPerFrame']),
         (120.0, 240.0, 8.33));
     final failed = const BenchResult(scene, error: 'disc not found')
-        .record(machine: 'm', version: 'v', date: DateTime(2026));
+        .record(machine: 'm', build: const AppBuild(), date: DateTime(2026));
+    expect((failed['commit'], failed['version']), ('dev', 'dev'));
+    expect(failed.containsKey('gitCommit'), isFalse);
     expect(failed['error'], 'disc not found');
     expect(failed.containsKey('fps'), isFalse);
     expect(failed.containsKey('host'), isFalse);
@@ -109,11 +116,12 @@ void main() {
         home: Scaffold(
             body: BenchResultsDialog(
                 results: const [
-          BenchResult(scene, timing: BenchmarkTiming(60, 500000, 250000)),
-          BenchResult(scene, error: 'disc not found'),
-        ],
+                  BenchResult(scene,
+                      timing: BenchmarkTiming(60, 500000, 250000)),
+                  BenchResult(scene, error: 'disc not found'),
+                ],
                 machine: 'old',
-                version: '1.0',
+                build: const AppBuild(version: '1.0'),
                 date: DateTime(2026, 11, 23),
                 host: const {
                   'cpu': 'Test CPU',
@@ -122,6 +130,7 @@ void main() {
                 },
                 onMachine: (m) => machine = m))));
     expect(find.text('Test CPU · 3000 MHz · Software'), findsOneWidget);
+    expect(find.text('1.0'), findsOneWidget);
     expect(find.text('120.0 fps  200%'), findsOneWidget);
     expect(find.text('disc not found'), findsOneWidget);
     await tester.enterText(

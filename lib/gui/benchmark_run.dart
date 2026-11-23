@@ -16,8 +16,6 @@ class _BenchmarkRun {
 
   _BenchmarkRun(this.page, this.archive, this.onStatus, this.host);
 
-  static const _version = String.fromEnvironment('APP_VERSION');
-  static String get version => _version.isEmpty ? 'dev' : _version;
 
   // the setting that remembers where the disc of a media identity was found
   static String _discKey(int media) => 'benchmark_disc/$media';
@@ -83,7 +81,7 @@ class _BenchmarkRun {
         cpuMHzEnd: await currentCpuMHz());
     final record = result.record(
         machine: benchPlatform,
-        version: version,
+        build: AppBuild.current,
         date: DateTime.now(),
         host: host);
     debugPrint('benchmark ${jsonEncode(record)}');
