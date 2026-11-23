@@ -5,9 +5,12 @@ import '../../core.dart';
 import '../../media_decoder.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../trace_flow.dart';
 import '../../types.dart';
+import '../../util/disasm.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
+import 'disasm.dart';
 import 'disc.dart';
 import 'elf.dart';
 import 'kernel.dart';
@@ -78,6 +81,40 @@ class Psp extends Core {
   int programCounter(int cpuNo) => cpu.pc;
   @override
   int stackPointer(int cpuNo) => cpu.r[29];
+
+  @override
+  (String, int) disasm(int cpuNo, int addr) {
+    addr &= 0xfffffffc;
+    final word = mem.read32(addr);
+    return (
+      formatDisasm(_hex8(addr), _hex8(word), AllegrexDisasm.disasm(word, addr),
+          codeWidth: 8),
+      4
+    );
+  }
+
+  @override
+  TraceLog trace(int cpuNo) {
+    final word = mem.read32(cpu.pc);
+    final registers = [for (var i = 0; i < 32; i++) cpu.r[i]];
+    return TraceLog(
+        cpu.pc,
+        cpu.clocks,
+        disasm(0, cpu.pc).$1.padRight(46),
+        [
+          for (var i = 1; i < 32; i++)
+            '${AllegrexDisasm.regs[i]}:${_hex8(cpu.r[i])}',
+        ].join(' '),
+        registers,
+        instructionKey: _hex8(word),
+        flow: traceMipsFlow(word, cpu.pc, registers));
+  }
+
+  @override
+  int read(int cpuNo, int addr) => mem.read8(addr);
+
+  static String _hex8(int value) =>
+      (value & 0xffffffff).toRadixString(16).padLeft(8, '0');
   @override
   int get cpuClocks => cpu.clocks;
 
