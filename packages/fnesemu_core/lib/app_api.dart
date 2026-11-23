@@ -13,6 +13,7 @@ export 'src/media_decoder.dart';
 export 'src/pad_button.dart';
 export 'src/pad_source.dart';
 export 'src/sram.dart';
+export 'src/state.dart' show StateHeader, StateMismatch;
 export 'src/types.dart';
 export 'src/util/debug.dart'
     show DebugLog, DebugLogs, DebugLogEvent, LogLevel, logs;
