@@ -13,7 +13,8 @@ Writing a case:
   scripts/e2e.py shoot <core>/<case> N --every E [--start S] [--input SEQ] [--cols C] [--scale X]
   scripts/e2e.py buttons [<core>/<case>]
   scripts/e2e.py set <core>/<case> --frames N --shots F1,F2,... [--input SEQ] [--note TEXT] [--history TEXT]
-  scripts/e2e.py session start <core>/<case>
+  scripts/e2e.py session start <core>/<case> [--load-state FILE]
+  scripts/e2e.py session save FILE
   scripts/e2e.py session step FRAMES [--every E] [--cols C] [--scale X]
   scripts/e2e.py session press SEQ
   scripts/e2e.py session input
@@ -58,8 +59,8 @@ shoot runs a case for N frames (with --input in place of its input) and tiles th
 frames from frame S, with their frame numbers, into sheet.png. buttons prints the button names of a case (or of
 the session) as they are written in a sequence.
 
-session start runs core_headless serve for a case in the background; step, press, shot and state control it,
-and stop ends it. step advances the session by FRAMES frames from the current frame, not to frame FRAMES (with --every, it saves the screenshots of the frames that are
+session start runs core_headless serve for a case in the background, from a state with --load-state; step,
+press, shot, save and state control it, and stop ends it. save writes the core state for a later start. step advances the session by FRAMES frames from the current frame, not to frame FRAMES (with --every, it saves the screenshots of the frames that are
 multiples of E and tiles them into sheet.png). press adds the presses of SEQ, read with the cursor at the next
 frame (@F is an absolute frame), and logs it in press.log. input prints the input of the logged presses (one
 after another, or in parallel where they overlap), e.g. for set --input "$(scripts/e2e.py session input)".
@@ -532,6 +533,8 @@ def session_start(a):
     d.mkdir(parents=True)
     log = d / "server.log"
     cmd = case.base_command(compile_headless(), "serve") + ["--port", "0"]
+    if a.load_state:
+        cmd += ["--load-state", str(Path(a.load_state).resolve())]
     subprocess.Popen(cmd, cwd=CORE_PKG, stdout=open(log, "w"), stderr=subprocess.STDOUT,
                      start_new_session=True)
     text = ""
@@ -545,6 +548,10 @@ def session_start(a):
     port = int(text.split("127.0.0.1:")[1].split()[0])
     SERVER.write_text(json.dumps({"case": case.name, "port": port}))
     print(f"session of {case.id} on port {port}")
+
+
+def session_save(a):
+    print(json.dumps(request("/save", path=str(Path(a.path).resolve()))))
 
 
 def session_step(a):
@@ -734,6 +741,7 @@ def main(argv=None):
         dest="session_action", required=True)
     p = session.add_parser("start", help="start the session of a case", parents=[common])
     p.add_argument("case")
+    p.add_argument("--load-state", help="start from a state saved by session save or run --save-state")
     p.set_defaults(func=session_start)
     p = session.add_parser("step", help="advance the session by FRAMES frames from the current frame", parents=[common])
     p.add_argument("frames", type=int, metavar="FRAMES", help="the number of frames to run, not a target frame")
@@ -749,6 +757,9 @@ def main(argv=None):
     p = session.add_parser("shot", help="save the current screen", parents=[common])
     p.add_argument("name", nargs="?", help="the file name without .png (default: frame_NNNNN)")
     p.set_defaults(func=session_shot)
+    p = session.add_parser("save", help="save the core state, for start --load-state", parents=[common])
+    p.add_argument("path")
+    p.set_defaults(func=session_save)
     session.add_parser("state", help="print the frame and the program counter",
                        parents=[common]).set_defaults(func=session_state)
     session.add_parser("stop", help="stop the session", parents=[common]).set_defaults(func=session_stop)
