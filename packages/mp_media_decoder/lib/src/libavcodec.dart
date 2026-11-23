@@ -7,13 +7,16 @@ import 'package:ffi/ffi.dart';
 import 'libav_bundled.dart';
 import 'types.dart';
 
-// The ATRAC3plus decoder of a shared libavcodec found at run time: the
+// The ATRAC3 and ATRAC3plus decoders of a shared libavcodec found at run
+// time: the
 // mmd_libav that the build hook bundles (libav_bundled.dart), or a
 // libavcodec and libavutil opened by their file names. The package does not
 // link either, so the library stays separate and replaceable, and only a
-// build under the LGPL is used. Only functions and the leading fields of AVPacket and AVFrame are
-// used, which keep their layout across the major versions 58 to 61; the
-// codec settings go through AVOptions.
+// build under the LGPL is used. Only functions and the leading fields of
+// AVPacket and AVFrame are used, which keep their layout across the major
+// versions 58 to 61; the codec settings go through AVOptions, and the
+// codec data, which no option reaches, through mmd_set_extradata, a helper
+// of mmd_libav only.
 
 typedef _FindDecoderC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _FindDecoder = Pointer<Void> Function(Pointer<Utf8>);
@@ -37,6 +40,8 @@ typedef _OptSetInt = int Function(Pointer<Void>, Pointer<Utf8>, int, int);
 typedef _OptSetC = Int32 Function(
     Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Int32);
 typedef _OptSet = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int);
+typedef _SetExtradataC = Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32);
+typedef _SetExtradata = int Function(Pointer<Void>, Pointer<Uint8>, int);
 typedef _LicenseC = Pointer<Utf8> Function();
 typedef _License = Pointer<Utf8> Function();
 
@@ -95,7 +100,20 @@ class LibAvcodec {
             .cast<NativeFunction<_OptSetIntC>>()
             .asFunction(),
         _optSet =
-            symbol('av_opt_set').cast<NativeFunction<_OptSetC>>().asFunction();
+            symbol('av_opt_set').cast<NativeFunction<_OptSetC>>().asFunction(),
+        _setExtradata = _optional(symbol, 'mmd_set_extradata')
+            ?.cast<NativeFunction<_SetExtradataC>>()
+            .asFunction();
+
+  /// The symbol [name], or null when the library lacks it.
+  static Pointer<Void>? _optional(
+      Pointer<Void> Function(String) symbol, String name) {
+    try {
+      return symbol(name);
+    } on ArgumentError {
+      return null;
+    }
+  }
 
   /// the file name of the libavcodec that was loaded
   final String name;
@@ -115,6 +133,7 @@ class LibAvcodec {
   final _FreePtr _frameFree;
   final _OptSetInt _optSetInt;
   final _OptSet _optSet;
+  final _SetExtradata? _setExtradata;
 
   /// The library file names to try, newest first, as pairs of libavcodec
   /// and the libavutil of the same release.
@@ -208,6 +227,7 @@ class LibAvcodec {
         return LibAvcodec._(
             (symbol) => (symbol.startsWith('avcodec_') ||
                         symbol.startsWith('av_packet') ||
+                        symbol.startsWith('mmd_') ||
                         symbol == 'av_new_packet'
                     ? codec
                     : util)
@@ -292,16 +312,43 @@ class LibAvcodec {
   /// An ATRAC3plus decoder for frames of [blockAlign] bytes; null when the
   /// library has none or does not take the settings.
   AudioDecoder? openAtrac3plus(
-      {required int sampleRate,
-      required int channels,
-      required int blockAlign}) {
+          {required int sampleRate,
+          required int channels,
+          required int blockAlign}) =>
+      _openAudio('atrac3plus', sampleRate, channels, blockAlign, null);
+
+  /// Whether the library can pass codec data to a decoder, which ATRAC3
+  /// needs: only mmd_libav can.
+  bool get takesCodecData => _setExtradata != null;
+
+  /// An ATRAC3 decoder for frames of [blockAlign] bytes, with the codec
+  /// data of the stream, such as the 14-byte format extension of a WAVE
+  /// file; null when the library has none or does not take the settings.
+  AudioDecoder? openAtrac3(
+          {required int sampleRate,
+          required int channels,
+          required int blockAlign,
+          required Uint8List codecData}) =>
+      _setExtradata == null
+          ? null
+          : _openAudio('atrac3', sampleRate, channels, blockAlign, codecData);
+
+  AudioDecoder? _openAudio(String decoder, int sampleRate, int channels,
+      int blockAlign, Uint8List? codecData) {
     var ok = true;
-    final context = _open('atrac3plus', (c) {
+    final context = _open(decoder, (c) {
       ok &= _setInt(c, 'ar', sampleRate);
       // ch_layout from release 59 on, the channel count before
       final layout = channels == 1 ? 'mono' : 'stereo';
       ok &= _set(c, 'ch_layout', layout) || _setInt(c, 'ac', channels);
       ok &= _setInt(c, 'block_align', blockAlign);
+      if (codecData != null) {
+        ok &= using((arena) {
+          final data = arena<Uint8>(codecData.isEmpty ? 1 : codecData.length);
+          data.asTypedList(codecData.length).setAll(0, codecData);
+          return _setExtradata!(c, data, codecData.length) >= 0;
+        });
+      }
     });
     if (context == null) return null;
     if (!ok) {

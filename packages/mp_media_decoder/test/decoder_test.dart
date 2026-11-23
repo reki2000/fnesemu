@@ -63,4 +63,14 @@ void main() {
       skip: decoders.supportsAtrac3plus
           ? false
           : 'no libavcodec with ATRAC3plus here');
+
+  test('opens an ATRAC3 stream with the format extension of its file', () {
+    // a stereo stream of 384-byte frames, as a WAVE file describes it
+    final decoder = decoders.openAtrac3(
+        blockAlign: 384,
+        codecData:
+            Uint8List.fromList([1, 0, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]));
+    expect(decoder, isNotNull);
+    decoder!.close();
+  }, skip: decoders.supportsAtrac3 ? false : 'no mmd_libav with ATRAC3 here');
 }

@@ -21,11 +21,15 @@ class _MediaDecoder implements MediaDecoder {
   bool supports(MediaCodec codec) => switch (codec) {
         MediaCodec.h264 => _decoders.supportsH264,
         MediaCodec.atrac3plus => _decoders.supportsAtrac3plus,
+        MediaCodec.atrac3 => _decoders.supportsAtrac3,
       };
 
   @override
   bool open(int id, MediaCodec codec,
-      {int sampleRate = 44100, int channels = 2, int blockAlign = 0}) {
+      {int sampleRate = 44100,
+      int channels = 2,
+      int blockAlign = 0,
+      Uint8List? codecData}) {
     close(id);
     switch (codec) {
       case MediaCodec.h264:
@@ -35,6 +39,14 @@ class _MediaDecoder implements MediaDecoder {
       case MediaCodec.atrac3plus:
         final decoder = _decoders.openAtrac3plus(
             sampleRate: sampleRate, channels: channels, blockAlign: blockAlign);
+        if (decoder == null) return false;
+        _audio[id] = decoder;
+      case MediaCodec.atrac3:
+        final decoder = _decoders.openAtrac3(
+            sampleRate: sampleRate,
+            channels: channels,
+            blockAlign: blockAlign,
+            codecData: codecData ?? Uint8List(0));
         if (decoder == null) return false;
         _audio[id] = decoder;
     }
