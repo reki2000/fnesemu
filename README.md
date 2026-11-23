@@ -131,10 +131,11 @@ An end-to-end case runs a core headless (`packages/fnesemu_core/tool/core_headle
 packages/fnesemu_core/test/e2e/<core>/
   e2e.toml             the cases of the core
   <dir>/setup.py       fetches (or builds) the media and their upstream data into <dir>/.build/
-  <dir>/expected/      the expected data kept in the repository
+  <dir>/expected/      the SHA-256 of each expected output (kept in the repository) and the outputs (local only)
 ```
 
-- A check compares a frame with an image under `expected/` (the current behavior) or with a reference image that the project of the media publishes (under `.build/`).
+- A check compares a frame with the expected output under `expected/` (the current behavior) or with a reference image that the project of the media publishes (under `.build/`).
+- The repository keeps only the SHA-256 of each expected screenshot and TTY output (`<file>.sha256`), not the output itself, so it does not redistribute the pictures and texts of the test media. A check compares the SHA-256 of the output exactly. `run --update` also writes the output next to its hash; Git ignores it, and a local copy only adds the size of a difference to a failure.
 - A PS1 test EXE that prints its results is checked by its TTY output (`tty`, compared with `expected/`); `tty_fail` is the pattern of the lines with which the test reports a failure, which count like a failing upstream reference.
 - A case whose media reports a failure records the reason in `known_failure`. Its output must still match `expected/`, so a change of behavior is detected.
 - Media that have no prebuilt release are built in a Docker image (`packages/fnesemu_core/test/docker/Dockerfile`) when the tools are not installed.
@@ -144,7 +145,7 @@ make test-e2e-setup                              # fetch or build the media (pyt
 make test-e2e                                    # all cases
 python3 scripts/e2e.py run nes -j 4              # one core, 4 cases in parallel
 python3 scripts/e2e.py run gb/dmg-acid2          # one case
-python3 scripts/e2e.py run nes --update          # record the outputs as expected/ after checking them
+python3 scripts/e2e.py run nes --update          # record the outputs and their SHA-256 as expected/ after checking them
 python3 scripts/e2e.py list                      # the cases
 python3 scripts/e2e.py lint                      # paths stay in the tree, expected/ stays small
 ```
