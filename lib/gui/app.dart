@@ -10,6 +10,7 @@ import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
+import 'benchmark.dart';
 import 'compute_sink/compute_sink.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
@@ -17,6 +18,7 @@ import 'debug/debug_pane.dart';
 import 'debug/game_layout.dart';
 import 'floating_game_menu.dart';
 import 'game_list.dart';
+import 'host_info/host_info.dart';
 import 'key_handler.dart';
 import 'media_decoder/media_decoder.dart';
 import 'pad_input.dart';
@@ -30,6 +32,7 @@ import 'state_slot_dialog.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
 
+part 'benchmark_run.dart';
 part 'loader.dart';
 
 final _log = DebugLog('app');
@@ -112,7 +115,7 @@ class MainPage extends StatefulWidget {
 
 enum _DiscAction { eject, empty, select }
 
-enum _SetupAction { gpu }
+enum _SetupAction { gpu, benchmark }
 
 class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
@@ -334,6 +337,57 @@ class MainPageState extends State<MainPage> {
     });
 
     setState(() {});
+  }
+
+  // the benchmark in progress and its status, shown over the game
+  _BenchmarkRun? _benchmark;
+  final _benchmarkStatus = ValueNotifier<String?>(null);
+
+  static const _benchmarkMachineKey = 'benchmark_machine';
+
+  /// runs the scenes of a benchmark archive with the menu closed, then
+  /// shows the results
+  Future<void> _selectBenchmark() async {
+    final file = (await pickFiles(
+            dialogTitle: 'Select a benchmark archive (.7z / .zip)'))
+        ?.firstOrNull;
+    if (file == null || !mounted) return;
+    final archive = await BenchArchive.open(file);
+    final List<BenchResult> results;
+    final Map<String, Object?> host;
+    try {
+      final scenes =
+          BenchScene.parse(utf8.decode(await archive.read('bench.json')));
+      host = {...await hostInfo(), 'gpu': _rendererName};
+      final run = _benchmark = _BenchmarkRun(
+          this, archive, (s) => _benchmarkStatus.value = s, host);
+      await _stop();
+      _disableKeyHandler();
+      setState(() => _menuOpen = false);
+      try {
+        results = await run.run(scenes);
+      } finally {
+        _benchmark = null;
+        _benchmarkStatus.value = null;
+        // the core of the last scene is loaded, outside of any game
+        _gameId = null;
+        _nextDisc = null;
+        _romName = '';
+        if (mounted) setState(() => _menuOpen = true);
+      }
+    } finally {
+      await archive.close();
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+        context: context,
+        builder: (_) => BenchResultsDialog(
+            results: results,
+            machine: _storage.setting(_benchmarkMachineKey) ?? benchPlatform,
+            date: DateTime.now(),
+            host: host,
+            onMachine: (machine) =>
+                _storage.setSetting(_benchmarkMachineKey, machine)));
   }
 
   Future<void> _openMenu() async {
@@ -1071,10 +1125,11 @@ class MainPageState extends State<MainPage> {
                     key: _coreSetupKey,
                     icon: const Icon(Icons.settings),
                     tooltip: "Core setup",
-                    onSelected: (item) => _menuAction(() async => item
-                            is BiosSetup
-                        ? _selectBios(item)
-                        : _selectGpu()),
+                    onSelected: (item) => _menuAction(() async => switch (item) {
+                          BiosSetup() => _selectBios(item),
+                          _SetupAction.benchmark => _selectBenchmark(),
+                          _ => _selectGpu(),
+                        }),
                     itemBuilder: (_) => [
                       for (final setup in CoreFactory.biosSetups)
                         _coreSetupItem(setup),
@@ -1086,6 +1141,12 @@ class MainPageState extends State<MainPage> {
                               title: const Text('GPU'),
                               subtitle: Text(_rendererName),
                               trailing: const Icon(Icons.memory))),
+                      const PopupMenuItem(
+                          value: _SetupAction.benchmark,
+                          child: ListTile(
+                              title: Text('Benchmark...'),
+                              subtitle: Text('Run the states of a .7z / .zip'),
+                              trailing: Icon(Icons.speed))),
                     ],
                   ),
 
@@ -1221,6 +1282,22 @@ class MainPageState extends State<MainPage> {
       );
 
   Widget _fpsIndicator() => Row(mainAxisSize: MainAxisSize.min, children: [
+        // the benchmark in progress; a tap cancels it
+        ValueListenableBuilder<String?>(
+          valueListenable: _benchmarkStatus,
+          builder: (context, status, _) => status == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () => _benchmark?.cancel(),
+                    child: _badge(
+                        Text('$status  ✕',
+                            style: const TextStyle(color: Colors.white)),
+                        key: const ValueKey('benchmark-status')),
+                  ),
+                ),
+        ),
         // shown for a moment when the sram is saved
         ValueListenableBuilder<bool>(
           valueListenable: _sramSaved,

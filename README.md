@@ -18,6 +18,13 @@ This project is experimental.
 - Set the BIOS of each system from the 'Core setup' menu (the gear icon).
 - The files are saved on your browser's IndexDB and used each time the system starts
 
+## Benchmark
+
+- 'Benchmark...' in the 'Core setup' menu runs the saved states of a benchmark archive, a `.7z` or `.zip` file, one after another at full speed, and shows the frame rate of each.
+- The archive holds `bench.json`, the states, and the ROMs and BIOS files they need. `lib/gui/benchmark.dart` describes `bench.json`.
+- Discs are not in the archive. The app looks for the disc of a state in the ROM directories it has opened, by the media identity in the state, and remembers where it found it.
+- 'Copy' puts the results on the clipboard as lines of JSON, with the device name, the OS, the CPU and its clocks, and the renderer.
+
 
 ## Joypad-Keyboard assignment
 
