@@ -8,6 +8,7 @@ import 'media_decoder.dart';
 import 'pad_button.dart';
 import 'pad_source.dart';
 import 'sram.dart';
+import 'state.dart';
 import 'types.dart';
 import 'video_debug.dart';
 
@@ -97,6 +98,11 @@ class Core extends CoreDebug {
   /// core, media or format version. Callbacks, media and configuration of
   /// this instance are kept.
   void loadState(Uint8List state) => throw UnsupportedError('Core.loadState');
+
+  /// The media identity that [saveState] writes in the [StateHeader], for
+  /// finding the media of a saved state. Cores may override it with a way
+  /// that does not save the whole state.
+  int get stateMedia => StateHeader.of(saveState()).media;
 
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');
