@@ -146,4 +146,19 @@ void main() {
         throwsA(isA<StateMismatch>()));
     expect(same.saveState(), sameBefore);
   });
+
+  test('a state saved with fast boot loads into a core without it', () {
+    final fast = Ps(jit: false)..fastBoot = true;
+    addTearDown(fast.dispose);
+    fast.setSram(Sram());
+    fast.setBiosFiles([_biosRom()]);
+    fast.reset();
+    _frames(fast, 2);
+    final state = fast.saveState();
+
+    final plain = _ps(false);
+    expect(plain.stateMedia, fast.stateMedia);
+    plain.loadState(state);
+    expect(plain.saveState(), state);
+  });
 }
