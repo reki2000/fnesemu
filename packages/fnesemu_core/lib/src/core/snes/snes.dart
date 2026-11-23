@@ -84,8 +84,14 @@ class Snes extends Core {
   int get clocksInScanline => cpuCyclesInScanline * 6;
 
   @override
-  List<CpuInfo> get cpuInfos =>
-      [CpuInfo.ofM68(0, "65816"), CpuInfo.ofZ80(1, "SPC700")];
+  List<CpuInfo> get cpuInfos => [
+        CpuInfo.ofM68(0, "65816"),
+        CpuInfo.ofZ80(1, "SPC700"),
+        if (bus.sa1 != null) CpuInfo.ofM68(2, "SA-1"),
+      ];
+
+  /// The 65816 of debugger CPU [cpuNo]: the SA-1 for 2, else the main one.
+  Cpu _cpu65816(int cpuNo) => cpuNo == 2 ? bus.sa1?.cpu ?? cpu : cpu;
 
   int _scanline = 0;
   int _frames = 0;
@@ -308,7 +314,7 @@ class Snes extends Core {
 
   @override
   (String, int) disasm(int cpuNo, int addr) {
-    if (cpuNo != 1) return cpu.dumpDisasm(addr);
+    if (cpuNo != 1) return _cpu65816(cpuNo).dumpDisasm(addr);
     addr &= 0xffff;
     final bytes = [for (var i = 0; i < 3; i++) _spcPeek(addr + i)];
     final (text, length) = Spc700Disasm.disasm(bytes, addr);
@@ -326,14 +332,19 @@ class Snes extends Core {
   }
 
   @override
-  int programCounter(int cpuNo) =>
-      cpuNo == 1 ? apu.spc.pc : cpu.regs.pbr.shl16 | cpu.regs.pc;
+  int programCounter(int cpuNo) {
+    if (cpuNo == 1) return apu.spc.pc;
+    final regs = _cpu65816(cpuNo).regs;
+    return regs.pbr.shl16 | regs.pc;
+  }
 
   @override
-  int stackPointer(int cpuNo) => cpuNo == 1 ? 0x100 | apu.spc.sp : cpu.regs.s;
+  int stackPointer(int cpuNo) =>
+      cpuNo == 1 ? 0x100 | apu.spc.sp : _cpu65816(cpuNo).regs.s;
 
   @override
   TraceLog trace(int cpuNo) {
+    if (cpuNo == 2) return _cpu65816(2).trace();
     if (cpuNo != 1) return cpu.trace(clock: cpu.cycle * 6);
     final spc = apu.spc;
     return TraceLog(
@@ -350,7 +361,11 @@ class Snes extends Core {
 
   @override
   int read(int cpuNo, int addr) =>
-      cpuNo == 1 ? _spcPeek(addr) : bus.read(addr);
+      switch (cpuNo) {
+        1 => _spcPeek(addr),
+        2 => _cpu65816(2).peek(addr),
+        _ => bus.read(addr),
+      };
 
   @override
   ImageBuffer renderBg() => ImageBuffer.empty();
