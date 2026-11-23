@@ -21,6 +21,7 @@ import 'cpu.dart';
 import 'pad.dart';
 import 'scsp.dart';
 import 'scu.dart';
+import 'scu_dsp_disasm.dart';
 import 'sh2/sh2.dart';
 import 'smpc.dart';
 import 'vdp1.dart';
@@ -205,6 +206,7 @@ class Ss extends Core {
         const CpuInfo(0, "SH-2 master", 32),
         const CpuInfo(1, "SH-2 slave", 32),
         CpuInfo.ofM68(2, "68000"),
+        const CpuInfo(3, "SCU DSP", 8),
       ];
 
   // timing
@@ -560,8 +562,21 @@ class Ss extends Core {
   }
 
   @override
-  (String, int) disasm(int cpuNo, int addr) =>
-      cpuNo == 2 ? _soundDisasm(addr) : _cpu(cpuNo).disasm(addr);
+  (String, int) disasm(int cpuNo, int addr) => switch (cpuNo) {
+        2 => _soundDisasm(addr),
+        3 => _dspDisasm(addr),
+        _ => _cpu(cpuNo).disasm(addr),
+      };
+
+  /// An instruction of the SCU DSP program RAM; addresses are words.
+  (String, int) _dspDisasm(int address) {
+    address &= 0xff;
+    final op = scu.dsp.prog[address];
+    return (
+      formatDisasm(address.x2, op.x8, ScuDspDisasm.disasm(op), codeWidth: 8),
+      1
+    );
+  }
 
   (String, int) _soundDisasm(int address) {
     final words =
@@ -584,13 +599,33 @@ class Ss extends Core {
   }
 
   @override
-  int programCounter(int cpuNo) => cpuNo == 2 ? scsp.cpu.pc : _cpu(cpuNo).pc;
+  int programCounter(int cpuNo) => switch (cpuNo) {
+        2 => scsp.cpu.pc,
+        3 => scu.dsp.pc,
+        _ => _cpu(cpuNo).pc,
+      };
 
   @override
-  int stackPointer(int cpuNo) => cpuNo == 2 ? scsp.cpu.a[7] : _cpu(cpuNo).sp;
+  int stackPointer(int cpuNo) => switch (cpuNo) {
+        2 => scsp.cpu.a[7],
+        3 => 0,
+        _ => _cpu(cpuNo).sp,
+      };
 
   @override
   TraceLog trace(int cpuNo) {
+    if (cpuNo == 3) {
+      final dsp = scu.dsp;
+      return TraceLog(
+          dsp.pc,
+          _lastClocks,
+          disasm(3, dsp.pc).$1.padRight(60),
+          'rx:${dsp.rx.mask32.x8} ry:${dsp.ry.mask32.x8} '
+              'a:${dsp.a.toRadixString(16)} p:${dsp.p.toRadixString(16)} '
+              'ct:${dsp.ct.map((c) => c.x2).join(",")} '
+              'lop:${dsp.lop.x4} top:${dsp.top.x2}',
+          [dsp.pc, ...dsp.ct, dsp.rx, dsp.ry]);
+    }
     final pc = programCounter(cpuNo);
     int word(int address) =>
         read(cpuNo, address) << 8 | read(cpuNo, address + 1);
@@ -629,8 +664,14 @@ class Ss extends Core {
   List<int> get vram => vdp2.vram;
 
   @override
-  int read(int cpuNo, int addr) =>
-      cpuNo == 2 ? scsp.bus.read8(addr) : bus.read8(addr);
+  int read(int cpuNo, int addr) => switch (cpuNo) {
+        2 => scsp.bus.read8(addr),
+        // the four 64-word data RAMs of the SCU DSP as 1KB, big endian
+        3 => (scu.dsp.data[(addr >> 8) & 3][(addr >> 2) & 63] >>
+                (24 - (addr & 3) * 8)) &
+            0xff,
+        _ => bus.read8(addr),
+      };
 
   @override
   ImageBuffer renderBg() => ImageBuffer.empty();
