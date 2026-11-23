@@ -11,7 +11,7 @@ void main() {
 
   test('PS2 debug CPU identity, PC, SP and memory read', () {
     expect(core.cpuInfos.map((cpu) => (cpu.no, cpu.name)),
-        [(0, 'R5900'), (1, 'IOP')]);
+        [(0, 'R5900'), (1, 'IOP'), (2, 'VU0'), (3, 'VU1')]);
 
     // Initial PC
     expect(core.programCounter(0), 0xbfc00000);
@@ -28,6 +28,14 @@ void main() {
     core.iopMemory.write8(0x2000, 0x99);
     expect(core.read(0, 0x1000), 0x42);
     expect(core.read(1, 0x2000), 0x99);
+
+    // VU1 micro memory disassembles as pairs and data memory reads as bytes
+    core.io.vu1.writeMicro(2, 0x8000033c);
+    core.io.vu1.writeMicro(3, 0x000002ff);
+    expect(core.disasm(3, 0x0c), ('0008: 000002ff 8000033c nop : nop', 8));
+    core.io.vu1.data[1] = 0x11223344;
+    expect(core.read(3, 0x05), 0x33);
+    expect(core.programCounter(3), 0);
   });
 
   test('PS2 VRAM dump and render getters', () {

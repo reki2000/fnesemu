@@ -31,6 +31,8 @@ import 'jit/ps2_jit.dart';
 import 'jit/vu_jit.dart';
 import 'r5900/r5900.dart';
 import 'state.dart';
+import 'vu.dart';
+import 'vu_disasm.dart';
 
 final _log = DebugLog('ps2');
 
@@ -574,21 +576,58 @@ class Ps2 extends Core {
 
   @override
   List<CpuInfo> get cpuInfos =>
-      const [CpuInfo(0, 'R5900', 32), CpuInfo(1, 'IOP', 32)];
+      const [
+        CpuInfo(0, 'R5900', 32),
+        CpuInfo(1, 'IOP', 32),
+        CpuInfo(2, 'VU0', 16),
+        CpuInfo(3, 'VU1', 16),
+      ];
+
+  /// The VU of debugger CPU [cpuNo] 2 or 3, or null for the others.
+  Vu? _debugVu(int cpuNo) => switch (cpuNo) {
+        2 => io.vu0,
+        3 => io.vu1,
+        _ => null,
+      };
 
   @override
-  int programCounter(int cpuNo) => cpuNo == 1 ? iop.pc : cpu.pc;
+  int programCounter(int cpuNo) => switch (cpuNo) {
+        1 => iop.pc,
+        2 => io.vu0.pc * 8,
+        3 => io.vu1.pc * 8,
+        _ => cpu.pc,
+      };
 
   @override
-  int stackPointer(int cpuNo) =>
-      cpuNo == 1 ? iop.r[29] : (cpu.reg(29) & 0xffffffff);
+  int stackPointer(int cpuNo) => switch (cpuNo) {
+        1 => iop.r[29],
+        2 || 3 => 0,
+        _ => cpu.reg(29) & 0xffffffff,
+      };
 
   @override
-  int read(int cpuNo, int addr) =>
-      cpuNo == 1 ? iopMemory.read8(addr) : bus.read8(addr);
+  int read(int cpuNo, int addr) {
+    final vu = _debugVu(cpuNo);
+    if (vu != null) {
+      final word = vu.data[(addr >> 2) % vu.data.length];
+      return (word >> ((addr & 3) * 8)) & 0xff;
+    }
+    return cpuNo == 1 ? iopMemory.read8(addr) : bus.read8(addr);
+  }
 
   @override
   (String, int) disasm(int cpuNo, int addr) {
+    final vu = _debugVu(cpuNo);
+    if (vu != null) {
+      addr &= ~7;
+      final low = vu.readMicro(addr >> 2), high = vu.readMicro((addr >> 2) + 1);
+      return (
+        formatDisasm(addr.x4, '${high.x8} ${low.x8}',
+            VuDisasm.pair(low, high, addr),
+            codeWidth: 17),
+        8
+      );
+    }
     addr &= ~3;
     if (cpuNo == 1) {
       final op = iopMemory.read32(addr);
@@ -642,6 +681,17 @@ class Ps2 extends Core {
 
   @override
   TraceLog trace(int cpuNo) {
+    final vu = _debugVu(cpuNo);
+    if (vu != null) {
+      return TraceLog(
+        vu.pc * 8,
+        vu.cycles,
+        disasm(cpuNo, vu.pc * 8).$1,
+        [for (var i = 1; i < 16; i++) 'vi$i:${(vu.vi[i] & 0xffff).x4}']
+            .join(' '),
+        [vu.pc, for (var i = 0; i < 16; i++) vu.vi[i] & 0xffff],
+      );
+    }
     if (cpuNo == 1) {
       final opcode = iopMemory.read32(iop.pc & ~3);
       return TraceLog(
