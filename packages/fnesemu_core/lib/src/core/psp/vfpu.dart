@@ -870,8 +870,14 @@ extension PspVfpuExec on Allegrex {
         return true;
       case 0x42: // VBFY1
       case 0x43: // VBFY2: the butterfly sums and differences, across
-        // the halves (1) or across the pairs (2).
+        // the halves (1) or across the pairs (2). VBFY1 also has a pair
+        // form, which writes only its two lanes.
         final a = _readSource(vs, vpfxs, n);
+        if (n == 2) {
+          if (sel == 0x43) return false;
+          _writeDest(vd, 2, [a[0] + a[1], a[0] - a[1]]);
+          return true;
+        }
         _writeDest(
             vd,
             4,

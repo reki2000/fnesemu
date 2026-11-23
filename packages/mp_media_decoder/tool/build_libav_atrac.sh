@@ -6,7 +6,8 @@
 # system.
 #
 # libavcodec and libavutil are built as static archives and then linked as
-# one shared library, mmd_libav, which exports only the functions that
+# one shared library, mmd_libav, together with the helpers of
+# src/mmd_libav.c. It exports only the functions that
 # lib/src/libavcodec.dart calls. The app loads it at run time, so it stays a
 # separate library that a user can rebuild with this script and replace.
 #
@@ -26,6 +27,7 @@ version=7.1.1
 sha256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
 
 target=$1
+helpers=$(cd "$(dirname "$0")/../src" && pwd)/mmd_libav.c
 out=$(mkdir -p "$2" && cd "$2" && pwd)
 work=$(mkdir -p "${3:-$out/build}" && cd "${3:-$out/build}" && pwd)
 tarball=ffmpeg-$version.tar.xz
@@ -35,7 +37,8 @@ symbols='avcodec_license avutil_license avcodec_find_decoder_by_name
 avcodec_alloc_context3 avcodec_open2 avcodec_send_packet
 avcodec_receive_frame avcodec_flush_buffers avcodec_free_context
 av_packet_alloc av_packet_free av_new_packet av_packet_unref
-av_frame_alloc av_frame_free av_opt_set_int av_opt_set'
+av_frame_alloc av_frame_free av_opt_set_int av_opt_set
+mmd_set_extradata'
 
 ndk_bin() {
   echo "${ANDROID_NDK_HOME:?ANDROID_NDK_HOME is not set}/toolchains/llvm/prebuilt/$(uname -s | tr A-Z a-z)-x86_64/bin"
@@ -141,6 +144,11 @@ libs=$(sed -n 's/^Libs\(\.private\)*: *//p' "$lib/pkgconfig/libavcodec.pc" \
   "$lib/pkgconfig/libavutil.pc" | tr '\n' ' ' |
   sed 's/-L[^ ]*//g; s/-lavutil//g; s/-lavcodec//g')
 
+# the helpers, against the headers of the build
+# shellcheck disable=SC2086
+$cc $cflags -O2 -fPIC -I"$work/install/include" -c "$helpers" \
+  -o "$work/mmd_libav.o"
+
 name=mmd_libav-$target.$ext
 rm -f "$out/$name"
 case $kind in
@@ -149,6 +157,7 @@ case $kind in
       { echo '{ global:'; cat; echo 'local: *; };'; } >"$work/exports.map"
     # shellcheck disable=SC2086
     $cc -shared -o "$out/$name" -Wl,-soname,libmmd_libav.so \
+      "$work/mmd_libav.o" \
       -Wl,--whole-archive "$lib/libavcodec.a" "$lib/libavutil.a" \
       -Wl,--no-whole-archive -Wl,--version-script="$work/exports.map" \
       -Wl,-z,max-page-size=16384 -Wl,-z,noexecstack -Wl,--no-undefined \
@@ -158,7 +167,7 @@ case $kind in
     { echo 'EXPORTS'; for s in $symbols; do echo "  $s"; done; } \
       >"$work/exports.def"
     # shellcheck disable=SC2086
-    $cc -shared -o "$out/$name" \
+    $cc -shared -o "$out/$name" "$work/mmd_libav.o" \
       -Wl,--whole-archive "$lib/libavcodec.a" "$lib/libavutil.a" \
       -Wl,--no-whole-archive "$work/exports.def" -Wl,-s $libs
     ;;
@@ -166,7 +175,7 @@ case $kind in
     for s in $symbols; do echo "_$s"; done >"$work/exports.txt"
     # shellcheck disable=SC2086
     $cc $cflags -dynamiclib -o "$out/$name" \
-      -install_name @rpath/libmmd_libav.dylib \
+      -install_name @rpath/libmmd_libav.dylib "$work/mmd_libav.o" \
       -Wl,-headerpad_max_install_names \
       -Wl,-force_load,"$lib/libavcodec.a" -Wl,-force_load,"$lib/libavutil.a" \
       -Wl,-exported_symbols_list,"$work/exports.txt" -Wl,-x $libs

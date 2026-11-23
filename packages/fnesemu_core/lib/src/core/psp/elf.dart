@@ -25,9 +25,14 @@ class PspModuleImage {
   final int end;
   final List<PspImport> imports;
   final List<({int start, int end})> segments;
+
+  /// The exported functions and variables by library name and name
+  /// identifier. The nameless entry of the module itself is under the
+  /// empty library name.
+  final Map<(String, int), int> exports;
   const PspModuleImage(
       this.name, this.entry, this.gp, this.base, this.end, this.imports,
-      this.segments);
+      this.segments, [this.exports = const {}]);
 }
 
 /// Loads the executable formats of the handheld: plain 32-bit little-endian
@@ -44,6 +49,23 @@ class PspElf {
       body[1] == 0x45 &&
       body[2] == 0x4c &&
       body[3] == 0x46;
+
+  /// The bytes of memory the loadable segments of an ELF cover, from
+  /// address zero of a relocatable module.
+  static int memorySize(Uint8List body) {
+    final data = ByteData.sublistView(body);
+    final phoff = data.getUint32(28, Endian.little);
+    final phnum = data.getUint16(44, Endian.little);
+    var end = 0;
+    for (var i = 0; i < phnum; i++) {
+      final at = phoff + i * 32;
+      if (data.getUint32(at, Endian.little) != 1) continue;
+      final top = data.getUint32(at + 8, Endian.little) +
+          data.getUint32(at + 20, Endian.little);
+      if (top > end) end = top;
+    }
+    return end;
+  }
 
   static bool isPbp(Uint8List body) =>
       body.length >= 8 &&
@@ -102,7 +124,8 @@ class PspElf {
       body[2] == 0x53 &&
       body[3] == 0x50;
 
-  static PspModuleImage load(PspMemory mem, Uint8List body) {
+  /// Loads [body]. A relocatable module goes to [loadBase] when given.
+  static PspModuleImage load(PspMemory mem, Uint8List body, {int? loadBase}) {
     if (isPbp(body)) body = pbpExecutable(body);
     if (isEncrypted(body)) {
       throw const FormatException('encrypted executables are not supported');
@@ -136,7 +159,9 @@ class PspElf {
     if (minVaddr == 0x7fffffff) {
       throw const FormatException('ELF has no loadable segments');
     }
-    final base = type == 0xffa0 || minVaddr < PspMemory.ramAt ? _userBase : 0;
+    final base = type == 0xffa0 || minVaddr < PspMemory.ramAt
+        ? (loadBase ?? _userBase)
+        : 0;
     final segments = <({int start, int end})>[];
 
     for (var i = 0; i < phnum; i++) {
@@ -184,6 +209,7 @@ class PspElf {
       if (shType == 9 || shType == 0x700000a0) {
         _relocate(
             mem, body, shOffset, shSize, base, segmentAddrs, relocState);
+        relocState.endSection();
       }
       final name = sectionName(at);
       if (name == '.rodata.sceModuleInfo') moduleInfoAt = shAddr + base;
@@ -221,8 +247,29 @@ class PspElf {
       }
       at += (words >= 5 ? words : 5) * 4;
     }
-    return PspModuleImage(
-        moduleName, entry + base, gp, base, maxEnd + base, imports, segments);
+    // The export table: each entry names a library and lists the name
+    // identifiers of its functions and variables, then their addresses.
+    final exports = <(String, int), int>{};
+    if (moduleInfoAt >= 0) {
+      var entAt = mem.read32(moduleInfoAt + 0x24);
+      final entEnd = mem.read32(moduleInfoAt + 0x28);
+      while (entAt > 0 && entAt + 16 <= entEnd) {
+        final namePtr = mem.read32(entAt);
+        final words = mem.read8(entAt + 8);
+        final vars = mem.read8(entAt + 9);
+        final funcs = mem.read16(entAt + 10);
+        final table = mem.read32(entAt + 12);
+        final library = namePtr == 0 ? '' : mem.readString(namePtr);
+        final total = funcs + vars;
+        for (var i = 0; i < total; i++) {
+          exports[(library, mem.read32(table + i * 4))] =
+              mem.read32(table + (total + i) * 4);
+        }
+        entAt += (words >= 4 ? words : 4) * 4;
+      }
+    }
+    return PspModuleImage(moduleName, entry + base, gp, base, maxEnd + base,
+        imports, segments, exports);
   }
 
   /// Applies the relocations at [offset] of [body]. The info word of an
@@ -254,7 +301,7 @@ class PspElf {
               (word & 0xfc000000) |
                   (((word & 0x3ffffff) + (addend >> 2)) & 0x3ffffff));
         case 5: // high half (a lui): collected by the state, which
-          // pairs it with a low half that uses its register.
+          // pairs it with the low half behind it.
           state.addHi(mem, rOffset, addend);
         case 6: // low half
           state.addLo(mem, rOffset, addend);
@@ -267,20 +314,22 @@ class PspElf {
 ///
 /// A low half's relocated value does not depend on its high half: it is
 /// the low 16 bits of its immediate plus the address it refers to. A
-/// high half needs the immediate of a low half for the carry, and the
-/// stream does not pair them in a fixed order: several high halves can
-/// share one low half where control flow merges, one high half serves
-/// many low halves, and a low half can be listed before its high half.
-/// The link between them is the register: a low half uses the register
-/// its high half loads. So the halves are collected first, and each
-/// high half takes the nearest low half after it in the stream that
-/// uses its register, unless another high half of that register comes
-/// first; failing that, the nearest such low half before it.
+/// high half needs the immediate of a low half for the carry. As the
+/// MIPS ELF ABI lays out, a run of high halves in a section is followed
+/// by the low half that completes them. That low half may sit at
+/// another instruction, but its immediate gives the same carry, so the
+/// register it uses does not identify the pair. Only a run that ends
+/// its section without a low half falls back to the register: the
+/// nearest low half after it that uses the register of the high half,
+/// or else the nearest one before it.
 class _RelocState {
   /// Every half in stream order, as (is high, location, immediate,
   /// register, the value the entry adds). The register is the
   /// destination of a high half and the base of a low half.
   final _halves = <(bool, int, int, int, int)>[];
+
+  /// The index in [_halves] where each section after the first starts.
+  final _sectionStarts = <int>[];
 
   void addHi(PspMemory mem, int at, int base) {
     final word = mem.read32(at);
@@ -293,15 +342,23 @@ class _RelocState {
         (false, at, (word & 0xffff).toSigned(16), (word >> 21) & 31, base));
   }
 
+  /// Ends the relocation section being read.
+  void endSection() => _sectionStarts.add(_halves.length);
+
   /// The immediate of the low half that completes the high half at
-  /// [index], or zero when none uses its register.
+  /// [index]: the low half behind its run of high halves in the same
+  /// section, or else one found by register, or zero.
   int _partner(int index) {
+    final end = _sectionStarts.firstWhere((start) => start > index,
+        orElse: () => _halves.length);
+    for (var i = index + 1; i < end; i++) {
+      final (isHi, _, imm, _, _) = _halves[i];
+      if (!isHi) return imm;
+    }
     final reg = _halves[index].$4;
     for (var i = index + 1; i < _halves.length; i++) {
       final (isHi, _, imm, r, _) = _halves[i];
-      if (r != reg) continue;
-      if (isHi) break;
-      return imm;
+      if (!isHi && r == reg) return imm;
     }
     for (var i = index - 1; i >= 0; i--) {
       final (isHi, _, imm, r, _) = _halves[i];
@@ -324,5 +381,6 @@ class _RelocState {
       }
     }
     _halves.clear();
+    _sectionStarts.clear();
   }
 }

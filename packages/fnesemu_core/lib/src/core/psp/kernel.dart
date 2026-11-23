@@ -32,6 +32,8 @@ class PspThreadStatus {
   static const waitLwMutex = 9;
   static const waitDisc = 10;
   static const waitEvent = 11;
+  static const waitMbx = 12;
+  static const waitAsync = 13;
 }
 
 class PspThread {
@@ -49,9 +51,11 @@ class PspThread {
   int waitLw = 0; // workarea address of a lightweight mutex wait
   int wakeupCount = 0; // wake-ups that arrived while not sleeping
   // An event flag wait: the flag, the bits, the mode and where the
-  // pattern goes on release.
+  // pattern goes on release. A vblank wait returns [waitBits].
   int waitEvent = 0, waitBits = 0, waitMode = 0, waitOutAt = 0;
   int exitStatus = 0;
+  bool cbWait = false; // blocked in a CB wait: notified callbacks run at once
+  PspImport? lastCall; // the last kernel call, for the state report
   int? pendingResult;
   final state = AllegrexState();
   PspThread(this.id, this.name, this.entry, this.priority, this.stackTop,
@@ -88,6 +92,18 @@ class _Sema {
   int count;
   final int max;
   _Sema(this.count, this.max);
+}
+
+/// A message box: the messages are guest pointers, kept in the order sent.
+class _Mbx {
+  final messages = <int>[];
+}
+
+/// A mutex behind an id. A thread that already owns it may lock it again,
+/// and the lock is given to a waiting thread when the count reaches zero.
+class _Mutex {
+  int owner = 0;
+  int count = 0;
 }
 
 /// A lightweight mutex, keyed by its guest workarea address. The kernel
@@ -220,6 +236,7 @@ class _DiscWait {
   final int at;
   final int length;
   int attempts = 0;
+  int loaded = 0; // the bytes found loaded at the last attempt
   _DiscWait(this.fd, this.at, this.length);
 }
 
@@ -270,6 +287,8 @@ class PspKernel {
   late final _mpeg = PspMpeg(mem);
   late final _atrac = PspAtrac(mem);
   late final _savedata = PspSavedataDialog(mem, () => _memStick);
+  late final _msgDialog = PspMessageDialog(mem);
+  late final _keyboard = PspKeyboardDialog(mem);
 
   /// Decodes the movies; null plays them with black pictures.
   set mediaDecoder(MediaDecoder? decoder) {
@@ -297,6 +316,8 @@ class PspKernel {
   final _eventFlags = <int, _EventFlag>{};
   final _callbacks = <int, _Callback>{};
   final _lwMutexes = <int, _LwMutex>{};
+  final _mutexes = <int, _Mutex>{};
+  final _mbxs = <int, _Mbx>{};
   final _blocks = <int, _Block>{};
   final _fpls = <int, _Fpl>{};
   final unknownCalls = <int, int>{};
@@ -321,7 +342,39 @@ class PspKernel {
   /// collected through the poll and wait calls; asynchronous calls
   /// complete at once in this kernel.
   final _async = <int, int>{};
+
+  /// Disc reads started by sceIoReadAsync whose sectors the drive has not
+  /// loaded yet, by file. They finish when the sectors arrive, or after
+  /// about 200 ms of emulated time without new sectors with zero bytes.
+  final _asyncPending = <int, _DiscWait>{};
+
+  /// The completion callback of an open file: the callback id and the
+  /// argument pointer given to sceIoSetAsyncCallback, which is not used.
+  final _asyncCallbacks = <int, (int, int)>{};
+
+  /// Records the result of an asynchronous call on [fd] and notifies the
+  /// completion callback of the file. The callback gets the file and the
+  /// result.
+  void _asyncDone(int fd, int result) {
+    _async[fd] = result;
+    _notifyAsync(fd);
+  }
+
+  void _notifyAsync(int fd) {
+    final result = _async[fd] ?? 0;
+    final registered = _asyncCallbacks[fd];
+    final callback = registered == null ? null : _callbacks[registered.$1];
+    if (callback == null) return;
+    callback.count = fd;
+    callback.arg = result & 0xffffffff;
+    _wakeCallbackOwner(callback);
+  }
   int _nextFd = 3;
+
+  /// Descriptors closed by sceIoCloseAsync whose result no poll or wait
+  /// has collected yet. Descriptors are not reused, so the result stays
+  /// with the closed number.
+  final _closedAsync = <int>{};
 
   /// Disc reads suspended until the drive loads their sectors, by
   /// thread id.
@@ -363,6 +416,12 @@ class PspKernel {
 
   late final PspModuleImage _mainModule;
   int _compiledSdkVersion = 0;
+
+  /// The loaded modules: the main module and the modules it loaded, in
+  /// load order. A loaded module's id is its index plus [_moduleIdBase].
+  final _images = <PspModuleImage>[];
+  static const _moduleIdBase = 0x01000000;
+  int _nextImportCode = 1;
   int _compilerVersion = 0;
   int _nextId = 1;
   static const _mainModuleId = 0x01000000;
@@ -380,6 +439,15 @@ class PspKernel {
 
   int _heapAt;
   int _stackAt = _mainStackTop - _mainStackSize;
+
+  /// The lowest address the arena hands out again after a release. A
+  /// state from before the arena kept the loaded modules in its blocks
+  /// raises it to the heap top of that state.
+  int _heapFloor;
+
+  /// The clock frequencies in MHz that scePower reports and the game sets.
+  /// They do not change the speed of the emulation.
+  int _cpuMhz = 222, _busMhz = 111;
   int _nextDelayWake = 0x7fffffffffffffff;
   int _rng = 0x2545f491;
 
@@ -393,7 +461,8 @@ class PspKernel {
   static const _mainStackSize = 256 * 1024;
 
   PspKernel(this.mem, this.pad, int heapStart)
-      : _heapAt = (heapStart + 0xffff) & ~0xffff {
+      : _heapAt = (heapStart + 0xffff) & ~0xffff,
+        _heapFloor = (heapStart + 0xffff) & ~0xffff {
     ge = PspGe(mem);
     ge.callbackRunner = _runHandler;
     _registerHandlers();
@@ -456,6 +525,8 @@ class PspKernel {
     final put = current == null ? null : _puts[current!.id];
     if (put == null) return;
     final read = cpu.r[2].toSigned(32);
+    // A callback that reads nothing has reached the end of the stream.
+    if (read == 0) _mpeg.ended = true;
     if (read > 0) {
       _mpeg.put(read);
       put.done += read;
@@ -475,12 +546,25 @@ class PspKernel {
     if (callback == null) return;
     callback.count++;
     callback.arg = arg;
+    _wakeCallbackOwner(callback);
+  }
+
+  Allegrex? _liveCpu;
+
+  /// A callback notified while its owner is blocked in a CB wait runs
+  /// now, the way the wait would be interrupted to run it; the wait then
+  /// goes on.
+  void _wakeCallbackOwner(_Callback callback) {
+    final owner = threads[callback.thread];
+    final cpu = _liveCpu;
+    if (owner == null || cpu == null || !owner.cbWait || _inCallback) return;
+    _runCallbacks(cpu, owner);
   }
 
   /// Runs the notified callbacks of the current thread. A callback that
   /// returns nonzero is deleted. Returns whether any ran.
-  bool _runCallbacks(Allegrex cpu) {
-    final cur = current;
+  bool _runCallbacks(Allegrex cpu, [PspThread? owner]) {
+    final cur = owner ?? current;
     if (cur == null || _inCallback) return false;
     var ran = false;
     for (final id in _callbacks.keys.toList()) {
@@ -513,15 +597,25 @@ class PspKernel {
     mem.write32(_callbackSentinelAt,
         0x08000000 | ((_callbackSentinelAt >> 2) & 0x3ffffff));
     mem.write32(_guestReturnAt, 0x0000000c | (_guestReturnCode << 6));
-    var code = 1;
-    for (final import in image.imports) {
-      import.code = code++;
-      _byCode[import.code] = import;
-      mem.write32(import.stubAddr, 0x0000000c | (import.code << 6));
-      mem.write32(import.stubAddr + 4, 0x03e00008);
+    _images.add(image);
+    _linkImports(image);
+    // The module may set the priority and stack size of the thread that
+    // runs its entry point (module_start_thread_parameter: a word count,
+    // the priority, the stack size and the attributes). The stack comes
+    // from the top of user memory, so a small one leaves more for the
+    // game.
+    var priority = 0x20, stackSize = _mainStackSize;
+    final parameter = image.exports[('', 0x0f7c276c)];
+    if (parameter != null && mem.read32(parameter) >= 3) {
+      if (mem.read32(parameter + 4) != 0) priority = mem.read32(parameter + 4);
+      final size = mem.read32(parameter + 8);
+      if (size != 0) {
+        stackSize = ((size + 0xff) & ~0xff).clamp(0x400, _mainStackSize);
+      }
     }
+    _stackAt = _mainStackTop - stackSize;
     final main =
-        _newThread('main', image.entry, 0x20, _mainStackTop, _mainStackSize);
+        _newThread('main', image.entry, priority, _mainStackTop, stackSize);
     main.status = PspThreadStatus.running;
     _prepareK0Area(main);
     main.state.r[29] = _mainStackTop - 0x100;
@@ -573,9 +667,10 @@ class PspKernel {
       }
     }
     for (final thread in threads.values) {
-      if (thread.status == PspThreadStatus.waitVblank) {
+      if (thread.status == PspThreadStatus.waitVblank &&
+          --thread.waitCount <= 0) {
         thread.status = PspThreadStatus.ready;
-        thread.pendingResult = 0;
+        thread.pendingResult = thread.waitBits;
       }
     }
     _preempt(cpu);
@@ -596,6 +691,7 @@ class PspKernel {
       }
     }
     _retryDiscWaits(cpu);
+    _retryAsyncReads(cpu);
     _preempt(cpu);
   }
 
@@ -709,6 +805,11 @@ class PspKernel {
       return;
     }
     final caller = current;
+    if (!_inCallback) {
+      caller?.lastCall = import;
+      caller?.cbWait = false;
+    }
+    _liveCpu = cpu;
     final returnAt = cpu.r[31];
     int? result = 0;
     if (handler == null) {
@@ -819,7 +920,7 @@ class PspKernel {
       _interruptsEnabled = false;
       return flags;
     });
-    on(0x5f10d406, (cpu, _) {
+    int? resumeInterrupts(Allegrex cpu, PspImport? _) {
       _interruptsEnabled = _arg(cpu, 0) & 1 != 0;
       if (!_inCallback) {
         while (_interruptsEnabled && _pendingHandlers.isNotEmpty) {
@@ -829,15 +930,93 @@ class PspKernel {
         _preempt(cpu);
       }
       return null;
-    });
+    }
 
-    // sceUtility: the save data dialog. Its update call has nothing to
-    // draw. The module loading and the message dialog stay unknown calls,
-    // which return zero.
+    on(0x5f10d406, resumeInterrupts);
+    on(0x3b84732d, resumeInterrupts); // the form with a memory barrier
+
+    // sceUtility: the save data, message and keyboard dialogs. Their
+    // update calls have nothing to draw. The module loading stays an
+    // unknown call, which returns zero.
     on(0x50c4cd57, (cpu, _) => _savedata.initStart(_arg(cpu, 0)));
     on(0x8874dbe0, (cpu, _) => _savedata.getStatus());
     on(0xd4b95ffb, (cpu, _) => 0);
     on(0x9790b33c, (cpu, _) => _savedata.shutdownStart());
+    on(0x2ad8e239, (cpu, _) => _msgDialog.initStart(_arg(cpu, 0)));
+    on(0x9a1c91d7, (cpu, _) => _msgDialog.getStatus());
+    on(0x67af3428, (cpu, _) => _msgDialog.shutdownStart());
+    on(0x95fc253b, (cpu, _) => 0); // update
+    on(0xf6269b82, (cpu, _) => _keyboard.initStart(_arg(cpu, 0)));
+    on(0xf3f76017, (cpu, _) => _keyboard.getStatus());
+    on(0x3dfaeba9, (cpu, _) => _keyboard.shutdownStart());
+    on(0x4b85c861, (cpu, _) => 0); // update
+
+    // The system settings are those of a Japanese console: Japanese, the
+    // circle button confirms, the date as year, month, day, a 24-hour
+    // clock and Japan's time zone without daylight saving.
+    on(0xa5da2406, (cpu, _) { // GetSystemParamInt(id, value)
+      final value = _systemParams[_arg(cpu, 0)];
+      if (value == null) return _systemParamFail;
+      mem.write32(_arg(cpu, 1), value);
+      return 0;
+    });
+    on(0x34b78343, (cpu, _) { // GetSystemParamString(id, text, size)
+      if (_arg(cpu, 0) != 1) return _systemParamFail; // the nickname
+      final at = _arg(cpu, 1), size = _arg(cpu, 2);
+      const name = PspKeyboardDialog.defaultText;
+      for (var i = 0; i < size; i++) {
+        mem.write8(at + i, i < name.length ? name.codeUnitAt(i) : 0);
+      }
+      return 0;
+    });
+    // sceImpose GetLanguageMode(language, button): the same two settings
+    on(0x36aa6e91, (cpu, _) {
+      mem.write32(_arg(cpu, 0), _systemParams[_paramLanguage]!);
+      mem.write32(_arg(cpu, 1), _systemParams[_paramButton]!);
+      return 0;
+    });
+
+    // scePower: the clocks a game sets are reported back; the battery is
+    // full and the power is on. Locks and callbacks do nothing.
+    on(0xfdb5bfe9, (cpu, _) => _cpuMhz); // GetCpuClockFrequencyInt
+    on(0xfee03a2f, (cpu, _) => _cpuMhz); // GetCpuClockFrequency
+    on(0xbd681969, (cpu, _) => _busMhz); // GetBusClockFrequencyInt
+    on(0x478fe6f5, (cpu, _) => _busMhz); // GetBusClockFrequency
+    on(0xb1a52c83, (cpu, _) { // GetCpuClockFrequencyFloat
+      cpu.f[0] = _cpuMhz.toDouble();
+      return 0;
+    });
+    on(0x9badb3eb, (cpu, _) { // GetBusClockFrequencyFloat
+      cpu.f[0] = _busMhz.toDouble();
+      return 0;
+    });
+    int? setClocks(Allegrex cpu, PspImport? _) {
+      _cpuMhz = _arg(cpu, 1);
+      _busMhz = _arg(cpu, 2);
+      return 0;
+    }
+
+    on(0x737486f2, setClocks); // SetClockFrequency
+    on(0xebd177d6, setClocks); // SetClockFrequency, later firmware
+    on(0x469989ad, setClocks); // the same, later firmware
+    on(0x843fbf43, (cpu, _) { // SetCpuClockFrequency
+      _cpuMhz = _arg(cpu, 0);
+      return 0;
+    });
+    on(0xb8d7b3fb, (cpu, _) { // SetBusClockFrequency
+      _busMhz = _arg(cpu, 0);
+      return 0;
+    });
+    on(0x2085d15d, (cpu, _) => 100); // GetBatteryLifePercent
+    on(0x8efb3fa2, (cpu, _) => 300); // GetBatteryLifeTime, in minutes
+    on(0x87440f5e, (cpu, _) => 1); // IsPowerOnline
+    on(0x0afd0d8b, (cpu, _) => 1); // IsBatteryExist
+    on(0x1e490401, (cpu, _) => 0); // IsBatteryCharging
+    on(0x04b7766e, (cpu, _) => 0); // RegisterCallback
+    on(0xdfa8baf8, (cpu, _) => 0); // UnregisterCallback
+    on(0xd6d016ef, (cpu, _) => 0); // Lock
+    on(0xca3d34c1, (cpu, _) => 0); // Unlock
+    on(0xefd3c963, (cpu, _) => 0); // Tick
 
     // sceSuspendForUser: power locks do nothing. The volatile memory is
     // taken to be the 4 MiB below the user module area, handed to the game
@@ -895,6 +1074,7 @@ class PspKernel {
       return null;
     });
     on(0x278c0df5, _waitThreadEnd);
+    on(0x2c34e053, _releaseWaitThread);
     on(0xceadeb47, _delayThread);
     // The CB forms of the waits run the thread's notified callbacks
     // first and then wait as the plain forms do.
@@ -902,9 +1082,15 @@ class PspKernel {
             int? Function(Allegrex, PspImport?) wait) =>
         (cpu, import) {
           _runCallbacks(cpu);
-          return wait(cpu, import);
+          final self = current;
+          final result = wait(cpu, import);
+          if (self != null && self.status != PspThreadStatus.running) {
+            self.cbWait = true;
+          }
+          return result;
         };
     on(0x68da9e36, withCallbacks(_delayThread));
+    on(0x840e8133, withCallbacks(_waitThreadEnd));
     on(0xea748e31, (cpu, _) => current?.id ?? 0);
     // GetSystemTime fills a 64-bit microsecond count at a0;
     // GetSystemTimeWide returns it in v0:v1 and GetSystemTimeLow
@@ -1025,10 +1211,85 @@ class PspKernel {
       _semas.remove(_arg(cpu, 0));
       return 0;
     });
+    on(0x94aa61ee, (cpu, _) => current?.priority ?? 0);
+    on(0x71bc9871, (cpu, _) {
+      final thread = _arg(cpu, 0) == 0 ? current : threads[_arg(cpu, 0)];
+      if (thread == null) return 0x80020198;
+      thread.priority = _arg(cpu, 1);
+      _preempt(cpu);
+      return 0;
+    });
+    // Message boxes. A receive on an empty box waits for a send, which
+    // hands the message to the first waiting thread. The errors are as
+    // recalled from the public SDK error list, not checked against games.
+    on(0x8125221d, (cpu, _) {
+      final id = _nextId++;
+      _mbxs[id] = _Mbx();
+      return id;
+    });
+    on(0x86255ada, (cpu, _) => _mbxs.remove(_arg(cpu, 0)) == null
+        ? 0x800201c8
+        : 0);
+    on(0xe9b3061e, (cpu, _) {
+      final id = _arg(cpu, 0);
+      final mbx = _mbxs[id];
+      if (mbx == null) return 0x800201c8;
+      for (final thread in threads.values) {
+        if (thread.status == PspThreadStatus.waitMbx && thread.waitSema == id) {
+          mem.write32(thread.waitOutAt, _arg(cpu, 1));
+          thread.status = PspThreadStatus.ready;
+          thread.pendingResult = 0;
+          _preempt(cpu);
+          return 0;
+        }
+      }
+      mbx.messages.add(_arg(cpu, 1));
+      return 0;
+    });
+    int? receiveMbx(Allegrex cpu, PspImport? _, {required bool poll}) {
+      final id = _arg(cpu, 0);
+      final mbx = _mbxs[id];
+      if (mbx == null) return 0x800201c8;
+      if (mbx.messages.isNotEmpty) {
+        mem.write32(_arg(cpu, 1), mbx.messages.removeAt(0));
+        return 0;
+      }
+      if (poll || _inCallback) return 0x800201ca;
+      final timeout = _arg(cpu, 2);
+      if (timeout != 0 && mem.read32(timeout) == 0) return 0x800201b9;
+      current!
+        ..status = PspThreadStatus.waitMbx
+        ..waitSema = id
+        ..waitOutAt = _arg(cpu, 1);
+      _schedule(cpu);
+      return null;
+    }
+
+    on(0x18260574, (cpu, import) => receiveMbx(cpu, import, poll: false));
+    on(0xf3986382, withCallbacks(
+        (cpu, import) => receiveMbx(cpu, import, poll: false)));
+    on(0x0d81716a, (cpu, import) => receiveMbx(cpu, import, poll: true));
+    on(0xb7d098c6, (cpu, _) {
+      final id = _nextId++;
+      final mutex = _mutexes[id] = _Mutex();
+      if (_arg(cpu, 2) > 0) {
+        mutex.owner = current?.id ?? 0;
+        mutex.count = _arg(cpu, 2);
+      }
+      return id;
+    });
+    on(0xf8170fbe, (cpu, _) =>
+        _mutexes.remove(_arg(cpu, 0)) == null ? 0x800201c3 : 0);
+    on(0xb011b11f, (cpu, _) => _lockMutex(cpu, blocking: true));
+    on(0x5bf4dd27, (cpu, _) => _lockMutex(cpu, blocking: true));
+    on(0x0ddcd2c9, (cpu, _) => _lockMutex(cpu, blocking: false));
+    on(0x6b30100f, _unlockMutex);
     // Lightweight mutexes live in a guest workarea, not behind an id.
     on(0x19cff145, _createLwMutex);
     on(0x60107536, _deleteLwMutex);
     on(0xbea46419, (cpu, _) => _lockLwMutex(cpu, blocking: true));
+    on(0x1fc64e09,
+        withCallbacks((cpu, _) => _lockLwMutex(cpu, blocking: true)));
     on(0xdc692ee3, (cpu, _) => _lockLwMutex(cpu, blocking: false));
     on(0x15b6446b, _unlockLwMutex);
     on(0x293b45b8, (cpu, _) => current?.id ?? 0);
@@ -1061,8 +1322,10 @@ class PspKernel {
       _blocks.remove(_arg(cpu, 0));
       return 0;
     });
-    on(0xf919f628, (cpu, _) => 0x800000);
-    on(0xa291f107, (cpu, _) => 0x800000);
+    // The free user memory: the largest free span (MaxFreeMemSize) and
+    // the sum of them (TotalFreeMemSize).
+    on(0xf919f628, (cpu, _) => _arenaFree().$2);
+    on(0xa291f107, (cpu, _) => _arenaFree().$1);
     on(0x7591c7db, (cpu, _) {
       _compiledSdkVersion = _arg(cpu, 0);
       return 0;
@@ -1097,8 +1360,9 @@ class PspKernel {
           (segment) => address >= segment.start && address < segment.end);
       return found ? _mainModuleId : 0x8002012e;
     });
-    on(0x977de386, (cpu, _) => 1);
-    on(0x50f0c1ec, (cpu, _) => 0);
+    on(0x977de386, _loadModuleByPath);
+    on(0xb7f46618, _loadModuleById);
+    on(0x50f0c1ec, _startLoadedModule);
     on(0xd675ebb8, (cpu, _) => 0);
     on(0x2e0911aa, (cpu, _) => 0);
 
@@ -1122,20 +1386,36 @@ class PspKernel {
     });
     on(0x984c27e7, _waitVblank);
     on(0x46f186c3, _waitVblank);
+    // WaitVblank and its callback form return at once inside the vblank
+    // period; the vblank here is an instant, so they wait for the next.
+    on(0x36cdfade, _waitVblank);
+    on(0x8eb9ec49, withCallbacks(_waitVblank));
+    // WaitVblankStartMulti and its callback form: the count in a0.
+    on(0x40f1469c, (cpu, _) => _waitVblank(cpu, null, _arg(cpu, 0)));
+    on(0x77ed8b3a, withCallbacks((cpu, _) =>
+        _waitVblank(cpu, null, _arg(cpu, 0))));
     on(0x9c6eaad7, (cpu, _) => vcount);
     on(0xdba6c4c4, (cpu, _) {
       cpu.f[0] = displayHz.toDouble();
       return null;
     });
     on(0xb4f378fa, (cpu, _) => 0);
-    on(0x773dd3a3, (cpu, _) => 0);
+    // The horizontal counters follow the emulated clock: 286 lines a frame.
+    on(0x773dd3a3, (cpu, _) => _hcount(cpu) % _linesPerFrame);
+    on(0x210eab3a, (cpu, _) => _hcount(cpu));
 
     // sceCtrl
     on(0x1f4011e6, (cpu, _) => 0);
     on(0x6a2774f3, (cpu, _) => 0);
     on(0x1f3112b3, (cpu, _) => 0);
     on(0xda6b76a1, (cpu, _) => 0);
-    on(0x1f803938, _readCtrl);
+    // The read forms wait for the sample of the next vblank; the peek
+    // forms return at once. The negative forms set the bits of the
+    // buttons that are up.
+    on(0x1f803938, (cpu, _) => _readCtrlWait(cpu, false)); // Read
+    on(0x60b81f86, (cpu, _) => _readCtrlWait(cpu, true)); // ReadNegative
+    on(0x3a622550, _readCtrl); // PeekBufferPositive
+    on(0xc152080a, (cpu, _) => _readCtrl(cpu, null, true)); // PeekNegative
     on(0xa9c80c72, _readCtrl);
     on(0x60a81f03, _readCtrl);
     on(0xd6ad4d80, _readCtrl);
@@ -1442,7 +1722,7 @@ class PspKernel {
     on(0x42ec03ac, _ioWrite);
     on(0x0facab19, _ioWriteAsync);
     on(0x810c4bc3, _ioClose);
-    on(0xff5940b6, _ioClose);
+    on(0xff5940b6, _ioCloseAsync);
     on(0x27eb27b8, _ioLseek);
     on(0x68963324, _ioLseek32);
     on(0x71b19e77, _ioLseekAsync);
@@ -1457,16 +1737,35 @@ class PspKernel {
     on(0x55f4717d, _ioChdir);
     on(0xab96437f, _ioSync);
     on(0x63632449, (cpu, _) {
+      // sceIoIoctl(fd, command, in, inLength, out, outLength). Command
+      // 0x01020006 reads the first sector of a disc file, which games use
+      // to name the file by its sector.
       final fd = _arg(cpu, 0);
+      final node = _files[fd]?.node;
+      if (node != null && _arg(cpu, 1) == 0x01020006) {
+        final out = cpu.r[8], outLength = cpu.r[9];
+        if (out == 0 || outLength < 4) return 0x80010016;
+        mem.write32(out, node.entry.lba);
+        return 0;
+      }
       return _files.containsKey(fd) || _dirs.containsKey(fd)
           ? 0
           : 0x80010002;
     });
     on(0x3251ea56, _ioPollAsync);
-    on(0x35dbd746, _ioPollAsync);
+    on(0xe23eec33, _ioWaitAsync);
+    on(0x35dbd746, withCallbacks(_ioWaitAsync));
+    on(0xcb05f8d6, _ioPollAsync);
     on(0xe8bc6571, (cpu, _) => 0);
     on(0xb293727f, (cpu, _) => 0);
-    on(0xa12a0514, (cpu, _) => 0);
+    on(0xa12a0514, (cpu, _) {
+      if (!_files.containsKey(_arg(cpu, 0))) return 0x80010002;
+      _asyncCallbacks[_arg(cpu, 0)] = (_arg(cpu, 1), _arg(cpu, 2));
+      // The calls finish at once here, so a call made before the callback
+      // was set has already finished: the callback hears of it now.
+      if (_async.containsKey(_arg(cpu, 0))) _notifyAsync(_arg(cpu, 0));
+      return 0;
+    });
 
     // sceUmdUser: a mounted disc is present and ready, and no disc
     // reports itself as not present; activation is a formality.
@@ -1492,11 +1791,14 @@ class PspKernel {
       // Allegrex calling convention, so the output pointer for
       // command 1 is in t0.
       final device = mem.readString(_arg(cpu, 0), 32);
-      if (device == 'disc0:' || device == 'umd0:') {
+      // The commands of the disc devices, such as a seek, succeed while a
+      // disc is in; the reads they prepare go through the files.
+      if (device == 'disc0:' || device == 'umd0:' || device == 'umd1:' ||
+          device == 'umd:') {
         return disc?.isMounted == true ? 0 : 0x80010002;
       }
       if (device == 'ms0:' || device == 'fatms0:' || device == 'mscmhc0:') {
-        return 0;
+        return _memoryStickDevctl(cpu, _arg(cpu, 1));
       }
       if (device != 'emulator:' && device != 'kemulator:') {
         return 0x80010002;
@@ -1530,14 +1832,18 @@ class PspKernel {
       _audioChannels[index].nextAt = 0;
       return 0;
     });
-    on(0xb011b7ff, (cpu, _) {
-      final index = _arg(cpu, 0);
-      if (index < 0 || index >= 8 || !_audioChannels[index].reserved) {
-        return 0x80260002;
-      }
-      final rest = _audioChannels[index].nextAt - _audioAt(cpu);
-      return rest > 0 ? rest : 0;
-    });
+    // GetChannelRestLen and GetChannelRestLength: the samples of the
+    // channel that have not played yet
+    for (final nid in [0xb011b7ff, 0xb011922f]) {
+      on(nid, (cpu, _) {
+        final index = _arg(cpu, 0);
+        if (index < 0 || index >= 8 || !_audioChannels[index].reserved) {
+          return 0x80260002;
+        }
+        final rest = _audioChannels[index].nextAt - _audioAt(cpu);
+        return rest > 0 ? rest : 0;
+      });
+    }
     on(0x827a2fb7, (cpu, _) => 0);
 
     // sceAudioOutput2: one more stereo output with its own block size.
@@ -1702,12 +2008,24 @@ class PspKernel {
       return 0;
     });
     on(0x4571cc64, (cpu, _) => 0); // AvcDecodeFlush
+    on(0x0f6c18d7, (cpu, _) {
+      // AvcDecodeDetail(mpeg, detail): the size of the picture at 8 and
+      // 12. The layout is not documented; these two words are what a game
+      // reads to draw the picture, and the other fields stay untouched.
+      final at = _arg(cpu, 1);
+      if (at != 0) {
+        mem.write32(at + 8, _mpeg.pictureWidth);
+        mem.write32(at + 12, _mpeg.pictureHeight);
+      }
+      return 0;
+    });
     on(0x800c44df, (cpu, _) {
       _mpeg.decodeAudio(_arg(cpu, 2)); // AtracDecode(mpeg, au, buffer, init)
       return 0;
     });
 
     // sceAtrac3plus: the ATRAC player, for files held whole in memory
+    // or streamed through a buffer
     on(0x780f88d1, (cpu, _) => _atrac.allocate(_arg(cpu, 0))); // GetAtracID
     on(0x7a20e7af, // SetDataAndGetID(buffer, size)
         (cpu, _) => _atrac.setDataAndGetId(_arg(cpu, 0), _arg(cpu, 1)));
@@ -1723,7 +2041,8 @@ class PspKernel {
     on(0x868120b5,
         (cpu, _) => _atrac.setLoopNum(_arg(cpu, 0), _arg(cpu, 1).toSigned(32)));
     on(0x644e5607, // ResetPlayPosition(id, sample, first, second)
-        (cpu, _) => _atrac.resetPlayPosition(_arg(cpu, 0), _arg(cpu, 1)));
+        (cpu, _) => _atrac.resetPlayPosition(
+            _arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2)));
     on(0x9ae849a7,
         (cpu, _) => _atrac.remainFrame(_arg(cpu, 0), _arg(cpu, 1)));
     on(0x36faabfb,
@@ -1739,9 +2058,22 @@ class PspKernel {
     on(0x5d268707, // GetStreamDataInfo(id, write, available, offset)
         (cpu, _) => _atrac.streamDataInfo(
             _arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
-    on(0x7db31251, (cpu, _) => 0); // AddStreamData
-    on(0xca3ca3d2, // GetBufferInfoForReseting(id, sample, info)
-        (cpu, _) => _atrac.bufferInfoForResetting(_arg(cpu, 0), _arg(cpu, 2)));
+    on(0x7db31251, // AddStreamData(id, bytes)
+        (cpu, _) => _atrac.addStreamData(_arg(cpu, 0), _arg(cpu, 1)));
+    on(0x0fae370e, // SetHalfwayBufferAndGetID(buffer, read, size)
+        (cpu, _) => _atrac.setHalfwayBufferAndGetId(
+            _arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2)));
+    on(0x3f6e26b5, // SetHalfwayBuffer(id, buffer, read, size)
+        (cpu, _) => _atrac.setHalfwayBuffer(
+            _arg(cpu, 0), _arg(cpu, 1), _arg(cpu, 2), _arg(cpu, 3)));
+    on(0xe88f759b, // GetInternalErrorInfo(id, error)
+        (cpu, _) => _atrac.internalError(_arg(cpu, 0), _arg(cpu, 1)));
+    // GetBufferInfoForResetting(id, sample, info), under the identifiers
+    // of both spellings of its name
+    for (final nid in [0xca3ca3d2, 0x2dd3e298]) {
+      on(nid,
+          (cpu, _) => _atrac.bufferInfoForResetting(_arg(cpu, 0), _arg(cpu, 2)));
+    }
     on(0x83e85ea0, // GetSecondBufferInfo
         (cpu, _) => PspAtrac.errorSecondBufferNotNeeded);
 
@@ -1929,9 +2261,56 @@ class PspKernel {
     return 0;
   }
 
+  // The system setting identifiers of the language and the confirm
+  // button, and the values of the integer settings. The failure code of
+  // an unknown setting is from public documentation, not checked against
+  // hardware.
+  static const _paramLanguage = 8, _paramButton = 9;
+  static const _systemParams = {
+    2: 0, // ad hoc channel: automatic
+    3: 0, // wireless power saving: off
+    4: 0, // date format: year, month, day
+    5: 0, // time format: 24 hours
+    6: 540, // time zone: minutes from UTC
+    7: 0, // daylight saving: off
+    _paramLanguage: 0, // Japanese
+    _paramButton: 0, // the circle button confirms
+  };
+  static const _systemParamFail = 0x80110103;
+
+  /// ReleaseWaitThread: ends the wait of a blocked thread, whose call
+  /// returns [_releasedWait]. A thread that does not wait is an error.
+  int? _releaseWaitThread(Allegrex cpu, PspImport? _) {
+    final thread = threads[_arg(cpu, 0)];
+    if (thread == null || identical(thread, current)) return 0x80020198;
+    switch (thread.status) {
+      case PspThreadStatus.ready:
+      case PspThreadStatus.running:
+      case PspThreadStatus.dead:
+      case PspThreadStatus.dormant:
+        return _notWaiting;
+    }
+    _discWaits.remove(thread.id);
+    thread
+      ..status = PspThreadStatus.ready
+      ..cbWait = false
+      ..pendingResult = _releasedWait;
+    return 0;
+  }
+
+  // The error codes of a released wait and of a thread that does not
+  // wait, from the public lists of kernel error codes; not checked
+  // against hardware.
+  static const _releasedWait = 0x800201aa;
+  static const _notWaiting = 0x800201a4;
+
   int? _startThread(Allegrex cpu, PspImport? _) {
     final thread = threads[_arg(cpu, 0)];
-    if (thread == null || thread.status != PspThreadStatus.dormant) {
+    // An exited thread that was not deleted is dormant again and starts
+    // anew.
+    if (thread == null ||
+        thread.status != PspThreadStatus.dormant &&
+            thread.status != PspThreadStatus.dead) {
       return 0x80020198;
     }
     final argSize = _arg(cpu, 1), argAt = _arg(cpu, 2);
@@ -1986,9 +2365,37 @@ class PspKernel {
     return null;
   }
 
-  int? _waitVblank(Allegrex cpu, PspImport? _) {
-    if (_inCallback) return 0;
+  /// Waits for the start of the [count]th vblank from now; a count below
+  /// one waits for the next. The count stays in waitCount.
+  /// The Memory Stick queries of sceIoDevctl. The output pointer is in
+  /// t0. The stick is always inserted and reports 1 GB free, as 32768
+  /// clusters of 64 sectors of 512 bytes; the free space query takes a
+  /// pointer to the pointer of its five-word answer as its input.
+  int _memoryStickDevctl(Allegrex cpu, int command) {
+    switch (command) {
+      case 0x02025806 || 0x02425823: // inserted: 1
+        final out = cpu.r[8];
+        if (out != 0) mem.write32(out, 1);
+      case 0x02425818: // free space
+        final inAt = _arg(cpu, 2);
+        final at = inAt != 0 ? mem.read32(inAt) : 0;
+        if (at != 0) {
+          mem.write32(at, 32768); // clusters
+          mem.write32(at + 4, 32768); // free clusters
+          mem.write32(at + 8, 32768);
+          mem.write32(at + 12, 512); // bytes per sector
+          mem.write32(at + 16, 64); // sectors per cluster
+        }
+    }
+    return 0;
+  }
+
+  int? _waitVblank(Allegrex cpu, PspImport? _,
+      [int count = 1, int result = 0]) {
+    if (_inCallback) return result;
     current!.status = PspThreadStatus.waitVblank;
+    current!.waitCount = count.toSigned(32) < 1 ? 1 : count;
+    current!.waitBits = result;
     _schedule(cpu);
     return null;
   }
@@ -2104,6 +2511,51 @@ class PspKernel {
         sema.count -= thread.waitCount;
         thread.status = PspThreadStatus.ready;
         thread.pendingResult = 0;
+      }
+    }
+    _preempt(cpu);
+    return 0;
+  }
+
+  int? _lockMutex(Allegrex cpu, {required bool blocking}) {
+    final mutex = _mutexes[_arg(cpu, 0)];
+    if (mutex == null) return 0x800201c3;
+    final count = _arg(cpu, 1) <= 0 ? 1 : _arg(cpu, 1);
+    final self = current?.id ?? 0;
+    if (mutex.count == 0 || mutex.owner == self) {
+      mutex.owner = self;
+      mutex.count += count;
+      return 0;
+    }
+    if (!blocking || _inCallback) return 0x800201c4;
+    final timeout = _arg(cpu, 2);
+    if (timeout != 0 && mem.read32(timeout) == 0) return 0x800201b9;
+    current!.status = PspThreadStatus.waitSema;
+    current!.waitSema = _arg(cpu, 0);
+    current!.waitCount = count;
+    _schedule(cpu);
+    return null;
+  }
+
+  int? _unlockMutex(Allegrex cpu, PspImport? _) {
+    final id = _arg(cpu, 0);
+    final mutex = _mutexes[id];
+    if (mutex == null) return 0x800201c3;
+    final count = _arg(cpu, 1) <= 0 ? 1 : _arg(cpu, 1);
+    if (mutex.count == 0 || mutex.owner != (current?.id ?? 0)) {
+      return 0x800201c5;
+    }
+    mutex.count -= count;
+    if (mutex.count > 0) return 0;
+    mutex.count = 0;
+    mutex.owner = 0;
+    for (final thread in threads.values) {
+      if (thread.status == PspThreadStatus.waitSema && thread.waitSema == id) {
+        mutex.owner = thread.id;
+        mutex.count = thread.waitCount;
+        thread.status = PspThreadStatus.ready;
+        thread.pendingResult = 0;
+        break;
       }
     }
     _preempt(cpu);
@@ -2232,8 +2684,9 @@ class PspKernel {
     final status = switch (thread.status) {
       PspThreadStatus.running => 0x01,
       PspThreadStatus.ready => 0x02,
-      PspThreadStatus.dead => 0x10,
-      PspThreadStatus.dormant => 0x20,
+      // A thread that has not started and one that has exited are both
+      // dormant (0x10); 0x20 is the killed status.
+      PspThreadStatus.dead || PspThreadStatus.dormant => 0x10,
       _ => 0x04, // every wait state
     };
     mem.write32(at, 104);
@@ -2269,11 +2722,10 @@ class PspKernel {
     final blockSize = (_arg(cpu, 3) + 3) & ~3;
     final count = _arg(cpu, 4);
     if (blockSize <= 0 || count <= 0) return 0x800201bc;
-    final size = (blockSize * count + 0xff) & ~0xff;
-    if (_heapAt + size > _stackAt) return _noMemory;
+    final addr = _reserve(blockSize * count, 0x100);
+    if (addr < 0) return _noMemory;
     final id = _nextId++;
-    _fpls[id] = _Fpl(_heapAt, blockSize, count);
-    _heapAt += size;
+    _fpls[id] = _Fpl(addr, blockSize, count);
     return id;
   }
 
@@ -2305,19 +2757,165 @@ class PspKernel {
     return 0;
   }
 
+  /// sceKernelAllocPartitionMemory(partition, name, type, size, addr):
+  /// the aligned types (3 and 4) take the alignment from addr.
   int? _allocBlock(Allegrex cpu, PspImport? _) {
-    final size = (_arg(cpu, 3) + 0xffff) & ~0xffff;
-    // Heap blocks and thread stacks share the user partition: blocks
-    // grow up from the module image, stacks grow down from its top,
-    // and a block may not cross the current stack frontier.
-    if (_heapAt + size > _stackAt) return _noMemory;
+    final type = _arg(cpu, 2), size = _arg(cpu, 3);
+    var align = 0x100;
+    if (type == 3 || type == 4) {
+      final want = cpu.r[8] & 0xffffffff;
+      if (want != 0 && want & (want - 1) == 0 && want > align) align = want;
+    }
+    final addr = _reserve(size, align);
+    if (addr < 0) return _noMemory;
     final id = _nextId++;
-    _blocks[id] = _Block(_heapAt, size);
-    _heapAt += size;
+    _blocks[id] = _Block(addr, (size + 0xff) & ~0xff);
     return id;
   }
 
-  int? _readCtrl(Allegrex cpu, PspImport? _) {
+  /// The ranges of the arena in use, as (address, end) by address: the
+  /// partition blocks, which include the loaded modules, and the pools.
+  List<(int, int)> _arenaRanges() => [
+        for (final block in _blocks.values)
+          (block.addr, block.addr + block.size),
+        for (final fpl in _fpls.values)
+          (fpl.addr, fpl.addr + fpl.blockSize * fpl.used.length),
+      ]..sort((a, b) => a.$1 - b.$1);
+
+  /// Reserves [size] bytes at an address aligned to [align] in the user
+  /// arena, or returns -1. Heap memory and thread stacks share the user
+  /// partition: the arena grows up from the module image, stacks grow
+  /// down from its top, and the arena may not cross the stack frontier.
+  /// The lowest gap that fits is taken, so released memory is used
+  /// again; [_heapAt] is the top of the arena.
+  int _reserve(int size, int align) {
+    size = (size + 0xff) & ~0xff;
+    var at = (_heapFloor + align - 1) & -align;
+    for (final (start, end) in _arenaRanges()) {
+      if (end <= at) continue;
+      if (start >= at + size) break;
+      at = (end + align - 1) & -align;
+    }
+    if (at < _heapFloor || at + size > _stackAt) return -1;
+    if (at + size > _heapAt) _heapAt = at + size;
+    return at;
+  }
+
+  /// The free memory of the arena: (total, largest span).
+  (int, int) _arenaFree() {
+    var total = 0, largest = 0, at = _heapFloor;
+    void gap(int end) {
+      final size = (end - at) & ~0xff;
+      if (size > 0) {
+        total += size;
+        if (size > largest) largest = size;
+      }
+    }
+
+    for (final (start, end) in _arenaRanges()) {
+      if (start > at) gap(start);
+      if (end > at) at = end;
+    }
+    gap(_stackAt);
+    return (total, largest);
+  }
+
+  /// Points the stubs of [image] at system calls, then rewrites every
+  /// stub of every module whose function another module exports into a
+  /// jump to that function.
+  void _linkImports(PspModuleImage image) {
+    for (final import in image.imports) {
+      import.code = _nextImportCode++;
+      _byCode[import.code] = import;
+      mem.write32(import.stubAddr, 0x0000000c | (import.code << 6));
+      mem.write32(import.stubAddr + 4, 0x03e00008);
+    }
+    for (final user in _images) {
+      for (final import in user.imports) {
+        for (final owner in _images) {
+          if (identical(owner, user)) continue;
+          final target = owner.exports[(import.library, import.nid)];
+          if (target == null) continue;
+          mem.write32(
+              import.stubAddr, 0x08000000 | ((target >> 2) & 0x3ffffff));
+          mem.write32(import.stubAddr + 4, 0);
+          break;
+        }
+      }
+    }
+  }
+
+  /// Loads a module file into memory above the heap. Files that are not
+  /// plain modules (the encrypted ones) are accepted without being loaded.
+  int _loadModuleImage(Uint8List body) {
+    if (!PspElf.isElf(body) || body.length < 52) return _moduleIdBase + 0x1000;
+    final size = (PspElf.memorySize(body) + 0xff) & ~0xff;
+    final base = _reserve(size, 0x100);
+    if (base < 0) return _noMemory;
+    final PspModuleImage image;
+    try {
+      image = PspElf.load(mem, body, loadBase: base);
+    } on FormatException {
+      return _moduleIdBase + 0x1000;
+    }
+    // The module keeps its memory as a block that no call names.
+    _blocks[_nextId++] = _Block(base, size);
+    _images.add(image);
+    _linkImports(image);
+    return _moduleIdBase + _images.length - 1;
+  }
+
+  int? _loadModuleById(Allegrex cpu, PspImport? _) {
+    final file = _files[_arg(cpu, 0)];
+    final node = file?.node;
+    if (node == null) return _moduleIdBase + 0x1000;
+    final body = disc?.readBytes(node.entry, 0, node.entry.size);
+    if (body == null) return 0x80010005;
+    return _loadModuleImage(body);
+  }
+
+  int? _loadModuleByPath(Allegrex cpu, PspImport? _) {
+    final (device, rel) = _resolve(mem.readString(_arg(cpu, 0), 256));
+    if (device != 'disc0' && device != 'umd0') return _moduleIdBase + 0x1000;
+    final node = disc?.lookup(rel);
+    if (node == null || node.isDirectory) return 0x80010002;
+    final body = disc?.readBytes(node.entry, 0, node.entry.size);
+    if (body == null) return 0x80010005;
+    return _loadModuleImage(body);
+  }
+
+  /// Runs the start function of a loaded module, which is the export the
+  /// nameless entry lists under 0xd632acdb or else the file's entry point.
+  int? _startLoadedModule(Allegrex cpu, PspImport? _) {
+    final id = _arg(cpu, 0);
+    final index = id - _moduleIdBase;
+    if (index <= 0 || index >= _images.length) return 0;
+    final image = _images[index];
+    final start = image.exports[('', 0xd632acdb)] ?? image.entry;
+    // A module without a start function has no valid entry point either.
+    final phys = PspMemory.physical(start);
+    if (!image.segments.any((s) => phys >= s.start && phys < s.end)) return id;
+    final statusAt = _arg(cpu, 3);
+    final saved = cpu.r[28];
+    cpu.r[28] = image.gp;
+    final result = _runGuest(cpu, start, _arg(cpu, 1), _arg(cpu, 2), 0);
+    cpu.r[28] = saved;
+    if (statusAt != 0) mem.write32(statusAt, result);
+    return id;
+  }
+
+  static const _linesPerFrame = 286;
+
+  /// The horizontal sync lines since the start, from the clock.
+  int _hcount(Allegrex cpu) =>
+      cpu.clocks * _linesPerFrame * displayHz ~/ _cpuHz;
+
+  int? _readCtrlWait(Allegrex cpu, bool negative) {
+    final count = _readCtrl(cpu, null, negative);
+    return _arg(cpu, 0) == 0 ? count : _waitVblank(cpu, null, 1, count!);
+  }
+
+  int? _readCtrl(Allegrex cpu, PspImport? _, [bool negative = false]) {
     final at = _arg(cpu, 0);
     if (at == 0) return 0;
     var buttons = 0;
@@ -2343,7 +2941,7 @@ class PspKernel {
     final ly =
         (0x80 + pad.axis(0, PadAxis.leftY).clamp(-1.0, 1.0) * 127).round();
     mem.write32(at, cpu.clocks ~/ _clocksPerMicrosecond);
-    mem.write32(at + 4, buttons);
+    mem.write32(at + 4, negative ? ~buttons & 0xffffffff : buttons);
     mem.write8(at + 8, lx);
     mem.write8(at + 9, ly);
     mem.write8(at + 10, 0x80);
@@ -2437,7 +3035,7 @@ class PspKernel {
 
   int? _ioOpenAsync(Allegrex cpu, PspImport? _) {
     final fd = _ioOpen(cpu, null);
-    if (fd != null && fd >= 0) _async[fd] = fd;
+    if (fd != null && fd >= 0) _asyncDone(fd, fd);
     return fd;
   }
 
@@ -2453,9 +3051,9 @@ class PspKernel {
   /// not loaded yet suspends the calling thread instead of reporting a
   /// short read: the drive loads in the background, and the scheduler
   /// retries the read as emulated time passes, the way a real read
-  /// waits for the disc. After about 200 ms of emulated time the read
-  /// gives up and reports zero bytes. Asynchronous reads never suspend;
-  /// they report what is available at once.
+  /// waits for the disc. After about 200 ms of emulated time without
+  /// new sectors the read gives up and reports zero bytes. Asynchronous
+  /// reads never suspend; they report what is available at once.
   int? _readFile(Allegrex cpu, bool mayBlock) {
     final fd = _arg(cpu, 0);
     final file = _files[fd];
@@ -2497,6 +3095,19 @@ class PspKernel {
     return read;
   }
 
+  /// Counts a failed attempt of [wait]. The time limit runs from the
+  /// last attempt that found more of the data loaded, so a long read
+  /// that the drive keeps delivering does not give up.
+  void _countProgress(_DiscWait wait) {
+    final loaded = disc?.lastLoaded ?? 0;
+    if (loaded > wait.loaded) {
+      wait.loaded = loaded;
+      wait.attempts = 0;
+    } else {
+      wait.attempts++;
+    }
+  }
+
   /// Retries the suspended disc reads whose time has come; called from
   /// [wakeDue] alongside the delay threads.
   void _retryDiscWaits(Allegrex cpu) {
@@ -2515,7 +3126,7 @@ class PspKernel {
         file!.position += data.length ~/ file.unit;
         thread.pendingResult = data.length ~/ file.unit;
       } else if (wait != null && wait.attempts < 200) {
-        wait.attempts++;
+        _countProgress(wait);
         thread.wakeAt = cpu.clocks + _cpuHz ~/ 1000;
         if (thread.wakeAt < _nextDelayWake) _nextDelayWake = thread.wakeAt;
         continue;
@@ -2532,9 +3143,75 @@ class PspKernel {
 
   int? _ioReadAsync(Allegrex cpu, PspImport? _) {
     final fd = _arg(cpu, 0);
-    if (!_files.containsKey(fd)) return 0x80010002;
-    _async[fd] = _readFile(cpu, false) ?? 0;
+    final file = _files[fd];
+    if (file == null) return 0x80010002;
+    final node = file.node;
+    if (node != null && _readDisc(file, node, _arg(cpu, 2)) == null) {
+      _asyncPending[fd] = _DiscWait(fd, _arg(cpu, 1), _arg(cpu, 2));
+      _async.remove(fd);
+      final retryAt = cpu.clocks + _cpuHz ~/ 1000;
+      if (retryAt < _nextDelayWake) _nextDelayWake = retryAt;
+      return 0;
+    }
+    _asyncDone(fd, _readFile(cpu, false) ?? 0);
     return 0;
+  }
+
+  /// Finishes the pending asynchronous disc reads whose sectors arrived;
+  /// called from [wakeDue].
+  void _retryAsyncReads(Allegrex cpu) {
+    for (final fd in _asyncPending.keys.toList()) {
+      final wait = _asyncPending[fd]!;
+      final file = _files[fd];
+      final node = file?.node;
+      final data = node == null ? null : _readDisc(file!, node, wait.length);
+      int result;
+      if (data != null) {
+        mem.writeBytes(wait.at, data);
+        file!.position += data.length ~/ file.unit;
+        result = data.length ~/ file.unit;
+      } else if (node != null && wait.attempts < 200) {
+        _countProgress(wait);
+        if (cpu.clocks + _cpuHz ~/ 1000 < _nextDelayWake) {
+          _nextDelayWake = cpu.clocks + _cpuHz ~/ 1000;
+        }
+        continue;
+      } else {
+        result = 0;
+      }
+      _asyncPending.remove(fd);
+      _asyncDone(fd, result);
+      for (final thread in threads.values) {
+        if (thread.status == PspThreadStatus.waitAsync &&
+            thread.waitSema == fd) {
+          _writeAsyncResult(thread.waitOutAt, _async.remove(fd) ?? 0);
+          thread.status = PspThreadStatus.ready;
+          thread.pendingResult = 0;
+        }
+      }
+    }
+  }
+
+  void _writeAsyncResult(int at, int result) {
+    if (at == 0) return;
+    mem.write32(at, result & 0xffffffff);
+    mem.write32(at + 4, (result >> 32) & 0xffffffff);
+  }
+
+  /// sceIoWaitAsync: blocks until the call on the file has finished.
+  int? _ioWaitAsync(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    if (_closedAsync.contains(fd)) return _ioPollAsync(cpu, null);
+    if (!_files.containsKey(fd)) return _badFileDescriptor;
+    if (_asyncPending.containsKey(fd) && !_inCallback) {
+      current!
+        ..status = PspThreadStatus.waitAsync
+        ..waitSema = fd
+        ..waitOutAt = _arg(cpu, 1);
+      _schedule(cpu);
+      return null;
+    }
+    return _ioPollAsync(cpu, null);
   }
 
   int? _ioWrite(Allegrex cpu, PspImport? _) {
@@ -2581,7 +3258,16 @@ class PspKernel {
   int? _ioWriteAsync(Allegrex cpu, PspImport? _) {
     final fd = _arg(cpu, 0);
     if (!_files.containsKey(fd)) return 0x80010002;
-    _async[fd] = _ioWrite(cpu, null) ?? 0;
+    _asyncDone(fd, _ioWrite(cpu, null) ?? 0);
+    return 0;
+  }
+
+  int? _ioCloseAsync(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    if (!_files.containsKey(fd)) return _badFileDescriptor;
+    _ioClose(cpu, null);
+    _closedAsync.add(fd);
+    _async[fd] = 0;
     return 0;
   }
 
@@ -2591,6 +3277,8 @@ class PspKernel {
     if (file != null && file.dirty) memStick.flush();
     _dirs.remove(fd);
     _async.remove(fd);
+    _asyncPending.remove(fd);
+    _asyncCallbacks.remove(fd);
     return 0;
   }
 
@@ -2616,7 +3304,12 @@ class PspKernel {
   /// in the v0/v1 pair.
   int? _ioLseek(Allegrex cpu, PspImport? _) {
     final file = _files[_arg(cpu, 0)];
-    if (file == null) return 0x80010002;
+    if (file == null) {
+      // a 64-bit error: the code in v0 and its sign in v1
+      cpu.r[2] = _badFileDescriptor;
+      cpu.r[3] = 0xffffffff;
+      return null;
+    }
     final offset =
         (cpu.r[7] & 0xffffffff) << 32 | (cpu.r[6] & 0xffffffff);
     final position = _seek(file, offset, cpu.r[8]);
@@ -2628,7 +3321,7 @@ class PspKernel {
   int? _ioLseek32Async(Allegrex cpu, PspImport? _) {
     final fd = _arg(cpu, 0);
     if (!_files.containsKey(fd)) return 0x80010002;
-    _async[fd] = _ioLseek32(cpu, null) ?? 0;
+    _asyncDone(fd, _ioLseek32(cpu, null) ?? 0);
     return 0;
   }
 
@@ -2638,11 +3331,18 @@ class PspKernel {
     if (file == null) return 0x80010002;
     final offset =
         (cpu.r[7] & 0xffffffff) << 32 | (cpu.r[6] & 0xffffffff);
-    _async[fd] = _seek(file, offset, cpu.r[8]);
+    _asyncDone(fd, _seek(file, offset, cpu.r[8]));
     return 0;
   }
 
+  static const _badFileDescriptor = 0x80010009;
+
   int? _ioPollAsync(Allegrex cpu, PspImport? _) {
+    final fd = _arg(cpu, 0);
+    if (!_closedAsync.remove(fd) && !_files.containsKey(fd)) {
+      return _badFileDescriptor;
+    }
+    if (_asyncPending.containsKey(_arg(cpu, 0))) return 1; // still busy
     final result = _async.remove(_arg(cpu, 0)) ?? 0;
     final at = _arg(cpu, 1);
     if (at != 0) {
@@ -2935,6 +3635,88 @@ class PspKernel {
     _saveFiles(writer);
     _atrac.saveState(writer);
     writer.ints([_savedata.status, _savedata.param, _savedata.mode]);
+    writer.int32(_heapFloor);
+    // The mutexes, the message boxes with their messages, the asynchronous
+    // reads that wait for the disc and the callbacks of the asynchronous
+    // files.
+    writer.ints([
+      for (final MapEntry(key: id, value: m) in _mutexes.entries)
+        ...[id, m.owner, m.count],
+    ]);
+    writer.int32(_mbxs.length);
+    for (final MapEntry(key: id, value: mbx) in _mbxs.entries) {
+      writer.ints([id, ...mbx.messages]);
+    }
+    writer.ints([
+      for (final w in _asyncPending.values)
+        ...[w.fd, w.at, w.length, w.attempts, w.loaded],
+    ]);
+    writer.ints([
+      for (final MapEntry(key: fd, value: (id, arg)) in _asyncCallbacks.entries)
+        ...[fd, id, arg],
+    ]);
+    writer.ints([..._closedAsync]);
+    // the clocks and the dialogs that are open
+    writer.ints([_cpuMhz, _busMhz, _msgDialog.status, _keyboard.status]);
+    _saveModules(writer);
+  }
+
+  /// Saves the modules loaded after the main one, whose stubs point at
+  /// system call codes given when they were loaded: the image and its
+  /// imports with their codes and its exports. The main module is linked
+  /// again the same way when the program starts, and the stubs themselves
+  /// are in memory.
+  void _saveModules(StateWriter writer) {
+    writer.int32(_nextImportCode);
+    writer.int32(_images.length - 1);
+    for (final image in _images.skip(1)) {
+      writer.string(image.name);
+      writer.ints([
+        image.entry, image.gp, image.base, image.end, //
+        for (final s in image.segments) ...[s.start, s.end],
+      ]);
+      writer.int32(image.imports.length);
+      for (final import in image.imports) {
+        writer.string(import.library);
+        writer.ints([import.nid, import.stubAddr, import.code]);
+      }
+      writer.int32(image.exports.length);
+      for (final MapEntry(key: (library, nid), value: at)
+          in image.exports.entries) {
+        writer.string(library);
+        writer.ints([nid, at]);
+      }
+    }
+  }
+
+  void _loadModules(StateReader reader) {
+    _nextImportCode = reader.int32();
+    final main = _images.first;
+    _images
+      ..clear()
+      ..add(main);
+    _byCode.removeWhere((_, import) => !main.imports.contains(import));
+    for (var n = reader.int32(); n > 0; n--) {
+      final name = reader.string();
+      final x = reader.ints();
+      final imports = <PspImport>[];
+      for (var i = reader.int32(); i > 0; i--) {
+        final library = reader.string();
+        final y = reader.ints();
+        final import = PspImport(library, y[0], y[1])..code = y[2];
+        imports.add(import);
+        _byCode[import.code] = import;
+      }
+      final exports = <(String, int), int>{};
+      for (var i = reader.int32(); i > 0; i--) {
+        final library = reader.string();
+        final y = reader.ints();
+        exports[(library, y[0])] = y[1];
+      }
+      _images.add(PspModuleImage(name, x[0], x[1], x[2], x[3], imports, [
+        for (var i = 4; i + 1 < x.length; i += 2) (start: x[i], end: x[i + 1]),
+      ], exports));
+    }
   }
 
   /// Saves the open files: a disc or memory stick file by its path, which
@@ -3147,6 +3929,9 @@ class PspKernel {
     _files.clear();
     _dirs.clear();
     _async.clear();
+    _closedAsync.clear();
+    _asyncPending.clear();
+    _asyncCallbacks.clear();
     _discWaits.clear();
     if (reader.version >= 7) {
       _loadFiles(reader);
@@ -3164,6 +3949,39 @@ class PspKernel {
         ..status = x[0]
         ..param = x[1]
         ..mode = x[2];
+    }
+    _heapFloor = reader.version >= 9 ? reader.int32() : _heapAt;
+    _mutexes.clear();
+    _mbxs.clear();
+    if (reader.version >= 9) {
+      final mutexes = reader.ints();
+      for (var i = 0; i + 2 < mutexes.length; i += 3) {
+        _mutexes[mutexes[i]] = _Mutex()
+          ..owner = mutexes[i + 1]
+          ..count = mutexes[i + 2];
+      }
+      for (var n = reader.int32(); n > 0; n--) {
+        final x = reader.ints();
+        _mbxs[x[0]] = _Mbx()..messages.addAll(x.skip(1));
+      }
+      final pending = reader.ints();
+      for (var i = 0; i + 4 < pending.length; i += 5) {
+        _asyncPending[pending[i]] =
+            _DiscWait(pending[i], pending[i + 1], pending[i + 2])
+              ..attempts = pending[i + 3]
+              ..loaded = pending[i + 4];
+      }
+      final callbacks = reader.ints();
+      for (var i = 0; i + 2 < callbacks.length; i += 3) {
+        _asyncCallbacks[callbacks[i]] = (callbacks[i + 1], callbacks[i + 2]);
+      }
+      _closedAsync.addAll(reader.ints());
+      final misc = reader.ints();
+      _cpuMhz = misc[0];
+      _busMhz = misc[1];
+      _msgDialog.status = misc[2];
+      _keyboard.status = misc[3];
+      _loadModules(reader);
     }
     current = threads[currentId];
     _nextDelayWake = 0x7fffffffffffffff;

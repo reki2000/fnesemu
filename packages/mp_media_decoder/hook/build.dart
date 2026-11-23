@@ -17,34 +17,34 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 
 /// the release that holds the libraries
 const _release =
-    'https://github.com/reki2000/fnesemu/releases/download/libav-atrac-7.1.1-1';
+    'https://github.com/reki2000/fnesemu/releases/download/libav-atrac-7.1.1-2';
 
 /// the SHA-256 of the library of each target of the build script
 const _sha256 = {
   'android-arm':
-      'de81c26ad75822a969cf830fe03931a25093f8fbcd367c2104214715ce3b4fdb',
+      'd4cba822a76c3ca81fa4207754c060c39ba9c5a327856558449962f794900b1c',
   'android-arm64':
-      '4734f2e4bab6da7eca45a675bb2a179aa4f83732b9294303bce2d029544d49d8',
+      '23bc1de9569f1b45372e2523d68a03f1575a457e2ac98051997456c667b9682a',
   'android-x64':
-      '373aa41781dc88ad707466faef518da0a306de35cc8a54363a3d37247b379621',
+      '4e218f897667ab6851c1a650acf3a10761cef4dc2cfffd0af571dcfd4dafea82',
   'ios-arm64':
-      'e1d944f666c72465b838bfc187901db301d03e740dcca5b5daf82ed766a39303',
+      'fd0520441d987d5e24f5e3aeca3a6a7749c19a02ad4a1eec71ad37768818888d',
   'iossim-arm64':
-      '649ffc0d19f52d05bcf4fd01776cb6b8c2420eac09973b6bb50ecb5b1e30d05e',
+      'c2a46e9e855c2009d5a851ee11ca2e859c0070d98afc32a7a36113a8287fd92c',
   'iossim-x64':
-      '6042f2df9894e63d8c5b8ffaae13bfc801b26630889b3d5b8c51f89da7fd4485',
+      '56c028bc817feeacd4c842fb759ed87b91da56137ba43f77ae5e20a2be60b53b',
   'linux-arm64':
-      '40f2d0afb976c39184e771a6b74f24d0b3ab021bcecafeddbf479d1a026cf483',
+      'a2780323126155ad6e00e54b264b07a1871b9aa3a6a187d3125c8fad8d19b547',
   'linux-x64':
-      'a6d3b412c1488acd9c1f80df29fbdc4eb6f9b750e53454c0a06e75fad2e4aba5',
+      '9c704a0468a9c9cdf8815c50e0d7c7d8ad7f19e25ec20d9a22e2bb9ba6ab7703',
   'macos-arm64':
-      '799a78715ce61912ea0032ad249009548be58dcdbaa8c8d61024d6a839dad492',
+      '6b5e4c80c801fe7e896bff1ba7a39ab38f7c5579355deadae5f94d81dad40ab3',
   'macos-x64':
-      '031527b599f8b6efca20ca6f8a3b7b721e17de8e0d109d125f442f8a29da1515',
+      'cceb026cc43a08e7f8accc9f5c096da1934db07c559278234ef25a45197ace94',
   'windows-arm64':
-      '644dce2fec1aadf610c1303d868777cbcbcc8212d914072d7c4320879895838d',
+      '680234004d1ce4f22d75a96499ba37bf6ce15b84b9695252adaa5b5a0f454c83',
   'windows-x64':
-      '1005136c0f1a7d93e5448ac975a7f14f0fe345daf9f8edbba0545503fe4fa55c',
+      'bbdbfa2e90b0fda45242c63572abc9f211f0ba03b579540fabfcf66a61ebdc07',
 };
 
 void main(List<String> args) async {

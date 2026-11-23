@@ -1,12 +1,12 @@
 # mp_media_decoder
 
-Decodes H.264 video and ATRAC3plus audio for emulators that play the movies and music of their media. H.264 goes through the decoder of the operating system, and ATRAC3plus through a shared libavcodec under the LGPL that the package bundles and loads at run time.
+Decodes H.264 video and ATRAC3 and ATRAC3plus audio for emulators that play the movies and music of their media. H.264 goes through the decoder of the operating system, and ATRAC3 and ATRAC3plus through a shared libavcodec under the LGPL that the package bundles and loads at run time.
 
-`MediaDecoders.open()` finds the decoders of the platform. `openH264()` returns a `VideoDecoder` that takes one access unit at a time as an Annex B byte stream and returns the latest finished picture as RGBA pixels. A decoder may hold pictures back for reordering, so the picture can belong to an earlier unit. `openAtrac3plus()` returns an `AudioDecoder` that takes one frame of the block size at a time and returns interleaved 16-bit samples. A codec without a decoder on the platform returns null, and the caller plays the media without a picture or sound.
+`MediaDecoders.open()` finds the decoders of the platform. `openH264()` returns a `VideoDecoder` that takes one access unit at a time as an Annex B byte stream and returns the latest finished picture as RGBA pixels. A decoder may hold pictures back for reordering, so the picture can belong to an earlier unit. `openAtrac3plus()` returns an `AudioDecoder` that takes one frame of the block size at a time and returns interleaved 16-bit samples. `openAtrac3()` does the same for ATRAC3, which also takes the codec data of the stream: the 14-byte extension of the format chunk of a WAVE file. A codec without a decoder on the platform returns null, and the caller plays the media without a picture or sound.
 
 ## Backends
 
-| Platform | H.264 | ATRAC3plus |
+| Platform | H.264 | ATRAC3, ATRAC3plus |
 |---|---|---|
 | Linux | GStreamer | libavcodec |
 | Android | MediaCodec | libavcodec |
@@ -45,7 +45,7 @@ In a directory, the package looks for `mmd_libav` under the file name of the pla
 
 Only a build under the LGPL is used: the package checks `avcodec_license()` and `avutil_license()` and skips any other build. Linux distributions usually ship a GPL build, which the package therefore does not use.
 
-`tool/build_libav_atrac.sh TARGET OUT_DIR` builds `mmd_libav` for one target of the app (`linux-x64`, `android-arm64`, `windows-x64`, `macos-arm64`, `ios-arm64`, `iossim-arm64` and so on). It configures a pinned FFmpeg release with only the ATRAC3 and ATRAC3plus decoders, without GPL, version 3 or nonfree parts, without system libraries and without assembly, and checks the SHA-256 of the source tarball. It then links the static libavcodec and libavutil into one shared library that exports only the functions that the package calls and needs only the C library and the threads of the system.
+`tool/build_libav_atrac.sh TARGET OUT_DIR` builds `mmd_libav` for one target of the app (`linux-x64`, `android-arm64`, `windows-x64`, `macos-arm64`, `ios-arm64`, `iossim-arm64` and so on). It configures a pinned FFmpeg release with only the ATRAC3 and ATRAC3plus decoders, without GPL, version 3 or nonfree parts, without system libraries and without assembly, and checks the SHA-256 of the source tarball. It then links the static libavcodec and libavutil into one shared library that exports only the functions that the package calls and needs only the C library and the threads of the system. The library adds one helper of its own, `mmd_set_extradata` in `src/mmd_libav.c`, which gives a decoder its codec data: no AVOption reaches that field. ATRAC3 needs it, so a libavcodec of the system, or a build of `mmd_libav` from before the helper, decodes ATRAC3plus only.
 
 The `Release libav-atrac` workflow (`.github/workflows/libav-atrac.yaml`) runs the script for every target when a `libav-atrac-<FFmpeg version>-<build>` tag is pushed. It publishes the libraries, their SHA-256, the FFmpeg source tarball, the text of the LGPL and the script as a GitHub Release. The build hook downloads the library of the target from the release that `_release` names, checks it against the SHA-256 in `_sha256`, keeps it in the shared output directory of the hooks, and bundles it as a code asset. A new build of the library takes a new tag and an update of both constants. The user-defines of the package change the bundling:
 

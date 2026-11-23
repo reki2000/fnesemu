@@ -64,7 +64,8 @@ class PspSavedataDialog {
       _icon1 = 0x594,
       _pic1 = 0x5a4,
       _snd0 = 0x5b4,
-      _focus = 0x5c8;
+      _focus = 0x5c8,
+      _msFree = 0x5d0;
 
   static const _sfoName = 'PARAM.SFO';
   static const _files = [
@@ -138,12 +139,34 @@ class PspSavedataDialog {
       case 19: // erase a file, secure and plain
       case 20:
         return _erase(at, _string(at + _saveName, 20));
+      case 8: // sizes
+        _reportFree(at);
+        return 0;
       default:
-        // The modes that report sizes, lists and files (8, 11, 12 and
-        // 22) succeed without filling in their reports, as the calls did
-        // before the dialog existed; the games seen so far go on.
+        // The modes that report lists and files (11, 12 and 22) succeed
+        // without filling in their reports, as the calls did before the
+        // dialog existed; the games seen so far go on.
         return 0;
     }
+  }
+
+  /// The free space the sizes mode reports: 1 GiB in 32 KiB clusters,
+  /// so that a game finds room for its data. The used space of the data
+  /// is not reported.
+  static const _clusterSize = 0x8000, _freeClusters = 0x8000;
+
+  /// Fills the free space report of a block large enough to name one:
+  /// the cluster size, the free clusters, the free KiB and the free space
+  /// as text, in that order.
+  void _reportFree(int at) {
+    if (mem.read32(at + _size) < _msFree + 4) return;
+    final info = mem.read32(at + _msFree);
+    if (info == 0) return;
+    const kb = _clusterSize ~/ 1024 * _freeClusters;
+    mem.write32(info, _clusterSize);
+    mem.write32(info + 4, _freeClusters);
+    mem.write32(info + 8, kb);
+    _writeString(info + 12, '${kb ~/ 1024} MB', 8);
   }
 
   String _dir(int at, String saveName) =>
@@ -398,4 +421,134 @@ Map<String, Object> readSfo(List<int> bytes) {
     }
   }
   return values;
+}
+
+/// The message dialog of sceUtility, without a screen of its own. It
+/// steps through the dialog states the way the save data dialog does and
+/// closes at once with the first button: the player is taken to confirm
+/// every message. The offsets follow the public SDK headers.
+class PspMessageDialog {
+  PspMessageDialog(this.mem);
+
+  final PspMemory mem;
+  int status = PspSavedataDialog.statusNone;
+
+  static const _result = 0x1c, _buttonPressed = 0x240;
+  static const _buttonYes = 1;
+
+  int initStart(int at) {
+    if (status != PspSavedataDialog.statusNone) return 0x80110001;
+    mem.write32(at + _result, 0);
+    // The pressed button follows the options word, in blocks that have it.
+    if (mem.read32(at) >= _buttonPressed + 4) {
+      mem.write32(at + _buttonPressed, _buttonYes);
+    }
+    status = PspSavedataDialog.statusInit;
+    return 0;
+  }
+
+  int getStatus() {
+    final now = status;
+    if (status == PspSavedataDialog.statusInit) {
+      status = PspSavedataDialog.statusVisible;
+    } else if (status == PspSavedataDialog.statusVisible) {
+      status = PspSavedataDialog.statusQuit;
+    } else if (status == PspSavedataDialog.statusFinished) {
+      status = PspSavedataDialog.statusNone;
+    }
+    return now;
+  }
+
+  int shutdownStart() {
+    if (status != PspSavedataDialog.statusQuit) return 0x80110001;
+    status = PspSavedataDialog.statusFinished;
+    return 0;
+  }
+}
+
+/// The on-screen keyboard of sceUtility, without a screen of its own. It
+/// steps through the dialog states like the other dialogs and closes at
+/// once, as a player who confirms the text: each field returns its
+/// initial text, or [defaultText] when that is empty, up to the field's
+/// limit. The offsets follow the public SDK headers.
+class PspKeyboardDialog {
+  PspKeyboardDialog(this.mem);
+
+  final PspMemory mem;
+  int status = PspSavedataDialog.statusNone;
+
+  /// The text of a field without initial text, such as a name.
+  static const defaultText = 'PLAYER';
+
+  static const _result = 0x1c, _fieldCount = 0x30, _fields = 0x34;
+
+  // A field: the initial text, the output buffer size in characters,
+  // the output text, the result and the character limit.
+  static const _fieldSize = 0x34,
+      _inText = 0x20,
+      _outLength = 0x24,
+      _outText = 0x28,
+      _fieldResult = 0x2c,
+      _outLimit = 0x30;
+
+  /// The field result of a text the player changed.
+  static const _changed = 2;
+
+  int initStart(int at) {
+    if (status != PspSavedataDialog.statusNone) return 0x80110001;
+    mem.write32(at + _result, 0);
+    final count = mem.read32(at + _fieldCount);
+    final fields = mem.read32(at + _fields);
+    for (var i = 0; i < count && fields != 0; i++) {
+      _fill(fields + i * _fieldSize);
+    }
+    status = PspSavedataDialog.statusInit;
+    return 0;
+  }
+
+  void _fill(int field) {
+    final out = mem.read32(field + _outText);
+    if (out == 0) return;
+    var text = _readUtf16(mem.read32(field + _inText));
+    if (text.isEmpty) text = defaultText;
+    var max = mem.read32(field + _outLength) - 1;
+    final limit = mem.read32(field + _outLimit);
+    if (limit > 0 && limit < max) max = limit;
+    if (max < 0) max = 0;
+    final units = text.codeUnits.take(max).toList();
+    for (var i = 0; i < units.length; i++) {
+      mem.write16(out + i * 2, units[i]);
+    }
+    mem.write16(out + units.length * 2, 0);
+    mem.write32(field + _fieldResult, _changed);
+  }
+
+  String _readUtf16(int at) {
+    if (at == 0) return '';
+    final units = <int>[];
+    for (var i = 0; i < 512; i++) {
+      final unit = mem.read16(at + i * 2);
+      if (unit == 0) break;
+      units.add(unit);
+    }
+    return String.fromCharCodes(units);
+  }
+
+  int getStatus() {
+    final now = status;
+    if (status == PspSavedataDialog.statusInit) {
+      status = PspSavedataDialog.statusVisible;
+    } else if (status == PspSavedataDialog.statusVisible) {
+      status = PspSavedataDialog.statusQuit;
+    } else if (status == PspSavedataDialog.statusFinished) {
+      status = PspSavedataDialog.statusNone;
+    }
+    return now;
+  }
+
+  int shutdownStart() {
+    if (status != PspSavedataDialog.statusQuit) return 0x80110001;
+    status = PspSavedataDialog.statusFinished;
+    return 0;
+  }
 }

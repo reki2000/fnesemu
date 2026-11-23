@@ -17,9 +17,16 @@ import 'memory.dart';
 /// file; a mono file is played on both channels. Looping goes back to the
 /// loop start while the loop count is not zero (-1 loops forever).
 ///
-/// Frames decode through the [decoder]; without one, or for ATRAC3, which
-/// it does not support, the samples are silence. Streaming setups, where
-/// the guest feeds the file in parts, are not supported.
+/// Frames decode through the [decoder], ATRAC3 with the extension of the
+/// format chunk as its codec data; without a decoder for the codec the
+/// samples are silence.
+///
+/// A streaming setup (the halfway buffer calls) gives only the start of
+/// the file, in a buffer the guest then refills with the rest. The player
+/// copies each part it receives into a whole copy of the file, so the
+/// buffer is free again at once: the stream info asks for the next bytes
+/// of the file at the write position, which moves through the buffer and
+/// wraps at its end. Frames that have not arrived yet play as silence.
 ///
 /// The error codes follow the public SDK lists; they are not verified on
 /// hardware.
@@ -37,6 +44,7 @@ class PspAtrac {
   static const errorBadId = 0x80630005;
   static const errorUnknownFormat = 0x80630006;
   static const errorNoData = 0x80630010;
+  static const errorNoLoop = 0x80630021;
   static const errorSecondBufferNotNeeded = 0x80630022;
   static const errorAllDataDecoded = 0x80630024;
 
@@ -75,6 +83,67 @@ class PspAtrac {
     return _parse(slot, at, size);
   }
 
+  /// Takes a free slot and sets the start of a file into it: [readSize]
+  /// bytes in a buffer of [bufferSize] bytes at [at].
+  int setHalfwayBufferAndGetId(int at, int readSize, int bufferSize) {
+    final id = _slots.indexOf(null);
+    if (id < 0) return errorNoId;
+    final slot = _AtracSlot();
+    final result = _parseHalfway(slot, at, readSize, bufferSize);
+    if (result != 0) return result;
+    _slots[id] = slot;
+    return id;
+  }
+
+  /// Sets the start of a file into the slot [id], as
+  /// [setHalfwayBufferAndGetId] does.
+  int setHalfwayBuffer(int id, int at, int readSize, int bufferSize) {
+    final slot = _slot(id);
+    if (slot == null) return errorBadId;
+    _close(id);
+    return _parseHalfway(slot, at, readSize, bufferSize);
+  }
+
+  int _parseHalfway(_AtracSlot slot, int at, int readSize, int bufferSize) {
+    if (readSize < 12 || readSize > bufferSize) return errorUnknownFormat;
+    // The RIFF size gives the length of the whole file.
+    final fileSize = mem.read32(at + 4) + 8;
+    final result = _parse(slot, at, fileSize < readSize ? readSize : fileSize);
+    if (result != 0) return result;
+    slot
+      ..stream = Uint8List(slot.size)
+      ..bufferSize = bufferSize
+      ..received = 0
+      ..writeAt = 0;
+    _receive(slot, at, readSize < slot.size ? readSize : slot.size);
+    return 0;
+  }
+
+  /// Copies [count] bytes at [at] to the end of the received part of the
+  /// file and moves the write position on.
+  void _receive(_AtracSlot slot, int at, int count) {
+    final stream = slot.stream!;
+    if (count > stream.length - slot.received) {
+      count = stream.length - slot.received;
+    }
+    for (var i = 0; i < count; i++) {
+      stream[slot.received + i] = mem.read8(at + i);
+    }
+    slot.received += count;
+    slot.writeAt += count;
+    if (slot.writeAt >= slot.bufferSize) slot.writeAt = 0;
+  }
+
+  /// The guest wrote [count] more bytes at the write position.
+  int addStreamData(int id, int count) {
+    final slot = _slot(id);
+    if (slot == null) return errorBadId;
+    if (slot.stream != null && count > 0) {
+      _receive(slot, slot.buffer + slot.writeAt, count);
+    }
+    return 0;
+  }
+
   int release(int id) {
     if (_slot(id) == null) return errorBadId;
     _close(id);
@@ -82,10 +151,27 @@ class PspAtrac {
     return 0;
   }
 
+  /// The bytes a parse reads in place of memory from the address
+  /// [_headerAt] on: the received part of a restored stream, whose
+  /// buffer holds other parts of the file by now.
+  Uint8List? _header;
+  int _headerAt = 0;
+
+  int _read16(int at) {
+    final header = _header;
+    final i = at - _headerAt;
+    if (header == null || i < 0 || i + 2 > header.length) return mem.read16(at);
+    return header[i] | header[i + 1] << 8;
+  }
+
+  int _read32(int at) => _read16(at) | _read16(at + 2) << 16;
+
+  int _read8(int at) => _read16(at & ~1) >> (at & 1) * 8 & 0xff;
+
   int _parse(_AtracSlot slot, int at, int size) {
     if (size < 12 ||
-        mem.read32(at) != 0x46464952 || // RIFF
-        mem.read32(at + 8) != 0x45564157) {
+        _read32(at) != 0x46464952 || // RIFF
+        _read32(at + 8) != 0x45564157) {
       // WAVE
       return errorUnknownFormat;
     }
@@ -102,26 +188,33 @@ class PspAtrac {
       ..loopNum = 0
       ..lastFrame = -1;
     while (chunk + 8 <= at + size && !hasData) {
-      final id = mem.read32(chunk);
-      final length = mem.read32(chunk + 4);
+      final id = _read32(chunk);
+      final length = _read32(chunk + 4);
       final body = chunk + 8;
       switch (id) {
         case 0x20746d66: // fmt
-          final tag = mem.read16(body);
+          final tag = _read16(body);
           slot
             ..codec = tag == 0x0270 ? 0x1001 : 0x1000
-            ..channels = mem.read16(body + 2)
-            ..sampleRate = mem.read32(body + 4)
-            ..blockAlign = mem.read16(body + 12);
+            ..channels = _read16(body + 2)
+            ..sampleRate = _read32(body + 4)
+            ..blockAlign = _read16(body + 12);
+          // The bytes after the extension size, which the ATRAC3 decoder
+          // reads.
+          var extra = length >= 18 ? _read16(body + 16) : 0;
+          if (extra > length - 18) extra = length - 18;
+          slot.codecData = Uint8List.fromList([
+            for (var i = 0; i < extra; i++) _read8(body + 18 + i),
+          ]);
           hasFormat = true;
         case 0x74636166: // fact
-          slot.samples = mem.read32(body);
-          if (length >= 8) slot.delay = mem.read32(body + 4);
+          slot.samples = _read32(body);
+          if (length >= 8) slot.delay = _read32(body + 4);
         case 0x6c706d73: // smpl
-          if (length >= 36 + 24 && mem.read32(body + 28) > 0) {
+          if (length >= 36 + 24 && _read32(body + 28) > 0) {
             slot
-              ..loopStart = mem.read32(body + 36 + 8)
-              ..loopEnd = mem.read32(body + 36 + 12);
+              ..loopStart = _read32(body + 36 + 8)
+              ..loopEnd = _read32(body + 36 + 12);
           }
         case 0x61746164: // data
           slot
@@ -154,7 +247,7 @@ class PspAtrac {
     if (slot.position >= slot.limit) {
       _write(countAt, 0);
       _write(endAt, 1);
-      _write(remainAt, -1);
+      _write(remainAt, _remain(slot));
       return errorAllDataDecoded;
     }
     final spf = slot.frameSamples;
@@ -183,7 +276,7 @@ class PspAtrac {
     }
     _write(countAt, count);
     _write(endAt, slot.position >= slot.limit ? 1 : 0);
-    _write(remainAt, -1);
+    _write(remainAt, _remain(slot));
     return 0;
   }
 
@@ -192,17 +285,16 @@ class PspAtrac {
   /// of the transform needs.
   Int16List? _decodeFrame(int id, _AtracSlot slot, int frame) {
     final decoder = this.decoder;
-    if (decoder == null ||
-        slot.codec != 0x1000 ||
-        !decoder.supports(MediaCodec.atrac3plus)) {
-      return null;
-    }
+    final codec =
+        slot.codec == 0x1001 ? MediaCodec.atrac3 : MediaCodec.atrac3plus;
+    if (decoder == null || !decoder.supports(codec)) return null;
     final mediaId = mediaIdBase + id;
     if (!slot.open) {
-      slot.open = decoder.open(mediaId, MediaCodec.atrac3plus,
+      slot.open = decoder.open(mediaId, codec,
           sampleRate: slot.sampleRate,
           channels: slot.channels,
-          blockAlign: slot.blockAlign);
+          blockAlign: slot.blockAlign,
+          codecData: slot.codecData);
       if (!slot.open) return null;
       slot.lastFrame = -1;
     }
@@ -212,10 +304,20 @@ class PspAtrac {
     }
     slot.lastFrame = frame;
     if ((frame + 1) * slot.blockAlign > slot.dataSize) return null;
+    if (slot.stream != null &&
+        slot.dataAt - slot.buffer + (frame + 1) * slot.blockAlign >
+            slot.received) {
+      return null;
+    }
     return decoder.decodeAudio(mediaId, _frameBytes(slot, frame));
   }
 
   Uint8List _frameBytes(_AtracSlot slot, int frame) {
+    final stream = slot.stream;
+    if (stream != null) {
+      final at = slot.dataAt - slot.buffer + frame * slot.blockAlign;
+      return Uint8List.sublistView(stream, at, at + slot.blockAlign);
+    }
     final bytes = Uint8List(slot.blockAlign);
     final at = slot.dataAt + frame * slot.blockAlign;
     for (var i = 0; i < bytes.length; i++) {
@@ -252,24 +354,51 @@ class PspAtrac {
     return 0;
   }
 
+  /// Sets the number of loops. A file without a loop keeps playing once
+  /// and the call fails, so the loop count the guest reads back stays 0.
   int setLoopNum(int id, int count) {
     final slot = _slot(id);
     if (slot == null) return errorBadId;
+    if (slot.loopStart < 0) return errorNoLoop;
     slot.loopNum = count;
     return 0;
   }
 
-  int resetPlayPosition(int id, int sample) {
+  /// Moves the play position to [sample]. A stream receives the
+  /// [written] bytes the guest put where [bufferInfoForResetting] asked.
+  int resetPlayPosition(int id, int sample, int written) {
     final slot = _slot(id);
     if (slot == null) return errorBadId;
     slot.position = sample;
     slot.lastFrame = -1;
+    if (slot.stream != null && written > 0) {
+      slot.writeAt = 0;
+      _receive(slot, slot.buffer, written);
+    }
     return 0;
   }
 
   int remainFrame(int id, int at) {
+    final slot = _slot(id);
+    if (slot == null) return errorBadId;
+    _write(at, _remain(slot));
+    return 0;
+  }
+
+  /// The received frames after the play position, or -1 when the whole
+  /// file is in memory.
+  int _remain(_AtracSlot slot) {
+    if (slot.stream == null || slot.received >= slot.size) return -1;
+    final frames =
+        (slot.received - (slot.dataAt - slot.buffer)) ~/ slot.blockAlign;
+    final at = (slot.position + slot.delay) ~/ slot.frameSamples;
+    return frames > at ? frames - at : 0;
+  }
+
+  /// GetInternalErrorInfo: no decoder error is kept.
+  int internalError(int id, int at) {
     if (_slot(id) == null) return errorBadId;
-    _write(at, -1);
+    _write(at, 0);
     return 0;
   }
 
@@ -322,19 +451,45 @@ class PspAtrac {
     return 0;
   }
 
-  /// The whole file is in memory: there is nowhere to write.
+  /// Where the guest writes the next part of the file, how many bytes
+  /// fit there, and the file offset of those bytes. When the whole file
+  /// is in memory there is nowhere to write.
   int streamDataInfo(int id, int writeAt, int availableAt, int offsetAt) {
     final slot = _slot(id);
     if (slot == null) return errorBadId;
-    _write(writeAt, slot.buffer + slot.size);
-    _write(availableAt, 0);
-    _write(offsetAt, slot.size);
+    if (slot.stream == null) {
+      _write(writeAt, slot.buffer + slot.size);
+      _write(availableAt, 0);
+      _write(offsetAt, slot.size);
+      return 0;
+    }
+    var available = slot.bufferSize - slot.writeAt;
+    if (available > slot.size - slot.received) {
+      available = slot.size - slot.received;
+    }
+    _write(writeAt, slot.buffer + slot.writeAt);
+    _write(availableAt, available);
+    _write(offsetAt, slot.received);
     return 0;
   }
 
   int bufferInfoForResetting(int id, int at) {
     final slot = _slot(id);
     if (slot == null) return errorBadId;
+    if (slot.stream != null) {
+      // The received part stays in the copy: the guest refills the
+      // buffer from its start with the bytes after it.
+      var needed = slot.size - slot.received;
+      if (needed > slot.bufferSize) needed = slot.bufferSize;
+      for (var i = 0; i < 8; i++) {
+        _write(at + i * 4, 0);
+      }
+      _write(at, slot.buffer);
+      _write(at + 4, slot.bufferSize);
+      _write(at + 8, needed);
+      _write(at + 12, slot.received);
+      return 0;
+    }
     // the first buffer: write position, writable and needed bytes, file
     // position; then the same for the second buffer
     for (var i = 0; i < 8; i++) {
@@ -355,18 +510,48 @@ class PspAtrac {
       ]);
     }
     writer.ints(out);
+    // The streams: the slot, the buffer size, the write position and the
+    // received part of the file.
+    for (var id = 0; id < slotCount; id++) {
+      final slot = _slots[id];
+      final stream = slot?.stream;
+      if (slot == null || stream == null) continue;
+      writer.ints([id, slot.bufferSize, slot.writeAt]);
+      writer.bytes(Uint8List.sublistView(stream, 0, slot.received));
+    }
+    writer.ints([-1]);
   }
 
   void loadState(StateReader reader) {
     closeAll();
     _slots.fillRange(0, slotCount, null);
     final x = reader.ints();
+    final streams = <int, (List<int>, Uint8List)>{};
+    if (reader.version >= 9) {
+      for (var s = reader.ints(); s[0] >= 0; s = reader.ints()) {
+        streams[s[0]] = (s, reader.bytes());
+      }
+    }
     for (var i = 0; i + 5 < x.length; i += 6) {
       final slot = _AtracSlot()..codec = x[i + 1];
+      final stream = streams[x[i]];
+      if (stream != null) {
+        _header = stream.$2;
+        _headerAt = x[i + 2];
+      }
       if (x[i + 3] > 0) _parse(slot, x[i + 2], x[i + 3]);
+      _header = null;
       slot
         ..position = x[i + 4]
         ..loopNum = x[i + 5];
+      if (stream != null) {
+        final (s, received) = stream;
+        slot
+          ..stream = (Uint8List(slot.size)..setAll(0, received))
+          ..bufferSize = s[1]
+          ..writeAt = s[2]
+          ..received = received.length;
+      }
       _slots[x[i]] = slot;
     }
   }
@@ -374,6 +559,9 @@ class PspAtrac {
 
 class _AtracSlot {
   int codec = 0x1000;
+
+  /// The extension of the format chunk, the codec data of ATRAC3.
+  Uint8List codecData = Uint8List(0);
   int buffer = 0, size = 0;
   int channels = 2, sampleRate = 44100, blockAlign = 0;
   int dataAt = 0, dataSize = 0;
@@ -389,6 +577,13 @@ class _AtracSlot {
   /// The frame the decoder took last, and whether it is open.
   int lastFrame = -1;
   bool open = false;
+
+  /// A stream: the copy of the file, of [size] bytes, with the received
+  /// part first; the size of the guest's buffer at [buffer] and the
+  /// offset in it where the next part goes. Null when the whole file is
+  /// in memory.
+  Uint8List? stream;
+  int bufferSize = 0, received = 0, writeAt = 0;
 
   int get frameSamples => codec == 0x1001 ? 1024 : 2048;
 

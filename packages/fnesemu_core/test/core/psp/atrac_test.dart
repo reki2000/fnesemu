@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/psp/atrac.dart';
 import 'package:fnesemu_core/src/core/psp/memory.dart';
 import 'package:fnesemu_core/src/media_decoder.dart';
+import 'package:fnesemu_core/src/util/state.dart';
 import 'package:test/test.dart';
 
 const _fileAt = 0x08900000;
@@ -19,8 +20,15 @@ class _FakeDecoder implements MediaDecoder {
   bool supports(MediaCodec codec) => codec == MediaCodec.atrac3plus;
   @override
   bool open(int id, MediaCodec codec,
-          {int sampleRate = 44100, int channels = 2, int blockAlign = 0}) =>
-      true;
+          {int sampleRate = 44100,
+          int channels = 2,
+          int blockAlign = 0,
+          Uint8List? codecData}) {
+    opened = (codec, codecData);
+    return true;
+  }
+
+  (MediaCodec, Uint8List?)? opened;
   @override
   MediaPicture? decodeVideo(int id, Uint8List unit) => null;
   @override
@@ -137,5 +145,51 @@ void main() {
     expect(total, 5000);
     expect(mem.read32(_endAt), 1);
     expect(decode(id), PspAtrac.errorAllDataDecoded);
+  });
+
+  test('a file without a loop refuses a loop count', () {
+    final id = atrac.setDataAndGetId(_fileAt, _writeFile(mem, loop: false));
+    expect(atrac.setLoopNum(id, -1), PspAtrac.errorNoLoop);
+    expect(atrac.loopStatus(id, _countAt, _endAt), 0);
+    expect(mem.read32(_countAt), 0);
+    expect(mem.read32(_endAt), 0);
+  });
+
+  test('streams a file through a buffer smaller than the file', () {
+    final length = _writeFile(mem, loop: false);
+    mem.write32(_fileAt + 4, length - 8); // the RIFF size
+    final file = [for (var i = 0; i < length; i++) mem.read8(_fileAt + i)];
+    // The buffer holds the header and the first frame.
+    final size = length - 32;
+    final id = atrac.setHalfwayBufferAndGetId(_fileAt, size, size);
+    expect(id, 0);
+    expect(atrac.remainFrame(id, _remainAt), 0);
+    expect(mem.read32(_remainAt), 1);
+    // The rest goes to the start of the buffer, from the file offset
+    // after the received part.
+    const writeAt = 0x08a20000, availableAt = 0x08a20004;
+    const offsetAt = 0x08a20008;
+    expect(atrac.streamDataInfo(id, writeAt, availableAt, offsetAt), 0);
+    expect(mem.read32(writeAt), _fileAt);
+    expect(mem.read32(availableAt), 32);
+    expect(mem.read32(offsetAt), size);
+    expect(decode(id), 0);
+    expect(mem.read32(_outAt), 0xffff0001);
+    for (var i = 0; i < 32; i++) {
+      mem.write8(_fileAt + i, file[size + i]);
+    }
+    expect(atrac.addStreamData(id, 32), 0);
+    expect(atrac.remainFrame(id, _remainAt), 0);
+    expect(mem.read32(_remainAt), 0xffffffff);
+    // A restored player reads the header from the saved part, as the
+    // buffer holds other bytes now.
+    final writer = StateWriter('psp', 9, 0);
+    atrac.saveState(writer);
+    final restored = PspAtrac(mem)..decoder = decoder;
+    restored.loadState(StateReader(writer.take(), 'psp', 9, 0));
+    expect(restored.decode(id, _outAt, _countAt, _endAt, _remainAt), 0);
+    expect(mem.read32(_outAt), 0xfffe0002);
+    expect(restored.decode(id, _outAt, _countAt, _endAt, _remainAt), 0);
+    expect(mem.read32(_outAt), 0xfffd0003);
   });
 }

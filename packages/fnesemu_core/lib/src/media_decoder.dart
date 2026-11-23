@@ -9,6 +9,10 @@ enum MediaCodec {
   /// ATRAC3plus audio. Each call passes one frame of the block size given
   /// when the stream opens.
   atrac3plus,
+
+  /// ATRAC3 audio, like [atrac3plus]. The stream opens with the codec data
+  /// of the file: the 14-byte extension of the format chunk of a WAVE file.
+  atrac3,
 }
 
 /// A decoded picture: [width] by [height] pixels, one RGBA pixel per
@@ -36,9 +40,13 @@ abstract interface class MediaDecoder {
 
   /// Opens the stream [id] of [codec], closing a stream already open under
   /// [id]. An audio stream has [sampleRate], [channels] and [blockAlign],
-  /// the bytes of a frame. Returns false if the stream cannot be opened.
+  /// the bytes of a frame, and the [codecData] its codec needs. Returns
+  /// false if the stream cannot be opened.
   bool open(int id, MediaCodec codec,
-      {int sampleRate = 44100, int channels = 2, int blockAlign = 0});
+      {int sampleRate = 44100,
+      int channels = 2,
+      int blockAlign = 0,
+      Uint8List? codecData});
 
   /// Passes one access unit of the video stream [id] and returns the
   /// latest picture that the decoder has finished, which may belong to an
