@@ -151,6 +151,19 @@ class SuperFx {
     if (_clock < target) _clock = target;
   }
 
+  // ------------------------------------------------------------ debugger
+  /// The 24-bit address of the instruction that runs next: the byte in the
+  /// pipeline, one before R15 unless a jump just changed R15.
+  int get debugPc => _pbr.shl16 | (r[15] - (_r15Modified ? 0 : 1)).mask16;
+
+  /// A byte of the GSU address space, read without the clock.
+  int debugRead(int addr) => _read(addr.mask24);
+
+  /// The registers, SFR and the program bank for a trace line.
+  String get debugRegisters =>
+      '${[for (var i = 0; i < 16; i++) 'r$i:${r[i].x4}'].join(' ')} '
+      'sfr:${_sfr.x4} pbr:${_pbr.x2}';
+
   // ------------------------------------------------------------ memory
   int _read(int addr) {
     if (addr & 0xc00000 == 0) {
