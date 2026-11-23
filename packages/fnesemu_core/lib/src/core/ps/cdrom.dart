@@ -775,10 +775,13 @@ class Cdrom {
   }
 
   /// The identity of the inserted disc, folded into the core media hash: the drive generation and the TOC.
+  /// The tray state and the TOC of the disc. The disc ID of the drive is
+  /// not in it: a drive counts its disc changes, so the same disc gets
+  /// another ID in another session.
   int get driveMedia {
     final s = _port.status;
     return stateMediaHashAll(stateMediaHash(const []), [
-      s.discId, s.state.index, s.toc.totalSectors, //
+      s.state.index, s.toc.totalSectors, //
       for (final t in s.toc.tracks) ...[t.number, t.isAudio ? 1 : 0, t.startLba, t.sectors],
     ]);
   }
