@@ -5,6 +5,7 @@ import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../types.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../util/state.dart';
 import '../../video_debug.dart';
@@ -16,6 +17,8 @@ import 'component/dma.dart';
 import 'component/pad.dart';
 import 'component/ppu.dart';
 import 'component/ppu_render.dart';
+import 'component/spc700.dart';
+import 'component/spc700_disasm.dart';
 import 'rom/snes_file.dart';
 
 /// main class for SNES emulation.
@@ -81,7 +84,8 @@ class Snes extends Core {
   int get clocksInScanline => cpuCyclesInScanline * 6;
 
   @override
-  List<CpuInfo> get cpuInfos => [CpuInfo.ofM68(0, "65816")];
+  List<CpuInfo> get cpuInfos =>
+      [CpuInfo.ofM68(0, "65816"), CpuInfo.ofZ80(1, "SPC700")];
 
   int _scanline = 0;
   int _frames = 0;
@@ -303,22 +307,50 @@ class Snes extends Core {
   }
 
   @override
-  (String, int) disasm(int cpuNo, int addr) => cpu.dumpDisasm(addr);
+  (String, int) disasm(int cpuNo, int addr) {
+    if (cpuNo != 1) return cpu.dumpDisasm(addr);
+    addr &= 0xffff;
+    final bytes = [for (var i = 0; i < 3; i++) _spcPeek(addr + i)];
+    final (text, length) = Spc700Disasm.disasm(bytes, addr);
+    final code = bytes.take(length).map((b) => b.x2).join(' ');
+    return (formatDisasm(addr.x4, code, text, codeWidth: 8), length);
+  }
+
+  /// A byte of the sound CPU's address space without the side effects of
+  /// its I/O registers.
+  int _spcPeek(int addr) {
+    final spc = apu.spc;
+    addr &= 0xffff;
+    if (addr >= 0xffc0 && spc.control & 0x80 != 0) return iplRom[addr - 0xffc0];
+    return spc.ram[addr];
+  }
 
   @override
-  int programCounter(int cpuNo) => cpu.regs.pbr.shl16 | cpu.regs.pc;
+  int programCounter(int cpuNo) =>
+      cpuNo == 1 ? apu.spc.pc : cpu.regs.pbr.shl16 | cpu.regs.pc;
 
   @override
-  int stackPointer(int cpuNo) => cpu.regs.s;
+  int stackPointer(int cpuNo) => cpuNo == 1 ? 0x100 | apu.spc.sp : cpu.regs.s;
 
   @override
-  TraceLog trace(int cpuNo) => cpu.trace(clock: cpu.cycle * 6);
+  TraceLog trace(int cpuNo) {
+    if (cpuNo != 1) return cpu.trace(clock: cpu.cycle * 6);
+    final spc = apu.spc;
+    return TraceLog(
+        spc.pc,
+        spc.cycle,
+        disasm(1, spc.pc).$1.padRight(36),
+        'a:${spc.a.x2} x:${spc.x.x2} y:${spc.y.x2} sp:${spc.sp.x2} '
+            'psw:${spc.psw.x2}',
+        [spc.pc, spc.a, spc.x, spc.y, spc.sp, spc.psw]);
+  }
 
   @override
   List<int> get vram => const [];
 
   @override
-  int read(int cpuNo, int addr) => bus.read(addr);
+  int read(int cpuNo, int addr) =>
+      cpuNo == 1 ? _spcPeek(addr) : bus.read(addr);
 
   @override
   ImageBuffer renderBg() => ImageBuffer.empty();
