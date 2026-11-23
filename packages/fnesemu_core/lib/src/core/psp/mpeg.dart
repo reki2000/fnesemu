@@ -45,6 +45,10 @@ class PspMpeg {
   /// The packets put into the ring buffer since the last flush.
   int written = 0;
 
+  /// Whether a read callback found no more packets: the last access unit
+  /// then ends at the end of the data instead of at the next delimiter.
+  bool ended = false;
+
   /// The packets each stream has consumed since the last flush.
   int videoAt = 0, audioAt = 0;
 
@@ -131,6 +135,7 @@ class PspMpeg {
     lastAudioFrame = null;
     audioOffset = 0;
     written = 0;
+    ended = false;
     videoAt = 0;
     videoOffset = 0;
     videoZeros = 0;
@@ -159,6 +164,7 @@ class PspMpeg {
   /// Records [n] packets written by the read callback.
   void put(int n) {
     written += n;
+    if (n > 0) ended = false;
     _sync();
   }
 
@@ -217,13 +223,17 @@ class PspMpeg {
       mem.read8(at + 3) << 7 |
       mem.read8(at + 4) >> 1;
 
+  /// The size of the last decoded picture, the full screen before one.
+  int pictureWidth = 480, pictureHeight = 272;
+
   /// The bytes of the last video access unit that [videoUnit] took, in
   /// Annex B form from its delimiter, for a decoder.
   Uint8List? lastVideoUnit;
 
   /// Takes the next video access unit into the unit at [au]: the bytes from
-  /// an access unit delimiter up to the next one. Returns [errorNoData]
-  /// while the ring buffer does not hold the next delimiter yet.
+  /// an access unit delimiter up to the next one, or up to the end of the
+  /// data once the stream has [ended]. Returns [errorNoData] while the
+  /// ring buffer does not hold the next delimiter yet.
   int videoUnit(int au) {
     final bytes = BytesBuilder(copy: false);
     final chunk = <int>[];
@@ -232,6 +242,26 @@ class PspMpeg {
     var startSeen = videoStart;
     var found = 0; // delimiters seen
     var unitPts = -1, unitDts = -1, unitKey = -1;
+    // Hands out the unit of the first [keep] bytes of the chunk; the next
+    // scan resumes at [offset] of packet [at].
+    int take(int keep, int at, int offset, bool start) {
+      bytes.add(chunk.sublist(0, keep < 0 ? 0 : keep));
+      lastVideoUnit = bytes.takeBytes();
+      videoAt = at;
+      videoOffset = offset;
+      videoStart = start;
+      if (unitKey >= 0) {
+        videoPts = unitPts;
+        videoPtsPacket = unitKey;
+      } else {
+        videoPts = videoPts < 0 ? 0 : videoPts + videoFrameTicks;
+        unitDts = videoPts;
+      }
+      _sync();
+      _writeUnit(au, videoPts, unitDts);
+      return 0;
+    }
+
     for (var i = videoAt; i < written; i++) {
       for (final p in _pes(i)) {
         if (p.stream != 0xe0) continue;
@@ -256,22 +286,8 @@ class PspMpeg {
                 found = 1;
               } else {
                 // the next unit: this one ends before its start code
-                final keep = chunk.length - 2 - startZeros;
-                bytes.add(chunk.sublist(0, keep < 0 ? 0 : keep));
-                lastVideoUnit = bytes.takeBytes();
-                videoAt = i;
-                videoOffset = a - packetAt;
-                videoStart = true;
-                if (unitKey >= 0) {
-                  videoPts = unitPts;
-                  videoPtsPacket = unitKey;
-                } else {
-                  videoPts = videoPts < 0 ? 0 : videoPts + videoFrameTicks;
-                  unitDts = videoPts;
-                }
-                _sync();
-                _writeUnit(au, videoPts, unitDts);
-                return 0;
+                return take(chunk.length - 2 - startZeros, i, a - packetAt,
+                    true);
               }
             }
           }
@@ -286,6 +302,15 @@ class PspMpeg {
           }
         }
       }
+    }
+    // The last unit of an ended stream runs to the end of the data, and
+    // then the rest of the data is consumed.
+    if (ended && found > 0) return take(chunk.length, written, 0, false);
+    if (ended) {
+      videoAt = written;
+      videoOffset = 0;
+      videoStart = false;
+      _sync();
     }
     return errorNoData;
   }
@@ -351,6 +376,12 @@ class PspMpeg {
         }
       }
     }
+    // An ended stream holds no more frames: the rest of it is consumed.
+    if (ended) {
+      audioAt = written;
+      audioOffset = 0;
+      _sync();
+    }
     return errorNoData;
   }
 
@@ -387,6 +418,8 @@ class PspMpeg {
       final picture =
           _videoOpen ? decoder.decodeVideo(videoMediaId, unit) : null;
       if (picture != null) {
+        pictureWidth = picture.width;
+        pictureHeight = picture.height;
         _writePicture(at, width, picture);
         return;
       }
@@ -486,6 +519,7 @@ class PspMpeg {
       ringbuffer, written, videoAt, audioAt, videoOn ? 1 : 0, //
       audioOn ? 1 : 0, audioPts, pixelMode, videoOffset, videoZeros,
       videoStart ? 1 : 0, videoPts, videoPtsPacket, audioOffset,
+      ended ? 1 : 0,
     ]);
   }
 
@@ -507,6 +541,7 @@ class PspMpeg {
     videoPts = x[11];
     videoPtsPacket = x[12];
     audioOffset = x.length > 13 ? x[13] : 0;
+    ended = x.length > 14 && x[14] != 0;
     lastAudioFrame = null;
   }
 }

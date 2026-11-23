@@ -314,6 +314,24 @@ void main() {
           [floatBits(1), floatBits(0), floatBits(0)]);
     });
 
+    test('vbfy1.p writes only its pair', () {
+      final (cpu, _) = run((a) {
+        // column 0 of M0 = (3, 1, 7, 9)
+        for (final (row, bits) in [
+          (0, 0x4040),
+          (1, 0x3f80),
+          (2, 0x40e0),
+          (3, 0x4110),
+        ]) {
+          a.word(0x3c080000 | bits); // lui t0
+          a.word(mtv(8, reg(0, 0, row)));
+        }
+        a.word(0xd0420080); // vbfy1.p C000, C000
+      });
+      expect([cpu.v[0], cpu.v[4], cpu.v[8], cpu.v[12]],
+          [floatBits(4), floatBits(2), floatBits(7), floatBits(9)]);
+    });
+
     test('vhdp does not read the last lane of its first source', () {
       final (cpu, _) = run((a) {
         // C100 = (1, 2, 3, NaN), C200 = (1, 1, 1, 5)

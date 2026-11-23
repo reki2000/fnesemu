@@ -94,12 +94,25 @@ class PspDisc {
     return disc;
   }
 
+  static final _lbnPath = RegExp(
+      r'^/*sce_lbn(?:0x)?([0-9a-f]+)_size(?:0x)?([0-9a-f]+)$',
+      caseSensitive: false);
+
   bool get isMounted => drive.status.discId == _discId;
 
   /// The node at [path], a `/`-separated path from the root whose
   /// components match case-insensitively, or null.
   PspDiscNode? lookup(String path) {
     if (!isMounted) return null;
+    // A file named by its position: sce_lbn0x<first sector>_size0x<bytes>,
+    // in hexadecimal also when a name leaves out the 0x prefix.
+    final lbn = _lbnPath.firstMatch(path);
+    if (lbn != null) {
+      return PspDiscNode(
+          Iso9660Entry(path, int.parse(lbn[1]!, radix: 16),
+              int.parse(lbn[2]!, radix: 16), false),
+          null);
+    }
     var node = root;
     for (final part in path.split('/')) {
       if (part.isEmpty || part == '.') continue;
@@ -121,6 +134,10 @@ class PspDisc {
     return node;
   }
 
+  /// The bytes the last [readBytes] that returned null found loaded
+  /// before the first missing sector.
+  int lastLoaded = 0;
+
   /// Up to [length] bytes of [entry] starting at [offset], or null
   /// while the drive has not loaded one of the needed sectors.
   Uint8List? readBytes(Iso9660Entry entry, int offset, int length) {
@@ -132,7 +149,10 @@ class PspDisc {
     while (done < out.length) {
       final at = offset + done;
       final raw = drive.read(baseLba + entry.lba + at ~/ 2048);
-      if (raw == null) return null;
+      if (raw == null) {
+        lastLoaded = done;
+        return null;
+      }
       final user = userData(raw);
       if (user.isEmpty) return Uint8List.sublistView(out, 0, done);
       final from = at % 2048;

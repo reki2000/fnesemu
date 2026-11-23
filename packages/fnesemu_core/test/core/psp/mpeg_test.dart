@@ -73,6 +73,23 @@ void main() {
     expect(mpeg.lastVideoUnit, [0, 0, 0, 1, 9, 0xf0, 0x33]);
   });
 
+  test('the last unit of an ended stream runs to the end of the data', () {
+    const aud = [0, 0, 0, 1, 9, 0xf0];
+    _pack(mem, 0, 0xe0, [...aud, 0x11, ...aud, 0x22], pts: 90000);
+    _pack(mem, 1, 0xbd, [0, 0, 0, 0]);
+    mpeg.put(2);
+    expect(mpeg.videoUnit(_auAt), 0);
+    expect(mpeg.videoUnit(_auAt), PspMpeg.errorNoData);
+    // The read callback finds no more data: the second unit is the last.
+    mpeg.ended = true;
+    expect(mpeg.videoUnit(_auAt), 0);
+    expect(mpeg.lastVideoUnit, [0, 0, 0, 1, 9, 0xf0, 0x22]);
+    expect(mpeg.videoUnit(_auAt), PspMpeg.errorNoData);
+    // Without more audio frames the whole buffer becomes free.
+    expect(mpeg.audioUnit(_auAt), PspMpeg.errorNoData);
+    expect(mpeg.free, 8);
+  });
+
   test('audio units are ATRAC3plus frames across the audio packets', () {
     // two 16-byte frames (size code 1) after the 4-byte header of each
     // audio packet; the second frame runs into the next packet

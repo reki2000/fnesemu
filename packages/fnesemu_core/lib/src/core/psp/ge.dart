@@ -1351,9 +1351,25 @@ extension PspGeRaster on PspGe {
     }
   }
 
+  /// The mipmap level a draw samples. Only the constant mode of the
+  /// texture level register selects one: its offset, a signed fixed point
+  /// number with four fraction bits in bits 16..23, picks the level up to
+  /// the maximum level of the texture mode. The automatic and slope modes
+  /// sample level 0, without a level of detail. The rounding of a
+  /// fractional offset is not checked against hardware.
+  int _textureLevel() {
+    final mode = regs[0xc8];
+    if (mode & 3 != 1) return 0;
+    final offset = ((mode >> 16) & 0xff).toSigned(8);
+    final maxLevel = (regs[0xc2] >> 16) & 7;
+    return ((offset + 8) >> 4).clamp(0, maxLevel);
+  }
+
   List<double> _sample(_Vertex v) {
-    final texW = 1 << (regs[0xb8] & 0xff).clamp(0, 10);
-    final texH = 1 << ((regs[0xb8] >> 8) & 0xff).clamp(0, 10);
+    final level = _textureLevel();
+    final size = regs[0xb8 + level];
+    final texW = 1 << (size & 0xff).clamp(0, 10);
+    final texH = 1 << ((size >> 8) & 0xff).clamp(0, 10);
     var u = v.su, w = v.sv;
     if (v.invW != 0 && v.invW != 1) {
       u /= v.invW;
@@ -1377,15 +1393,15 @@ extension PspGeRaster on PspGe {
     final filter = regs[0xc6];
     final linear = ((filter >> 8) & 7) == 1 || (filter & 7) == 1;
     if (!linear) {
-      return _texel(tu.floor(), tv.floor(), texW, texH);
+      return _texel(tu.floor(), tv.floor(), texW, texH, level);
     }
     final x = tu - 0.5, y = tv - 0.5;
     final x0 = x.floor(), y0 = y.floor();
     final fx = x - x0, fy = y - y0;
-    final c00 = _texel(x0, y0, texW, texH);
-    final c10 = _texel(x0 + 1, y0, texW, texH);
-    final c01 = _texel(x0, y0 + 1, texW, texH);
-    final c11 = _texel(x0 + 1, y0 + 1, texW, texH);
+    final c00 = _texel(x0, y0, texW, texH, level);
+    final c10 = _texel(x0 + 1, y0, texW, texH, level);
+    final c01 = _texel(x0, y0 + 1, texW, texH, level);
+    final c11 = _texel(x0 + 1, y0 + 1, texW, texH, level);
     return [
       for (var i = 0; i < 4; i++)
         (c00[i] * (1 - fx) + c10[i] * fx) * (1 - fy) +
@@ -1393,16 +1409,16 @@ extension PspGeRaster on PspGe {
     ];
   }
 
-  List<double> _texel(int x, int y, int texW, int texH) {
+  List<double> _texel(int x, int y, int texW, int texH, int level) {
     final wrap = regs[0xc7];
     x = (wrap & 0xff) == 1 ? x.clamp(0, texW - 1) : ((x % texW) + texW) % texW;
     y = ((wrap >> 8) & 0xff) == 1
         ? y.clamp(0, texH - 1)
         : ((y % texH) + texH) % texH;
     final format = regs[0xc3] & 0xf;
-    final bufWidth = regs[0xa8] & 0xffff;
+    final bufWidth = regs[0xa8 + level] & 0xffff;
     final pitch = bufWidth == 0 ? texW : bufWidth;
-    final base = _addr(regs[0xa0], regs[0xa8]);
+    final base = _addr(regs[0xa0 + level], regs[0xa8 + level]);
     final swizzled = regs[0xc2] & 1 != 0;
     int rgba;
     if (format >= 4 && format <= 7) {

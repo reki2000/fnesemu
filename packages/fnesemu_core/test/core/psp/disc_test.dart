@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/core_controller.dart';
 import 'package:fnesemu_core/core_factory.dart';
+import 'package:fnesemu_core/src/core/psp/disc.dart';
 import 'package:fnesemu_core/src/core/psp/module.dart';
 import 'package:fnesemu_core/src/core/psp/psp.dart';
 import 'package:fnesemu_core/src/sram.dart';
@@ -564,6 +565,22 @@ void main() {
       for (var i = 0; i < _hello.length; i++) core.mem.read8(0x09102000 + i)
     ];
     expect(String.fromCharCodes(text), _hello);
+  });
+
+  test('a file named by its first sector and size reads those sectors',
+      () async {
+    final iso = _gameIso(_bootProgram());
+    final disc = (await PspDisc.mount(iso.drive(), readBoot: false))!;
+    final node = disc.lookup('sce_lbn0x28_size0xd');
+    expect(node, isNotNull);
+    expect(node!.isDirectory, isFalse);
+    expect(node.entry.lba, 0x28);
+    expect(node.entry.size, 13);
+    expect(String.fromCharCodes(disc.readBytes(node.entry, 0, 13)!), _hello);
+    expect(disc.lookup('/SCE_LBN0X28_SIZE0XD'), isNotNull);
+    // Both numbers are hexadecimal also without the 0x prefix.
+    expect(disc.lookup('sce_lbn028_size0xd')?.entry.lba, 0x28);
+    expect(disc.lookup('sce_lbn0x28'), isNull);
   });
 
   test('file operations on the mounted disc', () async {

@@ -303,6 +303,34 @@ void main() {
       expect(pixel(15, 35), 0xff0000);
     });
 
+    test('a constant texture level samples that mipmap level', () {
+      // Level 0 is red and level 1 green, both 2x2 8888 textures.
+      const level0At = 0x10000, level1At = 0x10100;
+      for (var i = 0; i < 4; i++) {
+        mem.write32(0x04000000 + level0At + i * 4, 0xff0000ff);
+        mem.write32(0x04000000 + level1At + i * 4, 0xff00ff00);
+      }
+      List<int> commands(int level) => [
+            _cmd(0xa0, level0At),
+            _cmd(0xa8, 2),
+            _cmd(0xb8, 0x101),
+            _cmd(0xa1, level1At),
+            _cmd(0xa9, 2),
+            _cmd(0xb9, 0x101),
+            _cmd(0xc2, 0x10000), // texture mode: up to level 1
+            _cmd(0xc8, level), // texture level
+            _cmd(0xc3, 3),
+            _cmd(0xc9, 3),
+            _cmd(0x1e, 1),
+            _cmd(0x04, 0x60002),
+          ];
+      ge.enqueue(cpu, _writeList(mem, commands(0x100001), 0xffffffff), 0);
+      expect(pixel(15, 25), 0x00ff00);
+      // The automatic mode stays at level 0 without a level of detail.
+      ge.enqueue(cpu, _writeList(mem, commands(0x100000), 0xffffffff), 0);
+      expect(pixel(15, 25), 0x0000ff);
+    });
+
     test('a palette texture resolves through the loaded CLUT', () {
       const texAt = 0x10000;
       mem.vram[texAt] = 0;

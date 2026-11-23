@@ -26,7 +26,7 @@ import 'memstick.dart';
 /// to the framework output and the multimedia coprocessor (VFPU) is
 /// emulated with a few documented accuracy limits.
 class Psp extends Core {
-  static const _stateVersion = 8;
+  static const _stateVersion = 9;
   static const _visibleLines = 272;
 
   final mem = PspMemory();
@@ -321,9 +321,24 @@ class Psp extends Core {
         'vcount ${kernel.vcount} unknown ${kernel.unknownCalls.length}\n'
         '$failed'
         '${kernel.threads.values.map((t) => '  thread ${t.id} ${t.name} '
-            'status ${t.status} pc 0x${t.state.pc.toRadixString(16)} '
-            'ra 0x${t.state.r[31].toRadixString(16)}\n').join()}'
+            'prio 0x${t.priority.toRadixString(16)} status ${t.status} pc 0x${t.state.pc.toRadixString(16)} '
+            'ra 0x${t.state.r[31].toRadixString(16)}'
+            '${_waitDetail(t)}\n').join()}'
         '${kernel.unknownCallLines.map((line) => '  $line\n').join()}'
         '${kernel.log.toString()}';
+  }
+
+  /// What a blocked thread waits on, and the kernel call it made last.
+  static String _waitDetail(PspThread t) {
+    final wait = switch (t.status) {
+      PspThreadStatus.waitEvent => ' event ${t.waitEvent} '
+          'bits 0x${t.waitBits.toRadixString(16)} mode ${t.waitMode}',
+      PspThreadStatus.waitSema => ' sema ${t.waitSema}',
+      _ => '',
+    };
+    final call = t.lastCall;
+    return call == null
+        ? wait
+        : '$wait last ${call.library} 0x${call.nid.toRadixString(16)}';
   }
 }

@@ -82,6 +82,29 @@ void main() {
     expect((hi << 16) + lo, base + 0x20000 + 0x20);
   });
 
+  test('a high half takes the carry of the low half listed behind it', () {
+    // The stream lists the high half on s2 at 0 with the low half at 8,
+    // which uses another register but refers to the same address. The
+    // later low half on s2 at 4 forms an unrelated pointer, and its
+    // immediate would give the high half another carry.
+    final code = <int>[
+      (0x0f << 26) | (18 << 16) | 0x0001, // lui s2, 1
+      (0x09 << 26) | (18 << 21) | (4 << 16) | 0x0010, // addiu a0, s2, 0x10
+      (0x23 << 26) | (2 << 21) | (3 << 16) | 0x4000, // lw v1, 0x4000(v0)
+    ];
+    final (bytes, _) = buildTestElf(
+      code: code,
+      prx: true,
+      relocs: [(0, 5), (8, 6), (4, 6)],
+    );
+    final mem = PspMemory();
+    PspElf.load(mem, bytes);
+    const base = 0x08804000;
+    final hi = mem.read32(base) & 0xffff;
+    final lo = (mem.read32(base + 8) & 0xffff).toSigned(16);
+    expect((hi << 16) + lo, base + 0x10000 + 0x4000);
+  });
+
   test('a jump relocation shifts the target field', () {
     final code = <int>[
       (0x02 << 26) | (0x10 >> 2), // j 0x10 (segment relative)

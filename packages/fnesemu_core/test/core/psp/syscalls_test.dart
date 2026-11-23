@@ -19,6 +19,7 @@ const _moduleByAddress = 0xd8b73127;
 const _displayFps = 0xdba6c4c4;
 const _createThread = 0x446d8de6;
 const _startThread = 0xf475845d;
+const _referThreadStatus = 0x17c1684e;
 const _allocBlock = 0x237dbd4f;
 const _createFpl = 0xc07bb470;
 const _deleteFpl = 0xed1410e0;
@@ -37,10 +38,19 @@ const _pollEventFlag = 0x30fd48f0;
 const _referEventFlagStatus = 0xa66b0120;
 const _sleepThread = 0x9ace131e;
 const _wakeupThread = 0xd59ead2f;
+const _createMbx = 0x8125221d;
+const _sendMbx = 0xe9b3061e;
+const _pollMbx = 0x0d81716a;
+const _releaseWaitThread = 0x2c34e053;
+const _getSystemParamInt = 0xa5da2406;
+const _getSystemParamString = 0x34b78343;
+const _getLanguageMode = 0x36aa6e91;
 const _ioOpen = 0x109f50bc;
 const _ioRead = 0x6a638d83;
 const _ioWrite = 0x42ec03ac;
 const _ioLseek32 = 0x68963324;
+const _ioCloseAsync = 0xff5940b6;
+const _ioWaitAsync = 0xe23eec33;
 
 void main() {
   late PspMemory mem;
@@ -62,12 +72,17 @@ void main() {
       ('sceDisplay', [_displayFps, _setFrameBuf, _getFrameBuf]),
       ('InterruptManager', [_registerSubIntr, _enableSubIntr]),
       ('sceSuspendForUser', [_lockVolatile]),
-      ('IoFileMgrForUser', [_ioOpen, _ioRead, _ioWrite, _ioLseek32]),
+      ('sceUtility', [_getSystemParamInt, _getSystemParamString]),
+      ('sceImpose', [_getLanguageMode]),
+      ('IoFileMgrForUser', [
+        _ioOpen, _ioRead, _ioWrite, _ioLseek32, _ioCloseAsync, _ioWaitAsync,
+      ]),
       (
         'ThreadManForUser',
         [
           _createThread,
           _startThread,
+          _referThreadStatus,
           _createFpl,
           _deleteFpl,
           _allocateFpl,
@@ -80,6 +95,10 @@ void main() {
           _referEventFlagStatus,
           _sleepThread,
           _wakeupThread,
+          _releaseWaitThread,
+          _createMbx,
+          _sendMbx,
+          _pollMbx,
         ]
       ),
     ]);
@@ -165,6 +184,45 @@ void main() {
     expect(main.status, PspThreadStatus.running);
   });
 
+  test('the system settings are those of a Japanese console', () {
+    const at = 0x09000000;
+    expect(call(_getSystemParamInt, [8, at]), 0);
+    expect(mem.read32(at), 0); // Japanese
+    expect(call(_getSystemParamInt, [9, at]), 0);
+    expect(mem.read32(at), 0); // the circle button confirms
+    expect(call(_getSystemParamInt, [99, at]).toUnsigned(32), 0x80110103);
+    mem.write32(at, 5);
+    mem.write32(at + 4, 5);
+    expect(call(_getLanguageMode, [at, at + 4]), 0);
+    expect([mem.read32(at), mem.read32(at + 4)], [0, 0]);
+    expect(call(_getSystemParamString, [1, at, 8]), 0);
+    expect(mem.read32(at), 0x59414c50); // "PLAY"
+    expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('a released wait returns an error to the waiting thread', () {
+    final id = call(_createThread, [0, image.entry, 32, 0x10000]);
+    expect(call(_releaseWaitThread, [id]).toUnsigned(32), 0x800201a4);
+    final thread = kernel.threads[id]!..status = PspThreadStatus.waitSleep;
+    expect(call(_releaseWaitThread, [id]), 0);
+    expect(thread.status, PspThreadStatus.ready);
+    expect(thread.pendingResult, 0x800201aa);
+    expect(call(_releaseWaitThread, [id]).toUnsigned(32), 0x800201a4);
+    expect(call(_releaseWaitThread, [kernel.current!.id]).toUnsigned(32),
+        0x80020198);
+  });
+
+  test('a created thread that has not started reports the dormant status',
+      () {
+    const info = 0x09000000;
+    final id = call(_createThread, [0, image.entry, 32, 0x10000]);
+    expect(call(_referThreadStatus, [id, info]), 0);
+    expect(mem.read32(info + 40), 0x10);
+    expect(call(_startThread, [id, 0, 0]), 0);
+    expect(call(_referThreadStatus, [id, info]), 0);
+    expect(mem.read32(info + 40), isNot(0x10));
+  });
+
   test('k0 of a thread points at the cleared top of its stack', () {
     final main = kernel.current!;
     expect(main.state.r[26], main.stackTop - 0x100);
@@ -209,9 +267,9 @@ void main() {
     mem.write32(callback + 8, 0);
     kernel.ge.callbackRunner!(cpu, callback, 42, result);
 
-    final writer = StateWriter('psp', 8, 0);
+    final writer = StateWriter('psp', 9, 0);
     kernel.saveState(writer, cpu);
-    final reader = StateReader(writer.take(), 'psp', 8, 0);
+    final reader = StateReader(writer.take(), 'psp', 9, 0);
     kernel = PspKernel(mem, PadPort(), image.end)..startModule(image);
     kernel.loadState(reader);
     reader.end();
@@ -222,6 +280,36 @@ void main() {
     call(_resumeIntr, [enabled]);
     expect(mem.read32(result), 42);
     expect(kernel.unknownCalls, isEmpty);
+  });
+
+  test('an asynchronous close leaves its result to wait for', () {
+    const path = 0x08900000, result = 0x08900040;
+    const text = 'ms0:/C.BIN';
+    for (var i = 0; i < text.length; i++) {
+      mem.write8(path + i, text.codeUnitAt(i));
+    }
+    mem.write8(path + text.length, 0);
+    final fd = call(_ioOpen, [path, 0x0603, 0x1ff]);
+    mem.write32(result, 0xdeadbeef);
+    expect(call(_ioCloseAsync, [fd]), 0);
+    expect(call(_ioWaitAsync, [fd, result]), 0);
+    expect(mem.read32(result), 0);
+    expect(call(_ioWaitAsync, [fd, result]).toUnsigned(32), 0x80010009);
+  });
+
+  test('a message box keeps its messages across a save', () {
+    const out = 0x09000000;
+    final mbx = call(_createMbx, [0, 0, 0, 0]);
+    expect(call(_sendMbx, [mbx, 0x08901230]), 0);
+    final writer = StateWriter('psp', 9, 0);
+    kernel.saveState(writer, cpu);
+    final reader = StateReader(writer.take(), 'psp', 9, 0);
+    kernel = PspKernel(mem, PadPort(), image.end)..startModule(image);
+    kernel.loadState(reader);
+    reader.end();
+    expect(call(_pollMbx, [mbx, out]), 0);
+    expect(mem.read32(out), 0x08901230);
+    expect(call(_pollMbx, [mbx, out]).toUnsigned(32), 0x800201ca);
   });
 
   test('open files keep their contents and positions across a save', () {
@@ -246,9 +334,9 @@ void main() {
     final log = call(_ioOpen, [other, 0x0603, 0x1ff]);
     expect(call(_ioWrite, [log, buffer, 2]), 2);
 
-    final writer = StateWriter('psp', 8, 0);
+    final writer = StateWriter('psp', 9, 0);
     kernel.saveState(writer, cpu);
-    final reader = StateReader(writer.take(), 'psp', 8, 0);
+    final reader = StateReader(writer.take(), 'psp', 9, 0);
     kernel = PspKernel(mem, PadPort(), image.end)
       ..memStick = stick
       ..startModule(image);
@@ -278,9 +366,9 @@ void main() {
     expect(call(_enableSubIntr, [30, 2]), 0);
     expect(call(_enableSubIntr, [30, 3]).toUnsigned(32), isNonZero);
 
-    final writer = StateWriter('psp', 8, 0);
+    final writer = StateWriter('psp', 9, 0);
     kernel.saveState(writer, cpu);
-    final reader = StateReader(writer.take(), 'psp', 8, 0);
+    final reader = StateReader(writer.take(), 'psp', 9, 0);
     kernel = PspKernel(mem, PadPort(), image.end)..startModule(image);
     kernel.loadState(reader);
     reader.end();
