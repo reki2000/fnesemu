@@ -163,8 +163,10 @@ void main() {
       expect(core.runFrame(core.scanlinesInFrame).stopped, isFalse);
     }
     expect(core.cpu.clocks, greaterThan(1 << 32));
+    // Save before the second core: on the Web its JIT takes the memory.
+    final state = core.saveState();
     final restored = Psp()..setRom(rom);
-    restored.loadState(core.saveState());
+    restored.loadState(state);
     expect(restored.cpu.clocks, core.cpu.clocks);
     for (var frame = 0; frame < 200; frame++) {
       if (restored.runFrame(restored.scanlinesInFrame).stopped) break;
