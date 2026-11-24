@@ -1,11 +1,14 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/src/cdrom_drive.dart';
 import 'package:fnesemu_core/src/core/ps/memory_card.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/state.dart';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
+
+import '../../support/fake_cdrom_drive.dart';
 
 int _r(int rs, int rt, int rd, int funct) =>
     rs << 21 | rt << 16 | rd << 11 | funct;
@@ -161,4 +164,26 @@ void main() {
     plain.loadState(state);
     expect(plain.saveState(), state);
   });
+
+  test('the media of a disc does not depend on the disc ID of the drive', () {
+    Ps withDisc(int discId) {
+      final ps = _ps(false);
+      ps.setCdromDrive(_NumberedDrive(discId));
+      return ps;
+    }
+
+    expect(withDisc(7).stateMedia, withDisc(1).stateMedia);
+    expect(withDisc(1).stateMedia, isNot(_ps(false).stateMedia));
+  });
+}
+
+/// a disc of one track whose drive has given it the ID [discId]
+class _NumberedDrive extends FakeCdromDrive {
+  final int discId;
+  _NumberedDrive(this.discId)
+      : super(List.generate(32, (_) => Uint8List(2352)));
+
+  @override
+  CdromDriveStatus get status =>
+      CdromDriveStatus(CdromDriveState.ready, discId, toc);
 }
