@@ -467,15 +467,23 @@ class Md extends Core {
   // version 4: the 32X on-chip SH-2 state moved to the shared list-based layout
   static const _stateVersion = 4;
 
-  void _checkStateSupport() {
-    if (cdrom != null) {
-      throw UnsupportedError('MD CD state is not implemented');
-    }
-  }
-
-  String get _stateCore => expansion == null ? 'md' : '32x';
+  String get _stateCore =>
+      cdrom != null ? 'mdcd' : (expansion == null ? 'md' : '32x');
 
   int get _stateMedia {
+    final cd = cdrom;
+    if (cd != null) {
+      // the BIOS and the table of contents of the disc
+      final toc = cd.drive.disc.status.toc;
+      var hash = stateMediaHash(cd.bios);
+      hash = stateMediaHashAll(hash, [toc.totalSectors, toc.tracks.length]);
+      for (final track in toc.tracks) {
+        hash = stateMediaHashAll(hash, [
+          track.number, track.isAudio ? 1 : 0, track.startLba, track.sectors
+        ]);
+      }
+      return hash;
+    }
     final w = StateWriter('md-media', 1, stateMediaHash(busM68.rom.rom));
     final adapter = expansion;
     w.boolean(adapter != null);
@@ -491,7 +499,6 @@ class Md extends Core {
 
   @override
   Uint8List saveState() {
-    _checkStateSupport();
     final w = StateWriter(_stateCore, _stateVersion, _stateMedia);
     w.section('md');
     w.ints([
@@ -513,6 +520,7 @@ class Md extends Core {
     fm.saveState(w);
     psg.saveState(w);
     expansion?.saveState(w);
+    cdrom?.saveState(w);
     return w.take();
   }
 
@@ -520,7 +528,6 @@ class Md extends Core {
   /// reset it before running again.
   @override
   void loadState(Uint8List state) {
-    _checkStateSupport();
     final s = StateReader(state, _stateCore, _stateVersion, _stateMedia);
     s.section('md');
     final clocks = List<int>.filled(5, 0);
@@ -550,6 +557,7 @@ class Md extends Core {
     fm.loadState(s);
     psg.loadState(s);
     expansion?.loadState(s);
+    cdrom?.loadState(s);
     s.end();
   }
 

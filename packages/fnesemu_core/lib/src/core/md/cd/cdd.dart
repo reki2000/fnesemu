@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../cdrom.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// Ten-nibble CDD command/status protocol and 75 Hz disc transport.
 class CdDrive {
@@ -146,6 +147,44 @@ class CdDrive {
   int _scanDirection = 1;
   bool _settling = false;
   bool _holdResponse = false;
+
+  /// Saves the drive state with the audio sector it plays, so that the
+  /// audio continues without reading the sector again.
+  void saveState(StateWriter w) {
+    w.section('md-cdd');
+    w.bytes(command);
+    w.bytes(response);
+    w.ints([
+      status, lba, track, _query, _seekTicks, _sectorAudioLba, _seekStatus,
+      _currentLba, _audioPhase, _scanDirection, //
+      hostClock ? 1 : 0, _settling ? 1 : 0, _holdResponse ? 1 : 0,
+    ]);
+    w.float64(volume);
+    w.bytes(_audio);
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-cdd');
+    s.bytesInto(command);
+    s.bytesInto(response);
+    final v = List<int>.filled(13, 0);
+    s.intsInto(v);
+    status = v[0];
+    lba = v[1];
+    track = v[2];
+    _query = v[3];
+    _seekTicks = v[4];
+    _sectorAudioLba = v[5];
+    _seekStatus = v[6];
+    _currentLba = v[7];
+    _audioPhase = v[8];
+    _scanDirection = v[9];
+    hostClock = v[10] != 0;
+    _settling = v[11] != 0;
+    _holdResponse = v[12] != 0;
+    volume = s.float64();
+    _audio = Uint8List.fromList(s.bytes());
+  }
 
   void tick() {
     _pollDriveEvent();

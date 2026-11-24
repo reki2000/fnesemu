@@ -5,6 +5,7 @@ import '../../../components/m68k/bus.dart';
 import '../../../components/m68k/cpu.dart';
 import '../../../sram.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'cdc.dart';
 import 'cdd.dart';
 import 'graphics.dart';
@@ -389,6 +390,53 @@ class MdCdrom {
         final offset = _wordOffset(false, address);
         if (offset != null) wordRam[offset] = value;
     }
+  }
+
+  /// Saves the sub CPU side: its memories, registers, CPU and devices.
+  /// The BIOS is part of the media.
+  void saveState(StateWriter w) {
+    w.section('md-cdrom');
+    w.bytes(programRam);
+    w.bytes(wordRam);
+    w.bytes(backupRam);
+    w.bytes(registers);
+    w.ints([
+      _memoryMode, _bank, _writeProtect, _cycles, _drivePhase, _timerPhase,
+      _stopwatchBase, _irqMask, hintVector, //
+      _resetReleased ? 1 : 0, _busRequested ? 1 : 0,
+    ]);
+    cpu.saveState(w);
+    cdc.saveState(w);
+    drive.saveState(w);
+    graphics.saveState(w);
+    pcm.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-cdrom');
+    s.bytesInto(programRam);
+    s.bytesInto(wordRam);
+    s.bytesInto(backupRam);
+    s.bytesInto(registers);
+    final v = List<int>.filled(11, 0);
+    s.intsInto(v);
+    _memoryMode = v[0];
+    _bank = v[1];
+    _writeProtect = v[2];
+    _cycles = v[3];
+    _drivePhase = v[4];
+    _timerPhase = v[5];
+    _stopwatchBase = v[6];
+    _irqMask = v[7];
+    hintVector = v[8];
+    _resetReleased = v[9] != 0;
+    _busRequested = v[10] != 0;
+    cpu.loadState(s);
+    cdc.loadState(s);
+    drive.loadState(s);
+    graphics.loadState(s);
+    pcm.loadState(s);
+    _sram?.data.setAll(0, backupRam);
   }
 
   (double, double) sample(int outputHz) {

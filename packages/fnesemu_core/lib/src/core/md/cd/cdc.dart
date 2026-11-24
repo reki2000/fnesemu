@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// LC89510 decoder, circular sector buffer and host/DMA transfer interface.
 class CdCdc {
@@ -169,4 +170,39 @@ class CdCdc {
   }
 
   int _dmaBytes = 0, _dmaCycles = 0;
+
+  void saveState(StateWriter w) {
+    w.section('md-cdc');
+    w.bytes(ram);
+    w.bytes(header);
+    w.ints([
+      register, destination, dmaAddress, _ifstat, _ifctrl, _ctrl0, _ctrl1, //
+      _count, _source, _write, _pointer, _stat3, _dmaBytes, _dmaCycles,
+      _transfer ? 1 : 0, _ended ? 1 : 0,
+    ]);
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-cdc');
+    s.bytesInto(ram);
+    s.bytesInto(header);
+    final v = List<int>.filled(16, 0);
+    s.intsInto(v);
+    register = v[0];
+    destination = v[1];
+    dmaAddress = v[2];
+    _ifstat = v[3];
+    _ifctrl = v[4];
+    _ctrl0 = v[5];
+    _ctrl1 = v[6];
+    _count = v[7];
+    _source = v[8];
+    _write = v[9];
+    _pointer = v[10];
+    _stat3 = v[11];
+    _dmaBytes = v[12];
+    _dmaCycles = v[13];
+    _transfer = v[14] != 0;
+    _ended = v[15] != 0;
+  }
 }

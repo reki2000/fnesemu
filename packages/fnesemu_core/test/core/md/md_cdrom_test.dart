@@ -8,6 +8,7 @@ import 'package:fnesemu_core/src/core/md/cd/md_cdrom.dart';
 import 'package:fnesemu_core/src/core/md/cd/pcm.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
 import 'package:fnesemu_core/src/sram.dart';
+import 'package:fnesemu_core/src/util/state.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -100,6 +101,51 @@ void main() {
 
   group('execution and reset', () {
 
+  });
+
+  test('MD CD state restores into a fresh instance and continues', () {
+    Md system() {
+      final disc = FakeCdromDrive(
+          List.generate(4, (i) => mode1Sector(Uint8List(2048)..[0] = i, i)));
+      final md = Md()
+        ..setCdromDrive(disc)
+        ..setRom(bios());
+      addTearDown(md.dispose);
+      md.cpuZ80.busReq = true;
+      final cd = md.cdrom!;
+      subProgram(cd);
+      cd.writeMain8(0xa12001, 1); // release the sub CPU
+      return md;
+    }
+
+    final original = system();
+    final cd = original.cdrom!;
+    cd.wordRam[0x123] = 0x45;
+    cd.pcm.ram[0x456] = 0x67;
+    cd.cdc.ram[0x789] = 0x89;
+    cd.drive.hostClock = true;
+    command(cd.drive, [3, 0, 0, 0, 0, 2, 0, 0]);
+    for (var i = 0; i < 2; i++) {
+      expect(original.runFrame(original.scanlinesInFrame).stopped, isFalse);
+    }
+    expect(cd.cpu.d[0], 42);
+    final state = original.saveState();
+    final restored = system();
+    restored.loadState(state);
+    expect(restored.saveState(), state);
+    expect(restored.cdrom!.cpu.d[0], 42);
+    for (var i = 0; i < 3; i++) {
+      expect(original.runFrame(original.scanlinesInFrame).stopped, isFalse);
+      expect(restored.runFrame(restored.scanlinesInFrame).stopped, isFalse);
+      expect(restored.saveState(), original.saveState());
+    }
+
+    // another disc is another medium
+    final other = Md()
+      ..setCdromDrive(FakeCdromDrive([mode1Sector(Uint8List(2048), 0)]))
+      ..setRom(bios());
+    addTearDown(other.dispose);
+    expect(() => other.loadState(state), throwsA(isA<StateMismatch>()));
   });
 
   group('CDD / CDC', () {
