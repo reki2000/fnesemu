@@ -70,6 +70,35 @@ class _Pages {
 
   bool has(int page) => bits[page >> 5] & (1 << (page & 31)) != 0;
 
+  /// the first and the last page of the set in [o], or null when they
+  /// share none
+  (int, int)? span([_Pages? o]) {
+    if (!any || (o != null && !o.any)) return null;
+    var first = -1, last = -1;
+    for (var i = 0; i < 16; i++) {
+      final w = o == null ? bits[i] : bits[i] & o.bits[i];
+      if (w == 0) continue;
+      if (first < 0) first = i * 32 + (w & -w).bitLength - 1;
+      last = i * 32 + w.bitLength - 1;
+    }
+    return first < 0 ? null : (first, last);
+  }
+
+  /// adds or removes the pages from [first] to [last]
+  void setRange(int first, int last, bool value) {
+    for (var p = first; p <= last; p++) {
+      if (value) {
+        bits[p >> 5] |= 1 << (p & 31);
+      } else {
+        bits[p >> 5] &= ~(1 << (p & 31));
+      }
+    }
+    any = false;
+    for (var i = 0; i < 16; i++) {
+      if (bits[i] != 0) any = true;
+    }
+  }
+
   bool meets(_Pages o) {
     if (!any || !o.any) return false;
     for (var i = 0; i < 16; i++) {
@@ -88,7 +117,10 @@ class _Pages {
 /// Runs the GS on a [ComputeSink]. While attached, it takes the work of
 /// the Gs, and copies the local memory and the CLUT back into the Gs at each
 /// vblank and before a local to host transfer, so that the Gs makes its
-/// pictures, transfers and states from them as without it.
+/// pictures, transfers and states from them as without it. It copies only
+/// the pages that the GPU has written since the last copy: of the displayed
+/// frame buffer at a vblank, of the source of a transfer, and all of them
+/// for a state. A copy is one range from the first to the last such page.
 class GsCompute implements GsResidentSink {
   /// Compiles the program on [sink]; throws if it cannot.
   GsCompute(this.gs, ComputeSink sink)
@@ -105,6 +137,12 @@ class GsCompute implements GsResidentSink {
 
   /// Whether the memory and the CLUT are fetched after all work so far.
   bool _fetched = false;
+
+  /// the pages that the recorded work writes and the Gs has not copied back
+  final _dirty = _Pages();
+
+  /// the pages of the range that [requestSync] or [vblank] fetches
+  int _fetchFirst = 0, _fetchLast = -1;
 
   /// counts of the work that is not done as on the hardware, for tools
   final unsupported = <String, int>{};
@@ -132,6 +170,7 @@ class GsCompute implements GsResidentSink {
   /// work of the Gs.
   void attach() {
     _dropPrefetch();
+    _dirty.clear();
     _program.write(_vramBinding, 0, gs.mem.words);
     _version = 0;
     _fetched = false;
@@ -163,10 +202,37 @@ class GsCompute implements GsResidentSink {
       }
       _fetched = false;
     }
-    _program.read(_vramBinding, 0, gs.mem.words);
+    if (_waits) _setFetch(_dirty.span());
+    _readRange();
     final clut = Uint32List(512);
     _program.read(_clutBinding, _version * 2048, clut);
     gs.raster.residentClut = clut;
+  }
+
+  /// Sets the pages to copy, and counts them as copied: the copy is taken
+  /// after all work recorded so far, and later work marks its pages again.
+  void _setFetch((int, int)? span) {
+    final (first, last) = span ?? (0, -1);
+    _fetchFirst = first;
+    _fetchLast = last;
+    if (last >= first) _dirty.setRange(first, last, false);
+  }
+
+  void _prefetchRange() {
+    if (_fetchLast < _fetchFirst) return;
+    _program.prefetch(_vramBinding, _fetchFirst * 8192,
+        (_fetchLast - _fetchFirst + 1) * 8192);
+  }
+
+  /// Copies the pages of [_setFetch] into the Gs.
+  void _readRange() {
+    if (_fetchLast < _fetchFirst) return;
+    _program.read(
+        _vramBinding,
+        _fetchFirst * 8192,
+        Uint32List.sublistView(
+            gs.mem.words, _fetchFirst * 2048, (_fetchLast + 1) * 2048));
+    _fetchLast = -1;
   }
 
   /// On a sink that does not wait, submits all work and starts to fetch the
@@ -177,9 +243,9 @@ class GsCompute implements GsResidentSink {
     // a submit of work after the last fetch clears [_fetched]
     finish();
     if (!_fetched) {
-      _program
-        ..prefetch(_vramBinding, 0, GsMemory.size)
-        ..prefetch(_clutBinding, _version * 2048, 2048);
+      _setFetch(_dirty.span());
+      _prefetchRange();
+      _program.prefetch(_clutBinding, _version * 2048, 2048);
       _fetched = true;
     }
     return _program.fetching;
@@ -199,15 +265,20 @@ class GsCompute implements GsResidentSink {
   void takeMemory() {
     if (!_prefetched) return;
     _prefetched = false;
-    _program.read(_vramBinding, 0, gs.mem.words);
+    _readRange();
   }
 
   /// Settles the copy of [vblank] without taking it: a later read of the
-  /// same range would get the copy instead of the memory then.
+  /// same range would get the copy instead of the memory then. Its pages
+  /// count as not copied again.
   void _dropPrefetch() {
     if (!_prefetched) return;
     _prefetched = false;
-    _program.read(_vramBinding, 0, Uint32List(GsMemory.size ~/ 4));
+    if (_fetchLast < _fetchFirst) return;
+    _program.read(_vramBinding, _fetchFirst * 8192,
+        Uint32List((_fetchLast - _fetchFirst + 1) * 2048));
+    _dirty.setRange(_fetchFirst, _fetchLast, true);
+    _fetchLast = -1;
   }
 
   void _resetOrdering() {
@@ -703,6 +774,7 @@ class GsCompute implements GsResidentSink {
       _batchZ = zbuf;
     }
     _batchWrites.addAll(_target);
+    _dirty.addAll(_target);
     _batchReads.addAll(_tex);
     _batchCount++;
 
@@ -865,6 +937,7 @@ class GsCompute implements GsResidentSink {
   /// Orders a write to [writes] (and a read of [reads]) after the open work
   /// that touches those pages.
   void _beforeWrite(_Pages writes, _Pages? reads) {
+    _dirty.addAll(writes);
     if (writes.meets(_batchReads) ||
         writes.meets(_batchWrites) ||
         writes.meets(_groupReads) ||
@@ -908,7 +981,14 @@ class GsCompute implements GsResidentSink {
       gs.syncRequested = true;
       return;
     }
-    sync();
+    // only the source of the transfer
+    gs.showPicture();
+    _dropPrefetch();
+    finish();
+    final reads = _Pages();
+    _markWrapped(reads, psm, base, bufferWidth, x, y, width, height);
+    _setFetch(_dirty.span(reads));
+    _readRange();
     _count(unsupported, 'download (synchronous)');
   }
 
@@ -925,7 +1005,14 @@ class GsCompute implements GsResidentSink {
     _close(materialize: true);
     _submit(wait: false);
     _dropPrefetch();
-    _program.prefetch(_vramBinding, 0, GsMemory.size);
+    final area = gs.displayArea;
+    final shown = _Pages();
+    if (area != null) {
+      _markWrapped(shown, area.psm, area.bp, area.bw, area.x, area.y, area.w,
+          area.h);
+    }
+    _setFetch(_dirty.span(shown));
+    _prefetchRange();
     _prefetched = true;
   }
 }

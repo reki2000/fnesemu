@@ -191,6 +191,25 @@ void main() {
     });
   });
 
+  test('a vblank copies back only the written pages of the display', () {
+    final sink = _Sink();
+    // the display shows a frame buffer at page 100, away from the draw
+    final gs = _gs()..writePrivileged(0x70, 100);
+    gs.computeSink = sink;
+    final program = sink.made!;
+    program.buffers[0]![100 * 2048] = 0x77;
+    _sprite(gs);
+    gs.vblank();
+    gs.vblank();
+    // the draw wrote page 0, which is not shown; page 100 was not written
+    expect(gs.mem.words[0], 0);
+    expect(gs.mem.words[100 * 2048], 0);
+    // a state takes the written pages
+    gs.compute!.sync();
+    expect(gs.mem.words[0], _Program.marker);
+    expect(gs.mem.words[100 * 2048], 0);
+  });
+
   test('the Gs draws by itself when the program cannot be made', () {
     final gs = _gs()..computeSink = _Sink(fails: true);
     expect(gs.compute, isNull);
