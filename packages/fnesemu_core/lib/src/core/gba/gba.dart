@@ -40,6 +40,13 @@ class Gba extends Core {
   /// requested or the host has no recompiler.
   bool get jitActive => _jit != null;
 
+  @override
+  bool get jitEnabled => _jit?.native ?? false;
+  @override
+  bool get jitSuspended => _jit?.suspended ?? false;
+  @override
+  set jitSuspended(bool value) => _jit?.suspended = value;
+
   static const screenWidth = 240;
   static const screenHeight = 160;
 
@@ -127,9 +134,9 @@ class Gba extends Core {
         // (an exit the interpreter must handle first) steps instead.
         final budget = _nextEventClock - _clocks;
         final spent = budget > 0 ? jit.run(cpu, budget) : 0;
-        consumed = spent > 0 ? spent : cpu.step();
+        consumed = spent > 0 ? spent : _step();
       } else {
-        consumed = cpu.step();
+        consumed = singleStep ? cpu.step() : _step();
       }
     }
 
@@ -152,6 +159,48 @@ class Gba extends Core {
     if (bus.irq.pending) cpu.irq();
 
     return _clocks;
+  }
+
+  // A loop that only waits for an event, such as one that polls IF or
+  // VCOUNT, comes back to the same instruction with the same registers
+  // and has made no timed I/O access in between. It would repeat until
+  // the next display event or timer interrupt changes what it reads,
+  // so the time runs to that point instead.
+  static const _idleWindow = 128;
+  int _idlePc = -1;
+  int _idleClock = 0;
+  int _idleCpsr = 0;
+  final _idleRegs = Uint32List(16);
+
+  int _step() {
+    final regs = cpu.regs, r = regs.r, pc = r[15];
+    if (_clocks - _idleClock <= _idleWindow) {
+      if (pc != _idlePc) return cpu.step();
+      if (!bus.timedIo && regs.cpsr == _idleCpsr && _sameRegisters(r)) {
+        final toEvent = _nextEventClock - _clocks;
+        final toTimer = bus.timers.cyclesToOverflow();
+        final skip = toTimer < toEvent ? toTimer : toEvent;
+        if (skip > 0) {
+          // the loop runs again after the event before it can be skipped
+          _idlePc = -1;
+          return skip;
+        }
+      }
+    }
+    _idlePc = pc;
+    _idleClock = _clocks;
+    _idleCpsr = regs.cpsr;
+    _idleRegs.setAll(0, r);
+    bus.timedIo = false;
+    return cpu.step();
+  }
+
+  bool _sameRegisters(Uint32List r) {
+    final saved = _idleRegs;
+    for (var i = 0; i < 16; i++) {
+      if (r[i] != saved[i]) return false;
+    }
+    return true;
   }
 
   // HBlank of the current line: DISPSTAT flag, interrupt, render and DMA.
@@ -243,6 +292,7 @@ class Gba extends Core {
       cpu.resetHle();
     }
     _clocks = 0;
+    _idlePc = -1;
     _nextEventClock = _hblankStart;
     _inHblank = false;
     _scanline = 0;
@@ -303,6 +353,7 @@ class Gba extends Core {
     s.end();
     if (live) {
       _clocks = v[0];
+      _idlePc = -1;
       _nextEventClock = v[1];
       _scanline = v[2];
       _audioIndex = v[3];

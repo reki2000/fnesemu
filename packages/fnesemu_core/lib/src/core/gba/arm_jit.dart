@@ -129,9 +129,29 @@ final class GbaJit extends JitAdapter {
     return null;
   }
 
+  /// The buffer and offset of the code at [pc]. Code is also translated
+  /// from the first page of a ROM window, which is not mapped for loads
+  /// and stores, except at the cartridge GPIO registers.
+  (Uint8List, int)? _codeRegion(int pc) {
+    final region = _region(pc);
+    if (region != null) return region;
+    if (pc >= 0x08000000 && pc < 0x0e000000) {
+      final offset = pc & 0x01ffffff;
+      if (offset < 0x1000 &&
+          offset + 4 <= _rom.length &&
+          (offset + 4 <= _gpioStart || offset >= _gpioEnd)) {
+        return (_rom, offset);
+      }
+    }
+    return null;
+  }
+
+  /// The cartridge GPIO registers in the first ROM page.
+  static const _gpioStart = 0xc4, _gpioEnd = 0xca;
+
   int? _fetch(int pc) {
     if (pc & 3 != 0) return null;
-    final region = _region(pc);
+    final region = _codeRegion(pc);
     if (region == null) return null;
     final (buffer, offset) = region;
     if (offset + 4 > buffer.length) return null;
@@ -143,7 +163,7 @@ final class GbaJit extends JitAdapter {
 
   int? _fetchHalf(int pc) {
     if (pc & 1 != 0) return null;
-    final region = _region(pc);
+    final region = _codeRegion(pc);
     if (region == null) return null;
     final (buffer, offset) = region;
     if (offset + 2 > buffer.length) return null;
