@@ -44,6 +44,15 @@ Future<void> _until(
   }
 }
 
+/// Presses the toolbar button [key] through its callback. The game keeps
+/// running in real time, and the scrolling toolbar can move between a
+/// layout and a tap, so a tap at the button's position could miss it.
+void _press(WidgetTester tester, String key) {
+  final button = tester.widget<IconButton>(find.byKey(ValueKey(key)));
+  expect(button.onPressed, isNotNull, reason: key);
+  button.onPressed!();
+}
+
 Future<void> _untilFound(WidgetTester tester, Finder finder) =>
     _until(tester, () => finder.evaluate().isNotEmpty, '$finder');
 
@@ -138,9 +147,7 @@ void main() {
             .widget<IconButton>(find.byKey(const ValueKey('save-state')))
             .onPressed,
         isNotNull);
-    await tester.ensureVisible(find.byTooltip('Save state'));
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => tester.tap(find.byTooltip('Save state')));
+    await tester.runAsync(() async => _press(tester, 'save-state'));
     await _untilFound(tester, find.byType(StateSlotDialog));
     expect(find.byType(StateSlotDialog), findsOneWidget);
     expect(find.text('Save state'), findsWidgets);
@@ -168,9 +175,7 @@ void main() {
     await tester.runAsync(() => _untilSaved(storage, gameId, 3));
 
     // the load dialog disables the empty slots and shows the saved ones
-    await tester.ensureVisible(find.byTooltip('Load state'));
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => tester.tap(find.byTooltip('Load state')));
+    await tester.runAsync(() async => _press(tester, 'load-state'));
     await _untilFound(tester, find.byType(StateSlotDialog));
     expect(find.byType(StateSlotDialog), findsOneWidget);
     for (final (slot, enabled) in [(0, true), (1, false), (3, true)]) {
