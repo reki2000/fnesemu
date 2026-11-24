@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../compute_sink.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
@@ -30,6 +31,7 @@ class N64 extends Core {
             hasMap: true, kind: DebugLayerKind.framebuffer)
       ];
   DebugRaster _debugFramebuffer(bool map) {
+    if (map) graphics.syncCompute();
     final image = bus.image();
     if (!map) return DebugRaster.copy(image);
     final stride = bus.vi[2] & 0xfff, mode = bus.vi[0] & 3;
@@ -101,13 +103,15 @@ class N64 extends Core {
     bus.pad = padPort;
     cpu = Vr4300(bus, registers: jit?.regs, fpu: jit?.fpu);
     jit?.attach(cpu, bus);
-    bus.onDp = (start, end) => graphics.commands(start, end);
+    bus.onRdramWatch = jit?.watchRdram;
+    bus.onRdramUnwatch = jit?.unwatchRdram;
+    bus.onDp = (start, end) => graphics.commands(start, end, defer: true);
     bus.onTask = () {
       final task = ByteData.sublistView(bus.sp, 0xfc0);
       final type = task.getUint32(0);
       if (type == 1) {
         graphics.task(task.getUint32(48) & 0x7fffff, task.getUint32(52),
-            task.getUint32(24) & 0x7fffff, task.getUint32(28));
+            task.getUint32(24) & 0x7fffff, task.getUint32(28), defer: true);
       } else if (type == 2) {
         audio.task(task.getUint32(48) & 0x7fffff, task.getUint32(52),
             ucodeData: task.getUint32(24) & 0x7fffff);
@@ -136,6 +140,7 @@ class N64 extends Core {
     for (var i = 0; i < instructions.length; i++) {
       if (bus.ramRead(code + i * 4, 4) != instructions[i]) return false;
     }
+    bus.touchRdram(data, 8);
     bus.sp.setRange(0, 8, bus.ram, data);
     bus.sp.fillRange(8, 16, 0);
     return true;
@@ -180,6 +185,7 @@ class N64 extends Core {
   void reset() {
     final rom = _rom;
     if (rom == null) throw StateError('N64 ROM not loaded');
+    graphics.syncCompute();
     jit?.reset();
     bus.reset();
     graphics.reset();
@@ -270,7 +276,13 @@ class N64 extends Core {
   }
 
   @override
-  void dispose() => jit?.dispose();
+  void dispose() {
+    graphics.computeSink = null;
+    jit?.dispose();
+  }
+
+  @override
+  set computeSink(ComputeSink? sink) => graphics.computeSink = sink;
 
   static const _stateVersion = 4;
   int? _mediaHash;
@@ -282,6 +294,7 @@ class N64 extends Core {
 
   @override
   Uint8List saveState() {
+    graphics.syncCompute(depth: true);
     final w = StateWriter('n64', _stateVersion, _media);
     w.section('n64');
     w.int64(_nextLine);
@@ -298,6 +311,7 @@ class N64 extends Core {
   @override
   void loadState(Uint8List state) {
     final s = StateReader(state, 'n64', _stateVersion, _media);
+    graphics.syncCompute();
     // Compiled blocks and code protection belong to the replaced memory.
     jit?.reset();
     s.section('n64');
@@ -423,7 +437,10 @@ class N64 extends Core {
   @override
   int read(int cpuNo, int addr) => bus.read8(addr);
   @override
-  List<int> get vram => bus.ram;
+  List<int> get vram {
+    graphics.syncCompute();
+    return bus.ram;
+  }
   @override
   ImageBuffer renderBg() => imageBuffer();
   @override

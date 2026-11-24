@@ -3,10 +3,12 @@ import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 
+import '../../compute_sink.dart';
 import '../../state.dart';
 import '../../util/int.dart';
-
 import 'bus.dart';
+import 'rdp_compute.dart';
+import 'rsp_compute.dart';
 
 /// A colour with named channels, held as two vectors: red and green, then
 /// blue and alpha. The combiner and the interpolation pass the vectors.
@@ -109,7 +111,7 @@ class N64Vertex {
       t + (b.t - t) * f);
 }
 
-/// Independent Fast3D/F3DEX task decoder and software rasterizer.
+/// Independent Fast3D/F3DEX task decoder and RDP renderer.
 /// Uses the documented GBI protocol; does not execute RSP instruction binaries.
 class N64Graphics {
   final N64Bus bus;
@@ -117,6 +119,7 @@ class N64Graphics {
   final vertices = List<N64Vertex?>.filled(80, null);
   final tiles = List.generate(8, (_) => N64Tile());
   final tmem = Uint8List(4096);
+  int _tmemVersion = 0;
   // Pixel scratch colours are consumed synchronously, never retained.
   final _shade = Rgba(), _tex = Rgba(), _out = Rgba();
   final _whiteColor = Rgba(255, 255, 255, 255);
@@ -140,6 +143,10 @@ class N64Graphics {
       _fiveBit[value.shr1.mask5],
       value.mask1 * 255.0);
 
+  void _texture32(int value) =>
+      _textureRgba(_byte[value.shr24.mask8], _byte[value.shr16.mask8],
+          _byte[value.shr8.mask8], _byte[value.mask8]);
+
   final lights = List.generate(8, (_) => Light());
   Float64List model = identity(), projection = identity();
   final stack = <Float64List>[];
@@ -156,7 +163,13 @@ class N64Graphics {
       fog = Rgba();
   int scLeft = 0, scTop = 0, scRight = 320, scBottom = 240;
   int tasks = 0, triangles = 0;
-  final depths = <int, Float64List>{};
+  final _depths = <int, Float64List>{};
+  bool _depthExposed = false;
+
+  Map<int, Float64List> get depths {
+    _exposeDepth();
+    return _depths;
+  }
   bool extended = false;
   // F3DEX2 / F3DZEX use a different opcode layout and geometry mode bits
   bool f3dex2 = false, _s2dex = false;
@@ -165,6 +178,52 @@ class N64Graphics {
   bool rasterize =
       true; // Optional headless fast-forward; normal execution renders every task.
   N64Graphics(this.bus);
+
+  N64RdpCompute? _compute;
+  ComputeSink? _rspSink;
+  N64RspCompute? _rspCompute;
+  final _rspIndices = Uint32List(N64RspCompute.maxTriangles * 3);
+  // Geometry readback stalls the RDP pipeline on workloads with short runs.
+  bool gpuGeometry = const bool.fromEnvironment('N64_GPU_GEOMETRY');
+  bool _batchRectangles = false;
+
+  void syncCompute({bool depth = false}) {
+    _flushRectangles();
+    if (depth) _compute?.syncDepth();
+  }
+
+  void _exposeDepth() {
+    _flushRectangles();
+    _depthExposed = true;
+    _compute?.exposeDepth();
+  }
+
+  void _flushRectangles({bool defer = false, bool endStream = false}) {
+    final compute = _compute;
+    if (compute == null) return;
+    compute.flush(defer: defer, endStream: endStream);
+    if (!endStream) compute.invalidateColor();
+    if (!compute.enabled) computeSink = null;
+  }
+
+  set computeSink(ComputeSink? sink) {
+    _compute?.flush();
+    _compute?.syncDepth();
+    _compute?.dispose();
+    _rspCompute?.dispose();
+    _rspCompute = null;
+    _rspSink = null;
+    _compute = null;
+    // A draw can be followed by a RDRAM read in the same display list.
+    if (sink == null || !sink.waits || Endian.host != Endian.little) return;
+    try {
+      _compute = N64RdpCompute(sink, bus, _replayCopyPixel);
+      _rspSink = sink;
+      if (_depthExposed) _compute!.exposeDepth();
+    } on Exception {
+      // Keep the software renderer available when the program cannot compile.
+    }
+  }
 
   List<int> get _scalars => [
         geometry, numLights, colorImage, colorSize, width, zImage, //
@@ -212,8 +271,8 @@ class N64Graphics {
     }
     w.boolean(_s2dex);
     w.int32(_half1);
-    w.int32(depths.length);
-    for (final MapEntry(:key, :value) in depths.entries) {
+    w.int32(_depths.length);
+    for (final MapEntry(:key, :value) in _depths.entries) {
       w.int64(key);
       w.floats(value);
     }
@@ -298,10 +357,11 @@ class N64Graphics {
     f3dex2 = s.boolean();
     _s2dex = s.boolean();
     _half1 = s.int32();
-    depths.clear();
+    _compute?.invalidateDepth();
+    _depths.clear();
     for (var n = s.int32(); n > 0; n--) {
       final key = s.int64();
-      depths[key] = Float64List.fromList(s.floats());
+      _depths[key] = Float64List.fromList(s.floats());
     }
   }
 
@@ -314,7 +374,8 @@ class N64Graphics {
     model = identity();
     projection = identity();
     stack.clear();
-    depths.clear();
+    _compute?.invalidateDepth();
+    _depths.clear();
     tmem.fillRange(0, tmem.length, 0);
     for (var i = 0; i < tiles.length; i++) {
       tiles[i] = N64Tile();
@@ -354,7 +415,10 @@ class N64Graphics {
 
   int resolve(int addr) =>
       (addr.mask24 + segments[addr.shr24.mask4]) & 0x7fffff;
-  int u(int addr, int size) => bus.ramRead(addr, size);
+  int u(int addr, int size) {
+    if (_compute?.overlaps(addr & 0x7fffff, size) ?? false) _flushRectangles();
+    return bus.ramRead(addr, size);
+  }
   double signed(int addr, int size) =>
       u(addr, size).toSigned(size * 8).toDouble();
   Float64List matrix(int addr) {
@@ -402,15 +466,20 @@ class N64Graphics {
     l.dz = signed(addr + 10, 1) / 127;
   }
 
-  void task(int address, int size, int ucodeData, int ucodeSize) {
+  void task(int address, int size, int ucodeData, int ucodeSize,
+      {bool defer = false}) {
     _selectMicrocode(ucodeData, ucodeSize);
     tasks++;
-    displayList(address);
+    displayList(address, defer: defer);
   }
 
   void _selectMicrocode(int ucodeData, int ucodeSize) {
-    final end = math.min(bus.ram.length, ucodeData + math.min(ucodeSize, 2048));
-    final text = String.fromCharCodes(bus.ram.sublist(ucodeData, end.toInt()));
+    final end =
+        math.min(bus.ram.length, ucodeData + math.min(ucodeSize, 2048)).toInt();
+    if (_compute?.overlaps(ucodeData, end - ucodeData) ?? false) {
+      _flushRectangles();
+    }
+    final text = String.fromCharCodes(bus.ram.sublist(ucodeData, end));
     final start = text.indexOf('RSP Gfx ucode');
     final name = start < 0 ? text : text.substring(start).split('\x00').first;
     _s2dex = name.contains('S2DEX');
@@ -425,7 +494,24 @@ class N64Graphics {
     extended = f3dex2 || name.contains('F3DEX') || name.contains('F3DLP');
   }
 
-  void displayList(int address) {
+  void displayList(int address, {bool defer = false}) {
+    final compute = _compute;
+    if (compute == null) return _displayList(address);
+    compute.beginStream();
+    _batchRectangles = true;
+    try {
+      _displayList(address);
+    } finally {
+      _batchRectangles = false;
+      try {
+        _flushRectangles(defer: defer, endStream: true);
+      } finally {
+        compute.endStream();
+      }
+    }
+  }
+
+  void _displayList(int address) {
     var pc = address & 0x7fffff;
     final returns = <int>[];
     for (var commands = 0; commands < 100000; commands++) {
@@ -446,7 +532,11 @@ class N64Graphics {
             break; // NOOP, MODIFYVTX, CULLDL, BRANCH_Z, LINE3D are not needed
           case 0x01:
             final n = w0.shr12.mask8, end = w0.shr1.mask7;
-            _loadVertices(resolve(w1), end - n, n);
+            final address = resolve(w1);
+            final next = _tryGpuGeometry(address, end - n, n, pc, 99999 - commands);
+            if (next == pc) _loadVertices(address, end - n, n);
+            commands += (next - pc) ~/ 8;
+            pc = next;
           case 0x05:
             drawIndices(w0, 2);
           case 0x06 || 0x07:
@@ -558,7 +648,11 @@ class N64Graphics {
         case 4:
           final count = extended ? w0.shr10.mask6 : w0.shr20.mask4 + 1;
           final first = extended ? w0.shr17.mask7 : w0.shr16.mask4;
-          _loadVertices(resolve(w1), first, count);
+          final address = resolve(w1);
+          final next = _tryGpuGeometry(address, first, count, pc, 99999 - commands);
+          if (next == pc) _loadVertices(address, first, count);
+          commands += (next - pc) ~/ 8;
+          pc = next;
         case 6:
           if (w0.shr16.mask8 == 0) {
             if (returns.length >= 64) {
@@ -660,7 +754,9 @@ class N64Graphics {
     final bytes = size == 3 ? 4 : 2;
     final yEnd = math.min(math.min(scBottom, 576), y0 + frameHeight),
         xBegin = math.max(scLeft, math.max(0, x0.ceil())),
-        xEnd = math.min(math.min(scRight, width), x0 + frameWidth);
+        xEnd = math.min(math.min(scRight, width), x0 + frameWidth),
+        yBegin = math.max(scTop, math.max(0, y0.ceil()));
+    if (xBegin >= xEnd || yBegin >= yEnd) return;
     // The source column of every x is the same for each row.
     final columns = <int>[
       for (var x = xBegin; x < xEnd; x++)
@@ -669,10 +765,30 @@ class N64Graphics {
             imageWidth
     ];
     final destSize = colorSize == 3 ? 4 : 2, ramLength = bus.ram.length;
+    final compute = _compute;
+    if (compute != null) {
+      final rows = yEnd.ceil() - yBegin;
+      if (columns.length <= N64RdpCompute.maxExtent &&
+          rows <= N64RdpCompute.maxExtent) {
+        final copy = _textureUsesCopyColor();
+        final combiner = copy ? null : _computeCombiner(null);
+        final rect = N64RdpRect(
+            colorImage, width, xBegin, yBegin, columns.length, rows, destSize);
+        if ((copy || combiner != null) && compute.background(
+            rect, source, imageWidth, size, columns,
+            [for (var y = yBegin; y < yEnd; y++)
+              (imageY + (y - y0) * scaleY).floor() % imageHeight],
+            otherLow.bit14, combiner)) {
+          if (!_batchRectangles) _flushRectangles();
+          return;
+        }
+      }
+      _flushRectangles();
+    }
     final cache = size == 2;
     if (cache) _backgroundCache();
     final ramData = bus.ramData;
-    for (var y = math.max(scTop, math.max(0, y0.ceil())); y < yEnd; y++) {
+    for (var y = yBegin; y < yEnd; y++) {
       final sy = (imageY + (y - y0) * scaleY).floor() % imageHeight;
       final rowBase = source + sy * imageWidth * bytes;
       for (var x = xBegin; x < xEnd; x++) {
@@ -708,11 +824,7 @@ class N64Graphics {
         if (size == 2) {
           _texture16(value);
         } else {
-          _textureRgba(
-              value.shr24.mask8.toDouble(),
-              value.shr16.mask8.toDouble(),
-              value.shr8.mask8.toDouble(),
-              value.mask8.toDouble());
+          _texture32(value);
         }
         _put(x, y, _combine(_whiteColor, _tex));
       }
@@ -750,6 +862,124 @@ class N64Graphics {
       }
     }
     if (!same) _lutState.fillRange(0, 65536, 0);
+  }
+
+  // A vertex load followed by consecutive draws has constant RDP state and
+  // can transform and clip its vertices with one GPU readback.
+  int _tryGpuGeometry(int address, int first, int count, int pc, int budget) {
+    final sink = _rspSink;
+    if (!gpuGeometry || sink == null || !rasterize || first < 0 || count < 3 ||
+        first + count > vertices.length || address + count * 16 > bus.ram.length) {
+      return pc;
+    }
+    var next = pc, triangles = 0;
+    bool record(int word, int divisor) {
+      final a = word.shr16.mask8 ~/ divisor - first;
+      final b = word.shr8.mask8 ~/ divisor - first;
+      final c = word.mask8 ~/ divisor - first;
+      if (a < 0 || a >= count || b < 0 || b >= count || c < 0 || c >= count) {
+        return false;
+      }
+      final offset = triangles++ * 3;
+      _rspIndices[offset] = a;
+      _rspIndices[offset + 1] = b;
+      _rspIndices[offset + 2] = c;
+      return true;
+    }
+    final bytes = colorSize == 3 ? 4 : 2;
+    final outputStart = colorImage + scTop * width * bytes;
+    final outputEnd = colorImage + scBottom * width * bytes;
+    while (budget-- > 0 && triangles + 2 <= N64RspCompute.maxTriangles &&
+        next + 8 <= bus.ram.length) {
+      if (next < outputEnd && next + 8 > outputStart) break;
+      final cmd = u(next, 4), op = cmd.shr24;
+      final two = f3dex2 ? op == 0x06 || op == 0x07 : op == 0xb1;
+      if (two) {
+        final previous = triangles;
+        if (!record(cmd, 2) || !record(u(next + 4, 4), 2)) {
+          triangles = previous;
+          break;
+        }
+      } else if (f3dex2 ? op == 0x05 : op == 0xbf) {
+        if (!record(f3dex2 ? cmd : u(next + 4, 4), f3dex2 || extended ? 2 : 10)) {
+          break;
+        }
+      } else {
+        break;
+      }
+      next += 8;
+    }
+    if (triangles < 8) return pc;
+
+    final Float32List result;
+    try {
+      final gpu = _rspCompute ??= N64RspCompute(sink);
+      final input = gpu.values;
+      input.setRange(4, 20, multiply(model, projection));
+      input.setRange(20, 32, model);
+      final lit = geometry.bit17, lightCount = numLights.clamp(0, 7);
+      gpu.words[2] = lit ? 1 : 0;
+      gpu.words[3] = lightCount;
+      if (lit) {
+        for (var i = 0; i <= lightCount; i++) {
+          final l = lights[i], at = 32 + i * 6;
+          input[at] = l.r;
+          input[at + 1] = l.g;
+          input[at + 2] = l.b;
+          input[at + 3] = l.dx;
+          input[at + 4] = l.dy;
+          input[at + 5] = l.dz;
+        }
+      }
+      for (var i = 0; i < count; i++) {
+        final src = address + i * 16;
+        final dst = N64RspCompute.stateWords + i * N64RspCompute.vertexWords;
+        input[dst] = signed(src, 2);
+        input[dst + 1] = signed(src + 2, 2);
+        input[dst + 2] = signed(src + 4, 2);
+        final rgba = u(src + 12, 4);
+        input[dst + 4] = rgba.shr24.mask8.toDouble();
+        input[dst + 5] = rgba.shr16.mask8.toDouble();
+        input[dst + 6] = rgba.shr8.mask8.toDouble();
+        input[dst + 7] = rgba.mask8.toDouble();
+        input[dst + 8] = signed(src + 8, 2) * (textureS / 32);
+        input[dst + 9] = signed(src + 10, 2) * (textureT / 32);
+      }
+      final indices = N64RspCompute.triangleBase;
+      gpu.words.setRange(indices, indices + triangles * 3, _rspIndices);
+      gpu.prepare(count, triangles);
+      result = gpu.result;
+    } on Exception {
+      _rspCompute?.dispose();
+      _rspCompute = null;
+      _rspSink = null;
+      return pc;
+    }
+    for (var i = 0; i < triangles; i++) {
+      final n = result[N64RspCompute.polygonBase + i * N64RspCompute.polygonWords];
+      if (!n.isFinite || n < 0 || n > 9 || n != n.truncate()) return pc;
+    }
+    N64Vertex vertex(int p) => N64Vertex(
+        Vec4(result[p], result[p + 1], result[p + 2], result[p + 3]),
+        Rgba(result[p + 4], result[p + 5], result[p + 6], result[p + 7]),
+        result[p + 8], result[p + 9]);
+
+    for (var i = 0; i < count; i++) {
+      vertices[first + i] = vertex(i * N64RspCompute.vertexWords);
+    }
+    for (var i = 0; i < triangles; i++) {
+      final base = N64RspCompute.polygonBase + i * N64RspCompute.polygonWords;
+      final n = result[base].toInt();
+      if (n < 3) continue;
+      final a = vertex(base + 1);
+      var b = vertex(base + 1 + N64RspCompute.vertexWords);
+      for (var j = 2; j < n; j++) {
+        final c = vertex(base + 1 + j * N64RspCompute.vertexWords);
+        triangle(a, b, c);
+        b = c;
+      }
+    }
+    return next;
   }
 
   void _loadVertices(int addr, int first, int count) {
@@ -827,7 +1057,12 @@ class N64Graphics {
     }
   }
 
-  Float64List get depth => depths.putIfAbsent(zImage,
+  Float64List get depth {
+    _exposeDepth();
+    return _depthBuffer;
+  }
+
+  Float64List get _depthBuffer => _depths.putIfAbsent(zImage,
       () => Float64List(640 * 576)..fillRange(0, 640 * 576, double.infinity));
   static double _edge(
           double ax, double ay, double bx, double by, double px, double py) =>
@@ -862,7 +1097,31 @@ class N64Graphics {
     final minY = math.max(scTop, math.min(y0, math.min(y1, y2)).floor()),
         maxY = math.min(
             math.min(scBottom, 576) - 1, math.max(y0, math.max(y1, y2)).ceil());
-    final depthBuffer = depth;
+    final depthBuffer = _depthBuffer;
+    final depthTest = geometry.bit0 && otherLow.bit4,
+        depthWrite = geometry.bit0 && otherLow.bit5;
+    final compute = _compute;
+    if (compute != null) {
+      final textured = textureOn;
+      if (!(depthTest && otherLow.shr10.mask2 == 3) &&
+          _computeTriangle(compute, a, b, c, textured,
+              x0, y0, x1, y1, x2, y2, area, minX, minY, maxX, maxY,
+              z0, z1, z2, depthBuffer, depthTest, depthWrite)) {
+        return;
+      }
+      if (_stageProjectedTriangle(compute, a, b, c, minX, minY, maxX, maxY,
+          x0, y0, z0, i0, x1, y1, z1, i1, x2, y2, z2, i2, depthBuffer,
+          depthTest, depthWrite)) {
+        if (!_batchRectangles) _flushRectangles();
+        return;
+      }
+      _flushRectangles();
+      if (depthWrite) {
+        _compute?.invalidateDepth();
+      } else if (depthTest) {
+        _compute?.syncDepth();
+      }
+    }
     final invArea = 1 / area;
     final waStep = (y2 - y1) * invArea,
         wbStep = (y0 - y2) * invArea,
@@ -888,8 +1147,6 @@ class N64Graphics {
         baStep = vaStep * ba0 + vbStep * ba1 + vcStep * ba2,
         stStep = vaStep * st0 + vbStep * st1 + vcStep * st2,
         ziStep = vaStep * zi0 + vbStep * zi1 + vcStep * zi2;
-    final depthTest = geometry.bit0 && otherLow.bit4,
-        depthWrite = geometry.bit0 && otherLow.bit5;
     // Depth slope across the triangle. The decal test uses it to accept a
     // pixel within the surface's own depth slope of the stored value.
     final zStepY = (-(x2 - x1) * z0 - (x0 - x2) * z1 - (x1 - x0) * z2) / area;
@@ -948,21 +1205,9 @@ class N64Graphics {
           ba += baStep,
           st += stStep,
           zi += ziStep) {
-        // Re-evaluate coverage near an edge: accumulated roundoff must not
-        // introduce cracks in adjacent triangles sharing that edge.
-        // Clearly inside needs no exact test. This is the whole path except
-        // within 1e-10 of an edge, and gives the same answer as the full test.
-        final wc = 1 - wa - wb;
-        var inside = true;
-        if (!(wa > 1e-10 && wb > 1e-10 && wc > 1e-10)) {
-          inside = wa >= 0 && wb >= 0 && wc >= 0;
-          if (wa.abs() < 1e-10 || wb.abs() < 1e-10 || wc.abs() < 1e-10) {
-            final exactA = _edge(x1, y1, x2, y2, px + 0.5, py + 0.5) * invArea,
-                exactB = _edge(x2, y2, x0, y0, px + 0.5, py + 0.5) * invArea;
-            inside = exactA >= 0 && exactB >= 0 && 1 - exactA - exactB >= 0;
-          }
+        if (!N64RdpCoverage.covers(wa, wb, px, py, x0, y0, x1, y1, x2, y2, invArea)) {
+          continue;
         }
-        if (!inside) continue;
         final at = py * width + px;
         if (depthTest) {
           final stored = depthBuffer[at];
@@ -985,6 +1230,288 @@ class N64Graphics {
       }
     }
   }
+
+  bool _stageProjectedTriangle(N64RdpCompute compute,
+      N64Vertex a, N64Vertex b, N64Vertex c, int left, int top, int right, int bottom,
+      double x0, double y0, double z0, double q0,
+      double x1, double y1, double z1, double q1,
+      double x2, double y2, double z2, double q2,
+      Float64List depthBuffer, bool depthTest, bool depthWrite) {
+    final cols = right - left + 1, rows = bottom - top + 1;
+    if (left < 0 || top < 0 || cols <= 0 || rows <= 0 ||
+        cols > N64RdpCompute.maxExtent || rows > N64RdpCompute.maxExtent) {
+      return false;
+    }
+    final tile = textureOn ? tiles[activeTile] : null;
+    if (tile != null && !_computeTextureFormat(tile)) return false;
+    final size = colorSize == 3 ? 4 : 2;
+    final rect = N64RdpRect(colorImage, width, left, top, cols, rows, size);
+    final hasDepth = depthTest || depthWrite;
+    if (rect.end > bus.ram.length ||
+        (hasDepth && bottom * width + right >= depthBuffer.length)) {
+      return false;
+    }
+    final copy = _textureUsesCopyColor();
+    final combiner = copy ? null : _computeCombiner(null);
+    if (!copy && combiner == null) return false;
+    final sAxis = tile == null ? null :
+        _fragmentTextureAxis(tile.left, tile.right, tile.sShift, tile.sMode, tile.sMask);
+    final tAxis = tile == null ? null :
+        _fragmentTextureAxis(tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
+    if (tile != null && (sAxis == null || tAxis == null)) return false;
+    final vertices = Float32List.fromList([
+      x0 - left, y0 - top, z0, q0, a.s * q0, a.t * q0,
+      a.color.r, a.color.g, a.color.b, a.color.a,
+      x1 - left, y1 - top, z1, q1, b.s * q1, b.t * q1,
+      b.color.r, b.color.g, b.color.b, b.color.a,
+      x2 - left, y2 - top, z2, q2, c.s * q2, c.t * q2,
+      c.color.r, c.color.g, c.color.b, c.color.a,
+    ]);
+    if (!vertices.every((value) => value.isFinite)) return false;
+    return compute.projectedTriangle(rect, tile == null ? null : tmem, _tmemVersion,
+        tile?.format ?? 0, tile?.size ?? 0, tile?.palette ?? 0,
+        otherHigh.shr14.mask2 == 3, otherLow.bit14, depthTest, depthWrite,
+        depthTest && otherLow.shr10.mask2 == 3, hasDepth ? depthBuffer : null,
+        combiner, vertices, sAxis, tAxis, (tile?.tmem ?? 0) * 8, (tile?.line ?? 0) * 8);
+  }
+
+  N64RdpTextureAxis? _fragmentTextureAxis(
+      double low, double high, int shift, int mode, int mask) {
+    if (!low.isFinite || !high.isFinite ||
+        low.abs() > 0x100000 || high.abs() > 0x100000) {
+      return null;
+    }
+    return N64RdpTextureAxis(low, _shiftScale[shift],
+        math.max(0, (high - low).floor()), mode, mask);
+  }
+
+  bool _computeTriangle(N64RdpCompute compute, N64Vertex a, N64Vertex b,
+      N64Vertex c, bool textured, double x0, double y0, double x1, double y1, double x2, double y2,
+      double area, int left, int top, int right, int bottom,
+      double z0, double z1, double z2, Float64List depth,
+      bool depthTest, bool depthWrite) {
+    final cols = right - left + 1, rows = bottom - top + 1;
+    if (cols <= 0 || rows <= 0) return true;
+    if (left < 0 || top < 0 || cols > N64RdpCompute.maxExtent ||
+        rows > N64RdpCompute.maxExtent) {
+      return false;
+    }
+    // Quarter-pixel coordinates within this range give exact integer edge
+    // values in i32, including at the bounding box's pixel centers.
+    final coords = [x0 * 4, y0 * 4, x1 * 4, y1 * 4, x2 * 4, y2 * 4];
+    final points = Int32List(6);
+    for (var i = 0; i < coords.length; i++) {
+      final value = coords[i];
+      if (!value.isFinite || value.abs() > 8192 || value != value.truncate()) {
+        return false;
+      }
+      points[i] = value.toInt();
+    }
+    final sign = area < 0 ? -1 : 1;
+    final centerX = left * 4 + 2, centerY = top * 4 + 2;
+    final edges = Int32List(9);
+    for (var i = 0; i < 3; i++) {
+      final j = i * 2, k = (j + 2) % 6, at = i * 3;
+      final dx = points[k] - points[j], dy = points[k + 1] - points[j + 1];
+      edges[at] = sign * dy * 4;
+      edges[at + 1] = -sign * dx * 4;
+      edges[at + 2] =
+          sign * ((centerX - points[j]) * dy - (centerY - points[j + 1]) * dx);
+    }
+
+    // The software computes the weight opposite the first edge as 1-a-b.
+    // Its sign on that edge can depend on rounding unless 1/area is exact.
+    final scaledArea = (area.abs() * 16).toInt();
+    final exactWeights = (scaledArea & (scaledArea - 1)) == 0;
+    if (!exactWeights && edges[2] % edges[0].gcd(edges[1]) == 0) {
+      return false;
+    }
+
+    final size = colorSize == 3 ? 4 : 2;
+    final rect = N64RdpRect(colorImage, width, left, top, cols, rows, size);
+    N64RdpPlane? plane;
+    if (depthTest || depthWrite) {
+      if (!exactWeights || bottom * width + right >= depth.length ||
+          rect.end > bus.ram.length) {
+        return false;
+      }
+      plane = _exactPlane(edges, scaledArea, z0, z1, z2, cols, rows);
+      if (plane == null) return false;
+    }
+    if (textured) {
+      final tile = tiles[activeTile];
+      if (!exactWeights || !_computeTextureFormat(tile)) return false;
+      final i0 = 1 / a.clip.w, i1 = 1 / b.clip.w, i2 = 1 / c.clip.w;
+      if (i0 <= 0 || i1 <= 0 || i2 <= 0) return false;
+      final q = _texturePlane(edges, scaledArea, i0, i1, i2, cols, rows);
+      final s = _texturePlane(edges, scaledArea, a.s * i0, b.s * i1,
+          c.s * i2, cols, rows);
+      final t = _texturePlane(edges, scaledArea, a.t * i0, b.t * i1,
+          c.t * i2, cols, rows);
+      if (q == null || s == null || t == null) return false;
+      final texture = Int32List(19);
+      if (!_writeTextureAxis(texture, 0, s, q, tile.left, tile.right,
+              tile.sShift, tile.sMode, tile.sMask, cols, rows) ||
+          !_writeTextureAxis(texture, 7, t, q, tile.top, tile.bottom,
+              tile.tShift, tile.tMode, tile.tMask, cols, rows)) {
+        return false;
+      }
+      texture[14] = tile.tmem * 8;
+      texture[15] = tile.line * 8;
+      texture[16] = q.dx;
+      texture[17] = q.dy;
+      texture[18] = q.origin;
+      N64RdpCombiner? combiner;
+      if (!_textureUsesCopyColor()) {
+        combiner = _shadeCombiner(edges, scaledArea, a.color, b.color,
+            c.color, cols, rows);
+        if (combiner == null) return false;
+      }
+      if (!compute.texturedTriangle(rect, edges, plane,
+          plane == null ? null : depth, depthTest, depthWrite, tmem,
+          tile.format, tile.size, tile.palette, otherHigh.shr14.mask2 == 3,
+          otherLow.bit14, texture, combiner)) {
+        return false;
+      }
+    } else if (otherHigh.shr20.mask2 != 2 &&
+        (otherLow.bit14 || !_flatShade(a.color, b.color, c.color))) {
+      if (!exactWeights) return false;
+      final combiner = _shadeCombiner(edges, scaledArea, a.color, b.color,
+          c.color, cols, rows);
+      if (combiner == null ||
+          !compute.shadedTriangle(rect, edges, plane, plane == null ? null : depth,
+              depthTest, depthWrite, otherLow.bit14, combiner)) {
+        return false;
+      }
+    } else {
+      final color = _combine(a.color, _whiteColor);
+      // Interpolating equal shade inputs can still move rounded colors or alpha
+      // across a quantization boundary. Leave these cases on the software path.
+      if (!color.a.isFinite || (color.a - 1).abs() < 1e-7 ||
+          _nearColorBoundary(color.r) || _nearColorBoundary(color.g) ||
+          _nearColorBoundary(color.b)) {
+        return false;
+      }
+      if (color.a < 1) return true;
+      if (!compute.triangle(rect, _pack(color.r, color.g, color.b, size), edges,
+          plane: plane, depth: plane == null ? null : depth,
+          depthTest: depthTest, depthWrite: depthWrite)) {
+        return false;
+      }
+    }
+    if (!_batchRectangles) _flushRectangles();
+    return true;
+  }
+
+  N64RdpCombiner? _shadeCombiner(Int32List edges, int area, Rgba a, Rgba b,
+      Rgba c, int cols, int rows) {
+    final colors = [a, b, c];
+    final planes = <N64RdpPlane>[];
+    for (var channel = 0; channel < 4; channel++) {
+      final inputs = [
+        for (final v in colors)
+          switch (channel) { 0 => v.r, 1 => v.g, 2 => v.b, _ => v.a }
+      ];
+      if (!inputs.every(_isShadeByte)) return null;
+      final plane = _texturePlane(edges, area, inputs[0], inputs[1], inputs[2],
+          cols, rows);
+      if (plane == null) return null;
+      planes.add(plane);
+    }
+    return _computeCombiner(planes);
+  }
+
+  static bool _flatShade(Rgba a, Rgba b, Rgba c) =>
+      a.r == b.r && a.r == c.r && a.g == b.g && a.g == c.g &&
+      a.b == b.b && a.b == c.b && a.a == b.a && a.a == c.a &&
+      _isShadeByte(a.r) && _isShadeByte(a.g) &&
+      _isShadeByte(a.b) && _isShadeByte(a.a);
+
+  static N64RdpPlane? _texturePlane(Int32List edges, int area,
+      double a, double b, double c, int cols, int rows) {
+    if (!a.isFinite || !b.isFinite || !c.isFinite) return null;
+    for (var bits = 0; bits <= 24; bits++) {
+      final scale = 1 << bits;
+      final x = a * scale, y = b * scale, z = c * scale;
+      if (x.abs() > (1 << 18) || y.abs() > (1 << 18) || z.abs() > (1 << 18)) {
+        return null;
+      }
+      if (x == x.truncate() && y == y.truncate() && z == z.truncate()) {
+        return _plane(edges, area, x.toInt(), y.toInt(), z.toInt(),
+            bits, cols, rows);
+      }
+    }
+    return null;
+  }
+
+  static int _planeBound(N64RdpPlane plane, int cols, int rows) =>
+      plane.dx.abs() * (cols - 1) + plane.dy.abs() * (rows - 1) +
+      plane.origin.abs();
+
+  static bool _writeTextureAxis(Int32List output, int at, N64RdpPlane plane,
+      N64RdpPlane q, double low, double high, int shift, int mode, int mask, int cols, int rows) {
+    final origin = low * 4, extent = high - low;
+    if (!origin.isFinite || origin.abs() > 0x100000 ||
+        origin != origin.truncate() || !extent.isFinite ||
+        extent.abs() > 0x100000) {
+      return false;
+    }
+    final power =
+        plane.exponent - q.exponent + (shift <= 10 ? -shift : 16 - shift) + 2;
+    if (power < -30 || power > 30) return false;
+    final n = _planeBound(plane, cols, rows) << math.max(power, 0);
+    final d = _planeBound(q, cols, rows) << math.max(-power, 0);
+    if (n > 0x1fffffff || d > 0x3fffffff) return false;
+    // The denominator is a positive integer at covered samples. This
+    // also bounds the projected coordinate and signed TMEM address math.
+    output[at] = plane.dx;
+    output[at + 1] = plane.dy;
+    output[at + 2] = plane.origin;
+    output[at + 3] = power;
+    output[at + 4] = origin.toInt();
+    output[at + 5] = math.max(0, extent.floor());
+    output[at + 6] = mode | (mask << 2);
+    return true;
+  }
+
+  static N64RdpPlane? _exactPlane(Int32List edges, int scaledArea,
+      double z0, double z1, double z2, int cols, int rows) {
+    final zs = [z0 * 256, z1 * 256, z2 * 256];
+    for (final z in zs) {
+      // Bound the numerator so that the software's binary64 interpolation
+      // and row stepping are exact, including the intermediate products.
+      if (!z.isFinite || z.abs() > (1 << 18) || z != z.truncate() ||
+          (z == 0 && z.isNegative)) {
+        return null;
+      }
+    }
+    return _plane(edges, scaledArea, zs[0].toInt(), zs[1].toInt(),
+        zs[2].toInt(), 8, cols, rows);
+  }
+
+  static N64RdpPlane? _plane(Int32List edges, int scaledArea,
+      int a, int b, int c, int fractionBits, int cols, int rows) {
+    var dx = edges[3] * a + edges[6] * b + edges[0] * c;
+    var dy = edges[4] * a + edges[7] * b + edges[1] * c;
+    var origin = edges[5] * a + edges[8] * b + edges[2] * c;
+    var exponent = -fractionBits - (scaledArea.bitLength - 1);
+    while ((dx | dy | origin) != 0 && ((dx | dy | origin) & 1) == 0) {
+      dx >>= 1;
+      dy >>= 1;
+      origin >>= 1;
+      exponent++;
+    }
+    if (dx.abs() * (cols - 1) + dy.abs() * (rows - 1) + origin.abs() >
+        0x7fffffff || dx.abs() > 0x7fffffff || dy.abs() > 0x7fffffff) {
+      return null;
+    }
+    return N64RdpPlane(dx, dy, origin, exponent);
+  }
+
+  static bool _isShadeByte(double channel) => channel >= 0 && channel <= 255;
+
+  static bool _nearColorBoundary(double channel) =>
+      !channel.isFinite || (channel - channel.floor() - 0.5).abs() < 1e-7;
 
   /// Test inspection returns a snapshot; the rasterizer uses private scratch.
   @visibleForTesting
@@ -1024,27 +1551,33 @@ class N64Graphics {
             st.y, tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
     final row = tile.line * 8;
     final offset = (tile.tmem * 8 + y * row + x * (4 << tile.size) ~/ 8).mask12;
-    var v = tmem[offset];
-    if (tile.size == 0) v = (x.isEven ? v.shr4 : v).mask4;
-    if (tile.size >= 2) v = v.shl8 | tmem[(offset + 1).mask12];
-    if (tile.size == 3) {
-      v = v.shl16 | tmem[(offset + 2).mask12].shl8 | tmem[(offset + 3).mask12];
+    _readTexel(tmem, offset, x.isOdd, tile.format, tile.size, tile.palette,
+        otherHigh.shr14.mask2 == 3);
+  }
+
+  @pragma('vm:prefer-inline')
+  void _readTexel(Uint8List memory, int offset, bool odd, int format, int size,
+      int palette, bool iaPalette) {
+    var v = memory[offset];
+    if (size == 0) v = (!odd ? v.shr4 : v).mask4;
+    if (size >= 2) v = v.shl8 | memory[(offset + 1).mask12];
+    if (size == 3) {
+      v = v.shl16 | memory[(offset + 2).mask12].shl8 | memory[(offset + 3).mask12];
     }
-    if (tile.format == 0) {
-      if (tile.size == 3) {
-        _textureRgba(_byte[v.shr24.mask8], _byte[v.shr16.mask8],
-            _byte[v.shr8.mask8], _byte[v.mask8]);
+    if (format == 0) {
+      if (size == 3) {
+        _texture32(v);
       } else {
         _texture16(v);
       }
       return;
     }
-    if (tile.format == 2) {
-      final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
+    if (format == 2) {
+      final paletteIndex = size == 0 ? palette * 16 + v : v;
       final p = (2048 + paletteIndex * 8).mask12;
-      final entry = tmem[p].shl8 | tmem[p + 1];
+      final entry = memory[p].shl8 | memory[p + 1];
       // otherHigh bits 15..14 select the palette format: 3 is IA16
-      if (otherHigh.shr14.mask2 == 3) {
+      if (iaPalette) {
         final intensity = _byte[entry.shr8.mask8];
         _textureRgba(intensity, intensity, intensity, _byte[entry.mask8]);
         return;
@@ -1052,19 +1585,19 @@ class N64Graphics {
       _texture16(entry);
       return;
     }
-    if (tile.format == 3) {
-      if (tile.size == 2) {
+    if (format == 3) {
+      if (size == 2) {
         final intensity = _byte[v.shr8.mask8];
         _textureRgba(intensity, intensity, intensity, _byte[v.mask8]);
         return;
       }
-      final intensity = tile.size == 1 ? v.shr4 * 17 : v.shr1.mask3 * 255 / 7,
-          alpha = tile.size == 1 ? v.mask4 * 17 : v.mask1 * 255;
+      final intensity = size == 1 ? v.shr4 * 17 : v.shr1.mask3 * 255 / 7,
+          alpha = size == 1 ? v.mask4 * 17 : v.mask1 * 255;
       _textureRgba(intensity.toDouble(), intensity.toDouble(),
           intensity.toDouble(), alpha.toDouble());
       return;
     }
-    final intensity = tile.size == 0 ? v * 17 : v;
+    final intensity = size == 0 ? v * 17 : v;
     _textureRgba(intensity.toDouble(), intensity.toDouble(),
         intensity.toDouble(), intensity.toDouble());
   }
@@ -1176,14 +1709,20 @@ class N64Graphics {
         _planCycles < cycles) {
       _decodeCombiner(cycles);
     }
-    final regs = _regs, plan = _plan;
+    return _runCombiner(shade, texture, primitive, environment, _plan, cycles);
+  }
+
+  @pragma('vm:prefer-inline')
+  Rgba _runCombiner(Rgba shade, Rgba texture, Rgba prim, Rgba env,
+      Int32List plan, int cycles) {
+    final out = _out, regs = _regs;
     final zero = _zero2, full = _full2, inv255 = _inv255x2;
     regs[_regCombined] = zero;
     regs[_regCombined + 1] = zero;
-    regs[_regPrimitive] = primitive.rg;
-    regs[_regPrimitive + 1] = primitive.ba;
-    regs[_regEnvironment] = environment.rg;
-    regs[_regEnvironment + 1] = environment.ba;
+    regs[_regPrimitive] = prim.rg;
+    regs[_regPrimitive + 1] = prim.ba;
+    regs[_regEnvironment] = env.rg;
+    regs[_regEnvironment + 1] = env.ba;
     regs[_regTexture] = texture.rg;
     regs[_regTexture + 1] = texture.ba;
     regs[_regShade] = shade.rg;
@@ -1238,26 +1777,31 @@ class N64Graphics {
         y >= 576) {
       return false;
     }
-    final r = color.r, g = color.g, b = color.b, a = color.a;
-    if (a < 1) return false;
+    if (color.a < 1) return false;
     final size = colorSize == 3 ? 4 : 2,
         at = colorImage + (y * width + x) * size;
     if (at + size > bus.ram.length) return false;
-    var redValue = r, greenValue = g, blueValue = b;
-    if (otherLow.bit14 && a < 255) {
-      final old = u(at, size), alpha = a * _inv255, inverse = 1 - alpha;
+    final packed = _packPixel(at, size, color, otherLow.bit14);
+    bus.ramWrite(at, packed, size);
+    return true;
+  }
+
+  int _packPixel(int at, int size, Rgba color, bool blend) {
+    final a = color.a;
+    var red = color.r, green = color.g, blue = color.b;
+    if (blend && a < 255) {
+      final old = bus.ramRead(at, size), alpha = a * _inv255, inverse = 1 - alpha;
       final oldRed =
-              size == 4 ? _byte[old.shr24.mask8] : _fiveBit[old.shr11.mask5],
+          size == 4 ? _byte[old.shr24.mask8] : _fiveBit[old.shr11.mask5],
           oldGreen =
               size == 4 ? _byte[old.shr16.mask8] : _fiveBit[old.shr6.mask5],
           oldBlue =
               size == 4 ? _byte[old.shr8.mask8] : _fiveBit[old.shr1.mask5];
-      redValue = redValue * alpha + oldRed * inverse;
-      greenValue = greenValue * alpha + oldGreen * inverse;
-      blueValue = blueValue * alpha + oldBlue * inverse;
+      red = red * alpha + oldRed * inverse;
+      green = green * alpha + oldGreen * inverse;
+      blue = blue * alpha + oldBlue * inverse;
     }
-    bus.ramWrite(at, _pack(redValue, greenValue, blueValue, size), size);
-    return true;
+    return _pack(red, green, blue, size);
   }
 
   /// _put for a pixel the caller has already clipped to the scissor and the
@@ -1314,6 +1858,13 @@ class N64Graphics {
     final s = st.shr16.rel16 / 32, t = st.rel16 / 32;
     final ds = delta.shr16.rel16 / 1024 / (cycle == 2 ? 4 : 1),
         dt = delta.rel16 / 1024;
+    final compute = _compute;
+    if (compute != null &&
+        _computeCopyRect(compute, tiles[tile], left, top, right, bottom,
+            s, t, ds, dt, flip)) {
+      return;
+    }
+    if (compute != null) _flushRectangles();
     for (var y = math.max(scTop, top.ceil());
         y < math.min(scBottom, bottom.ceil());
         y++) {
@@ -1327,6 +1878,136 @@ class N64Graphics {
         _put(x, y, _combine(_whiteColor, _tex));
       }
     }
+  }
+
+  bool _computeCopyRect(N64RdpCompute compute, N64Tile tile,
+      double left, double top, double right, double bottom,
+      double s, double t, double ds, double dt, bool flip) {
+    if (!_computeTextureFormat(tile)) return false;
+    final x = math.max(0, math.max(scLeft, left.ceil())),
+        y = math.max(0, math.max(scTop, top.ceil()));
+    final cols = math.min(width, math.min(scRight, right.ceil())) - x,
+        rows = math.min(576, math.min(scBottom, bottom.ceil())) - y;
+    if (cols <= 0 || rows <= 0) return true;
+    if (cols > N64RdpCompute.maxExtent || rows > N64RdpCompute.maxExtent) {
+      return false;
+    }
+    final rect = N64RdpRect(
+        colorImage, width, x, y, cols, rows, colorSize == 3 ? 4 : 2);
+    final copy = _textureUsesCopyColor();
+    final combiner = copy ? null : _computeCombiner(null);
+    if (!copy && combiner == null) return false;
+    final base = compute.copy(rect, tmem, tile.format, tile.size, tile.palette,
+        otherHigh.shr14.mask2 == 3, flip, otherLow.bit14, combiner);
+    if (base < 0) return false;
+    // Reuse the software coordinate rules before the GPU fetches TMEM.
+    final sLength = flip ? rows : cols, tLength = flip ? cols : rows;
+    for (var i = 0; i < sLength; i++) {
+      final tx = _coordinate(
+          s + ((flip ? y + i - top : x + i - left) * ds),
+          tile.left, tile.right, tile.sShift, tile.sMode, tile.sMask);
+      compute.setTextureS(base + i, tx * (4 << tile.size) ~/ 8 + tile.tmem * 8,
+          tx.isOdd);
+    }
+    for (var i = 0; i < tLength; i++) {
+      final ty = _coordinate(
+          t + ((flip ? x + i - left : y + i - top) * dt),
+          tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
+      compute.setTextureT(base + sLength + i, ty * tile.line * 8);
+    }
+    if (!_batchRectangles) _flushRectangles();
+    return true;
+  }
+
+  bool _textureUsesCopyColor() {
+    final mode = otherHigh.shr20.mask2;
+    if (mode == 2) return true;
+    final cycles = mode == 1 ? 2 : 1;
+    if (_planKey0 != combine0 || _planKey1 != combine1 ||
+        _planCycles < cycles) {
+      _decodeCombiner(cycles);
+    }
+    final base = (cycles - 1) * 9;
+    final rgbA = _plan[base], rgbB = _plan[base + 1], rgbC = _plan[base + 2];
+    final alphaA = _plan[base + 5], alphaB = _plan[base + 6],
+        alphaC = _plan[base + 7];
+    // Recognize equations with a statically zero product and no shade input.
+    return _plan[base + 3] == _regTexture &&
+        _plan[base + 8] == _regTexture + 1 &&
+        (rgbA == rgbB || rgbC == _regZero || rgbC == _regZero + 1) &&
+        (alphaA == alphaB || alphaC == _regZero + 1) &&
+        _finiteCopyInput(rgbA, cycles) && _finiteCopyInput(rgbB, cycles) &&
+        _finiteCopyInput(rgbC, cycles) &&
+        _finiteCopyInput(alphaA, cycles) &&
+        _finiteCopyInput(alphaB, cycles) &&
+        _finiteCopyInput(alphaC, cycles);
+  }
+
+  static bool _finiteCopyInput(int input, int cycles) =>
+      input == _regTexture || input == _regTexture + 1 ||
+      input >= _regZero || (cycles == 1 && input <= _regCombined + 1);
+
+  static bool _computeTextureFormat(N64Tile tile) => switch (tile.format) {
+      0 => tile.size == 2 || tile.size == 3,
+      2 || 4 => tile.size <= 1,
+      3 => tile.size <= 2,
+      _ => false,
+    };
+
+  N64RdpCombiner? _computeCombiner(List<N64RdpPlane>? shadePlanes) {
+    final prim = _packCombinerColor(primitive);
+    final env = _packCombinerColor(environment);
+    if (prim == null || env == null) return null;
+    final cycles = otherHigh.shr20.mask2 == 1 ? 2 : 1;
+    if (_planKey0 != combine0 || _planKey1 != combine1 || _planCycles < cycles) {
+      _decodeCombiner(cycles);
+    }
+    return N64RdpCombiner(cycles, prim, env, 0xffffffff, _plan, shadePlanes);
+  }
+
+  static int? _packCombinerColor(Rgba value) {
+    final r = value.r, g = value.g, b = value.b, a = value.a;
+    if (!_isShadeByte(r) || !_isShadeByte(g) ||
+        !_isShadeByte(b) || !_isShadeByte(a) ||
+        r != r.truncate() || g != g.truncate() ||
+        b != b.truncate() || a != a.truncate()) {
+      return null;
+    }
+    return r.toInt().shl24 | g.toInt().shl16 | b.toInt().shl8 | a.toInt();
+  }
+
+  int _replayCopyPixel(Uint8List? memory, int offset, bool odd, int format,
+      int size, int palette, bool iaPalette, int at, int bytes, bool blend,
+      N64RdpCombiner? combiner, int x, int y,
+      [Float64List? values, int shadeAt = 0, int? rgbaWord]) {
+    var color = _whiteColor;
+    if (memory != null) {
+      _readTexel(memory, offset, odd, format, size, palette, iaPalette);
+      color = _tex;
+    } else if (rgbaWord != null) {
+      if (size == 3) {
+        _texture32(rgbaWord);
+      } else {
+        _texture16(rgbaWord);
+      }
+      color = _tex;
+    }
+    if (combiner != null) {
+      final planes = combiner.shadePlanes;
+      var shade = _whiteColor;
+      if (values != null) {
+        shade = _shade..set(values[shadeAt], values[shadeAt + 1],
+            values[shadeAt + 2], values[shadeAt + 3]);
+      } else if (planes != null) {
+        double value(N64RdpPlane p) =>
+            (p.origin + x * p.dx + y * p.dy) * math.pow(2, p.exponent).toDouble();
+        shade = _shade..set(value(planes[0]), value(planes[1]),
+            value(planes[2]), value(planes[3]));
+      }
+      color = _runCombiner(shade, color, Rgba.fromWord(combiner.primitive),
+          Rgba.fromWord(combiner.environment), combiner.plan, combiner.cycles);
+    }
+    return color.a < 1 ? 0 : _packPixel(at, bytes, color, blend);
   }
 
   void rdp(int w0, int w1) {
@@ -1361,37 +2042,57 @@ class N64Graphics {
             x1 = w0.shr12.mask12,
             y1 = w0.mask12;
         if (colorImage == zImage) {
-          depth.fillRange(0, depth.length, double.infinity);
+          final buffer = _depthBuffer, compute = _compute;
+          if (compute == null) {
+            buffer.fillRange(0, buffer.length, double.infinity);
+          } else {
+            compute.clearDepth(buffer);
+            if (!_batchRectangles) _flushRectangles();
+          }
           break;
         }
         final xStart = math.max(scLeft, x0 ~/ 4),
             xEnd = math.min(math.min(scRight, width) - 1, x1 ~/ 4);
         if (otherHigh.shr20.mask2 == 3) {
-          final size = colorSize == 3 ? 4 : 2, ramData = bus.ramData;
-          final ramLength = bus.ram.length;
-          for (var y = math.max(scTop, y0 ~/ 4);
-              y <= math.min(scBottom - 1, y1 ~/ 4);
-              y++) {
-            for (var x = xStart; x <= xEnd; x++) {
-              final at = colorImage + (y * width + x) * size;
-              if (at + size > ramLength) continue;
-              if (size == 4) {
-                ramData.setUint32(at & 0x7fffff, fillColor);
-              } else {
-                ramData.setUint16(at & 0x7fffff,
-                    x.isEven ? fillColor.shr16 : fillColor.mask16);
-              }
+          final size = colorSize == 3 ? 4 : 2;
+          final yStart = math.max(scTop, y0 ~/ 4),
+              yEnd = math.min(scBottom - 1, y1 ~/ 4);
+          final cols = xEnd - xStart + 1, rows = yEnd - yStart + 1;
+          if (cols <= 0 || rows <= 0) break;
+          final rect =
+              N64RdpRect(colorImage, width, xStart, yStart, cols, rows, size);
+          final compute = _compute;
+          if (compute != null && cols <= N64RdpCompute.maxExtent &&
+              rows <= N64RdpCompute.maxExtent && compute.fill(rect, fillColor)) {
+            if (!_batchRectangles) _flushRectangles();
+            break;
+          }
+          if (compute != null) _flushRectangles();
+          rect.writeFill(bus, fillColor);
+        } else {
+          final compute = _compute;
+          final x = math.max(xStart, 0), y = math.max(scTop, y0 ~/ 4);
+          final cols = xEnd - x + 1,
+              rows = math.min(math.min(scBottom, 576) - 1, y1 ~/ 4) - y + 1;
+          if (cols <= 0 || rows <= 0) break;
+          if (compute != null && cols <= N64RdpCompute.maxExtent &&
+              rows <= N64RdpCompute.maxExtent) {
+            final combiner = _computeCombiner(null);
+            final size = colorSize == 3 ? 4 : 2;
+            if (combiner != null &&
+                compute.solid(N64RdpRect(colorImage, width, x, y, cols, rows, size),
+                    otherLow.bit14, combiner)) {
+              if (!_batchRectangles) _flushRectangles();
+              break;
             }
           }
-        } else {
+          _flushRectangles();
           // The inputs are constant, so the combined colour is the same for
           // every pixel of the rectangle.
           final color = _combine(_whiteColor, _whiteColor);
-          for (var y = math.max(scTop, y0 ~/ 4);
-              y <= math.min(scBottom - 1, y1 ~/ 4);
-              y++) {
-            for (var x = xStart; x <= xEnd; x++) {
-              _put(x, y, color);
+          for (var dy = 0; dy < rows; dy++) {
+            for (var dx = 0; dx < cols; dx++) {
+              _put(x + dx, y + dy, color);
             }
           }
         }
@@ -1415,6 +2116,7 @@ class N64Graphics {
         tile.right = w1.shr12.mask12 / 4;
         tile.bottom = w1.mask12 / 4;
       case 0xf3:
+        _tmemVersion++;
         final tile = tiles[w1.shr24.mask3], count = w1.shr12.mask12 + 1;
         final bytes = (count * (4 << textureSize) + 7) ~/ 8;
         final start = textureImage +
@@ -1425,6 +2127,7 @@ class N64Graphics {
           tmem[(tile.tmem * 8 + i).mask12] = u(start + i, 1);
         }
       case 0xf4:
+        _tmemVersion++;
         final tile = tiles[w1.shr24.mask3],
             x0 = w0.shr12.mask12 ~/ 4,
             y0 = w0.mask12 ~/ 4,
@@ -1441,6 +2144,7 @@ class N64Graphics {
           }
         }
       case 0xf0:
+        _tmemVersion++;
         final tile = tiles[w1.shr24.mask3], count = w1.shr14.mask10 + 1;
         for (var i = 0; i < count; i++) {
           for (var j = 0; j < 8; j++) {
@@ -1472,8 +2176,25 @@ class N64Graphics {
     }
   }
 
-  void commands(int start, int end) {
+  void commands(int start, int end, {bool defer = false}) {
     if (bus.dp[3].bit0) throw UnsupportedError('RDP XBUS command source');
+    final compute = _compute;
+    if (compute == null) return _commands(start, end);
+    compute.beginStream();
+    _batchRectangles = true;
+    try {
+      _commands(start, end);
+    } finally {
+      _batchRectangles = false;
+      try {
+        _flushRectangles(defer: defer, endStream: true);
+      } finally {
+        compute.endStream();
+      }
+    }
+  }
+
+  void _commands(int start, int end) {
     for (var at = start; at < end; at += 8) {
       rdp(u(at, 4) | 0xc0000000, u(at + 4, 4));
     }

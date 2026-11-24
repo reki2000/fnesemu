@@ -101,6 +101,7 @@ class N64Audio {
     if (ram + bytes > bus.ram.length || dmem + bytes > memory.length) {
       throw StateError('Audio DMA out of bounds');
     }
+    bus.touchRdram(ram, bytes);
     if (load) {
       memory.setRange(dmem, dmem + bytes, bus.ram, ram);
     } else {
