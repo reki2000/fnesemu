@@ -52,6 +52,7 @@ class _BenchmarkRun {
     final state = await archive.read(scene.state);
     final media = StateHeader.of(state).media;
     final bios = [for (final b in scene.bios) await archive.read(b)];
+    await _registerBios(system, scene, bios);
     final drive = page._drive;
     if (scene.disc case final disc?) {
       if (!await _loadDisc(system, bios, disc, media)) {
@@ -86,6 +87,20 @@ class _BenchmarkRun {
         host: host);
     debugPrint('benchmark ${jsonEncode(record)}');
     return result;
+  }
+
+  /// Keeps the BIOS files of [scene] as those of [system] when the app has
+  /// none, so that its games boot without the archive afterwards. The BIOS
+  /// that the user set stays.
+  Future<void> _registerBios(
+      CoreSystem system, BenchScene scene, List<Uint8List> bios) async {
+    final storage = page._storage;
+    if (bios.isEmpty || storage.biosNames(system.id).isNotEmpty) return;
+    final names = scene.biosNames;
+    await storage.setBios(system.id, [
+      for (final (i, data) in bios.indexed) (names[i], data)
+    ]);
+    _log.info('benchmark: set the BIOS of ${system.id}: ${names.join(', ')}');
   }
 
   /// boots [system] with each disc that may be [name] until one has the

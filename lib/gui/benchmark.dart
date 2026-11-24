@@ -10,7 +10,8 @@
 ///       "core": "ps2",            // a CoreSystem id
 ///       "state": "ps2/a.state",   // a Core.saveState image in the archive
 ///       "rom": "nes/a.nes",       // optional: the ROM in the archive
-///       "bios": ["ps2/bios.bin"], // optional: the BIOS files in order
+///       "bios": ["ps2/bios.bin"], // optional: the BIOS files in order,
+///                                 // kept by the app when it has none
 ///       "disc": "a.chd",          // optional: the name of the disc file
 ///       "warmup": 60,             // frames run before the measurement
 ///       "measure": 600,           // frames measured
@@ -154,6 +155,24 @@ class BenchScene {
       warmup: json['warmup'] as int? ?? 60,
       measure: json['measure'] as int? ?? 600,
       target: json['target'] as int? ?? 60);
+
+  /// The names under which the app keeps the [bios] files of the scene.
+  /// The app passes the BIOS files to a core in the order of their names,
+  /// so the base names get a number in front when that order differs from
+  /// the order of the scene.
+  List<String> get biosNames {
+    final names = [for (final path in bios) path.split('/').last];
+    final sorted = [...names]..sort();
+    var same = names.toSet().length == names.length;
+    for (var i = 0; same && i < names.length; i++) {
+      same = names[i] == sorted[i];
+    }
+    if (same) return names;
+    return [
+      for (final (i, name) in names.indexed)
+        '${(i + 1).toString().padLeft(2, '0')}-$name'
+    ];
+  }
 
   /// the scenes of the text of `bench.json`
   static List<BenchScene> parse(String text) {
