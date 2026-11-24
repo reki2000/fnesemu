@@ -1,15 +1,24 @@
 import '../dyn_table.dart';
 import '../ir.dart';
 import '../native_env.dart';
+import 'allocation.dart';
 import 'assembler.dart';
 
 /// AAPCS64 code generation, also used by the ARM64 desktop ABIs.
 /// X19-X23 hold runtime pointers; X18 and SIMD registers are untouched.
 /// SSA spill slots survive every helper and unmapped-memory callback.
+/// X24-X28 and X8-X15 hold values that [Arm64Allocation] assigns.
 abstract final class Arm64Backend {
   static const maxValues = 4096;
   static const frame = 16 + maxValues * 8;
-  static const saved = [(19, 20), (21, 22), (23, 24), (29, 30)];
+  static const saved = [
+    (19, 20),
+    (21, 22),
+    (23, 24),
+    (25, 26),
+    (27, 28),
+    (29, 30),
+  ];
 
   static (List<int>, int) trampoline({
     required bool win64,
@@ -64,10 +73,14 @@ abstract final class Arm64Backend {
     final a = Arm64Assembler()..emit(0xd503249f);
     final stubs = <void Function()>[];
     final fused = irFusedCompareConsumers(block);
+    final registers = Arm64Allocation(block, fused).registers;
     bool wide(int v) => block.insts[v].type == IrType.i64;
     void load(int reg, int value) {
       final i = block.insts[value];
-      if (i.op == IrOp.constant) {
+      final r = registers[value];
+      if (r >= 0) {
+        if (r != reg) a.move(reg, r, wide: wide(value));
+      } else if (i.op == IrOp.constant) {
         a.constant(
           reg,
           wide(value) ? (i.imm & 0xffffffff) | (i.immHi << 32) : i.imm,
@@ -78,20 +91,40 @@ abstract final class Arm64Backend {
       }
     }
 
-    void save(int reg, int value) =>
+    void save(int reg, int value) {
+      final r = registers[value];
+      if (r < 0) {
         a.memory(false, reg, 31, 16 + 8 * value, size: wide(value) ? 8 : 4);
+      } else if (r != reg) {
+        a.move(r, reg, wide: wide(value));
+      }
+    }
+
+    // the register that holds [value], loading it into [temp] when it has
+    // none
+    int source(int value, int temp) {
+      final r = registers[value];
+      if (r >= 0) return r;
+      load(temp, value);
+      return temp;
+    }
+
+    // the register to write [value] into, then [save] it from there
+    int target(int value, int temp) {
+      final r = registers[value];
+      return r >= 0 ? r : temp;
+    }
 
     void branchOnCondition(int v, Arm64Label dest, {required bool whenTrue}) {
       int cc;
       if (fused[v] >= 0) {
         final cmp = block.insts[v];
-        load(0, cmp.a);
-        load(1, cmp.b);
+        final left = source(cmp.a, 0), right = source(cmp.b, 1);
         if (cmp.op == IrOp.and) {
           // ANDS zero-register, lhs, rhs is a TST that sets NZCV.
-          a.alu(0x6a000000, 31, 0, 1, wide: wide(cmp.a));
+          a.alu(0x6a000000, 31, left, right, wide: wide(cmp.a));
         } else {
-          a.cmp(0, 1, wide: wide(cmp.a));
+          a.cmp(left, right, wide: wide(cmp.a));
         }
         cc = switch (cmp.op) {
           IrOp.eq => 0,
@@ -101,8 +134,7 @@ abstract final class Arm64Backend {
           _ => throw StateError('not a fused condition'),
         };
       } else {
-        load(0, v);
-        a.cmp(0, 31);
+        a.cmp(source(v, 0), 31);
         cc = 1;
       }
       a.branch(dest, whenTrue ? cc : cc ^ 1);
@@ -124,8 +156,8 @@ abstract final class Arm64Backend {
       List<(int, IrValue)> stores = const [],
     }) {
       for (final (word, v) in stores) {
-        load(0, v.index);
-        a.memory(false, 0, 19, word * 4, size: wide(v.index) ? 8 : 4);
+        a.memory(false, source(v.index, 0), 19, word * 4,
+            size: wide(v.index) ? 8 : 4);
       }
       if (refund != 0) budget(refund);
       if (linked) {
@@ -276,18 +308,18 @@ abstract final class Arm64Backend {
     for (var v = 0; v < block.insts.length; v++) {
       final i = block.insts[v], w = wide(v);
       void binary(int op) {
-        load(0, i.a);
-        load(1, i.b);
-        a.alu(op, 0, 0, 1, wide: w);
-        save(0, v);
+        final left = source(i.a, 0), right = source(i.b, 1);
+        final d = target(v, 0);
+        a.alu(op, d, left, right, wide: w);
+        save(d, v);
       }
 
       void compare(int cc) {
-        load(0, i.a);
-        load(1, i.b);
-        a.cmp(0, 1, wide: wide(i.a));
-        a.cset(0, cc);
-        save(0, v);
+        final left = source(i.a, 0), right = source(i.b, 1);
+        a.cmp(left, right, wide: wide(i.a));
+        final d = target(v, 0);
+        a.cset(d, cc);
+        save(d, v);
       }
 
       switch (i.op) {
@@ -312,11 +344,11 @@ abstract final class Arm64Backend {
         case IrOp.constant:
           break;
         case IrOp.ctxLoad:
-          a.memory(true, 0, 19, i.imm * 4, size: w ? 8 : 4);
-          save(0, v);
+          final d = target(v, 0);
+          a.memory(true, d, 19, i.imm * 4, size: w ? 8 : 4);
+          save(d, v);
         case IrOp.ctxStore:
-          load(0, i.a);
-          a.memory(false, 0, 19, i.imm * 4, size: w ? 8 : 4);
+          a.memory(false, source(i.a, 0), 19, i.imm * 4, size: w ? 8 : 4);
         case IrOp.add:
           binary(0x0b000000);
         case IrOp.sub:
@@ -385,12 +417,12 @@ abstract final class Arm64Backend {
         case IrOp.ltU:
           if (fused[v] < 0) compare(3);
         case IrOp.select:
-          load(0, i.a);
-          load(1, i.b);
-          load(2, i.c);
-          a.cmp(0, 31);
-          a.select(0, 1, 2, 1, wide: w);
-          save(0, v);
+          final cond = source(i.a, 0);
+          final yes = source(i.b, 1), no = source(i.c, 2);
+          a.cmp(cond, 31);
+          final d = target(v, 0);
+          a.select(d, yes, no, 1, wide: w);
+          save(d, v);
         case IrOp.sext8 ||
             IrOp.sext16 ||
             IrOp.zext8 ||
@@ -398,15 +430,15 @@ abstract final class Arm64Backend {
             IrOp.sext32 ||
             IrOp.zext32 ||
             IrOp.trunc32:
-          load(0, i.a);
+          final from = source(i.a, 0), d = target(v, 0);
           final bits = switch (i.op) {
             IrOp.sext8 || IrOp.zext8 => 8,
             IrOp.sext16 || IrOp.zext16 => 16,
             _ => 32,
           };
           a.extend(
-            0,
-            0,
+            d,
+            from,
             bits,
             wide: w,
             signed:
@@ -414,7 +446,7 @@ abstract final class Arm64Backend {
                 i.op == IrOp.sext16 ||
                 i.op == IrOp.sext32,
           );
-          save(0, v);
+          save(d, v);
         case IrOp.load:
           final done = Arm64Label();
           final slow = i.exit >= 0
