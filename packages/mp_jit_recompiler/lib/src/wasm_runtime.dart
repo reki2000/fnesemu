@@ -173,6 +173,13 @@ final class _WasmRuntime extends JitRuntime
   });
   final _hostOffsets = Map<Uint8List, int>.identity();
   final _keys = <(int, int), int>{};
+
+  /// the function and the code guards of each installed block that has some
+  final _guarded = <(int, int), (JSFunction, List<IrGuard>)>{};
+
+  /// older versions of blocks by key, newest last
+  final _retired = <(int, int), List<(JSFunction, List<IrGuard>)>>{};
+  static const _retiredVersions = 4;
   final _blocks = <(int, int), int>{};
   final _helpers = <JSFunction>[];
   late final JSFunction _readFn, _writeFn, _enter;
@@ -348,14 +355,48 @@ final class _WasmRuntime extends JitRuntime
     final slot = slotFor(block.pc, block.tag);
     final bytes = WasmBackend.compile(block, this);
     final function = _instantiate(bytes);
+    final key = (block.pc, block.tag);
+    if (block.guards.isEmpty) {
+      _guarded.remove(key);
+    } else {
+      _guarded[key] = (function, block.guards);
+    }
+    _publish(block.pc, block.tag, slot, function);
+    return bytes.length;
+  }
+
+  void _publish(int pc, int tag, int slot, JSFunction function) {
     _table.set(slot, function);
     _slotWords[slot] = slot;
-    _blocks[(block.pc, block.tag)] = slot;
-    final d = WasmBackend.dynIndex(block.pc, block.tag) * 3;
-    _dynWords[d] = block.pc;
-    _dynWords[d + 1] = block.tag;
+    _blocks[(pc, tag)] = slot;
+    final d = WasmBackend.dynIndex(pc, tag) * 3;
+    _dynWords[d] = pc;
+    _dynWords[d + 1] = tag;
     _dynWords[d + 2] = slot;
-    return bytes.length;
+  }
+
+  @override
+  bool restore(int pc, int tag) {
+    if (_retired.isEmpty) return false;
+    final key = (pc, tag);
+    final versions = _retired[key];
+    if (versions == null || _blocks.containsKey(key)) return false;
+    for (var i = versions.length - 1; i >= 0; i--) {
+      final version = versions[i];
+      final (function, guards) = version;
+      if (guards.any((g) => mappedWord(g.addr, endian: g.endian) != g.value)) {
+        continue;
+      }
+      if (_blocks.length >= _maxBlocks || _slotCount >= _maxSlots - 3) {
+        return false;
+      }
+      versions.removeAt(i);
+      _guarded[key] = version;
+      _publish(pc, tag, slotFor(pc, tag), function);
+      compilationStats?.restores++;
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -363,6 +404,12 @@ final class _WasmRuntime extends JitRuntime
     _checkAlive();
     final slot = _blocks.remove((pc, tag));
     if (slot == null) return;
+    final version = _guarded.remove((pc, tag));
+    if (retain && version != null) {
+      final versions = _retired[(pc, tag)] ??= [];
+      if (versions.length == _retiredVersions) versions.removeAt(0);
+      versions.add(version);
+    }
     compilationStats?.recordInvalidation(pc, tag);
     _slotWords[slot] = 0;
     _table.set(slot, null);
@@ -407,6 +454,8 @@ final class _WasmRuntime extends JitRuntime
       _table.set(slot, null);
     }
     _blocks.clear();
+    _guarded.clear();
+    _retired.clear();
     _keys.clear();
     _slotWords.toJS.callMethod<JSAny?>(
         'fill'.toJS, 0.toJS, 0.toJS, _slotCount.toJS);
