@@ -204,11 +204,12 @@ fn shadePlane(base: u32, x: i32, y: i32) -> f32 {
 
 fn combineColor(base: u32, tex: vec4<f32>, x: i32, y: i32,
                 vertexShade: vec4<f32>, hasVertexShade: bool) -> vec4<f32> {
-  var shade = unpackColor(input[base + 3u]);
-  let firstPlane = base + 5u;
+  var shade = vec4<f32>(255.0);
+  let hasPlanes = input[base + 3u] != 0u;
   if (hasVertexShade) {
     shade = vertexShade;
-  } else if (input[base + 4u] != 0u) {
+  } else if (hasPlanes) {
+    let firstPlane = base + 4u;
     shade = vec4<f32>(shadePlane(firstPlane, x, y), shadePlane(firstPlane + 4u, x, y),
         shadePlane(firstPlane + 8u, x, y), shadePlane(firstPlane + 12u, x, y));
   }
@@ -217,7 +218,7 @@ fn combineColor(base: u32, tex: vec4<f32>, x: i32, y: i32,
       unpackColor(input[base + 1u]), shade, unpackColor(input[base + 2u]),
       vec4<f32>(0.0), vec4<f32>(255.0));
   for (var cycle = 0u; cycle < input[base]; cycle++) {
-    let p = base + 21u + cycle * 9u;
+    let p = base + 4u + select(0u, 16u, hasPlanes) + cycle * 9u;
     let a = regs[input[p] >> 1u].rgb;
     let b = regs[input[p + 1u] >> 1u].rgb;
     let c = regs[input[p + 2u] >> 1u];

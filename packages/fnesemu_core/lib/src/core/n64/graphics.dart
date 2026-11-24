@@ -179,7 +179,6 @@ class N64Graphics {
   N64Graphics(this.bus);
 
   N64RdpCompute? _compute;
-  bool _batchRectangles = false;
 
   void syncCompute({bool depth = false}) {
     _flushRectangles();
@@ -487,12 +486,14 @@ class N64Graphics {
   void displayList(int address, {bool defer = false}) {
     final compute = _compute;
     if (compute == null) return _displayList(address);
+    _runRdpStream(compute, defer, () => _displayList(address));
+  }
+
+  void _runRdpStream(N64RdpCompute compute, bool defer, void Function() run) {
     compute.beginStream();
-    _batchRectangles = true;
     try {
-      _displayList(address);
+      run();
     } finally {
-      _batchRectangles = false;
       try {
         _flushRectangles(defer: defer, endStream: true);
       } finally {
@@ -761,7 +762,7 @@ class N64Graphics {
             [for (var y = yBegin; y < yEnd; y++)
               (imageY + (y - y0) * scaleY).floor() % imageHeight],
             otherLow.bit14, combiner)) {
-          if (!_batchRectangles) _flushRectangles();
+          if (!compute.recordingStream) _flushRectangles();
           return;
         }
       }
@@ -976,7 +977,7 @@ class N64Graphics {
       if (_stageProjectedTriangle(compute, a, b, c, minX, minY, maxX, maxY,
           x0, y0, z0, i0, x1, y1, z1, i1, x2, y2, z2, i2, depthBuffer,
           depthTest, depthWrite)) {
-        if (!_batchRectangles) _flushRectangles();
+        if (!compute.recordingStream) _flushRectangles();
         return;
       }
       _flushRectangles();
@@ -1263,7 +1264,7 @@ class N64Graphics {
         return false;
       }
     }
-    if (!_batchRectangles) _flushRectangles();
+    if (!compute.recordingStream) _flushRectangles();
     return true;
   }
 
@@ -1779,7 +1780,7 @@ class N64Graphics {
           tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
       compute.setTextureT(base + sLength + i, ty * tile.line * 8);
     }
-    if (!_batchRectangles) _flushRectangles();
+    if (!compute.recordingStream) _flushRectangles();
     return true;
   }
 
@@ -1826,7 +1827,7 @@ class N64Graphics {
     if (_planKey0 != combine0 || _planKey1 != combine1 || _planCycles < cycles) {
       _decodeCombiner(cycles);
     }
-    return N64RdpCombiner(cycles, prim, env, 0xffffffff, _plan, shadePlanes);
+    return N64RdpCombiner(cycles, prim, env, _plan, shadePlanes);
   }
 
   static int? _packCombinerColor(Rgba value) {
@@ -1911,7 +1912,7 @@ class N64Graphics {
             buffer.fillRange(0, buffer.length, double.infinity);
           } else {
             compute.clearDepth(buffer);
-            if (!_batchRectangles) _flushRectangles();
+            if (!compute.recordingStream) _flushRectangles();
           }
           break;
         }
@@ -1928,7 +1929,7 @@ class N64Graphics {
           final compute = _compute;
           if (compute != null && cols <= N64RdpCompute.maxExtent &&
               rows <= N64RdpCompute.maxExtent && compute.fill(rect, fillColor)) {
-            if (!_batchRectangles) _flushRectangles();
+            if (!compute.recordingStream) _flushRectangles();
             break;
           }
           if (compute != null) _flushRectangles();
@@ -1946,7 +1947,7 @@ class N64Graphics {
             if (combiner != null &&
                 compute.solid(N64RdpRect(colorImage, width, x, y, cols, rows, size),
                     otherLow.bit14, combiner)) {
-              if (!_batchRectangles) _flushRectangles();
+              if (!compute.recordingStream) _flushRectangles();
               break;
             }
           }
@@ -2044,18 +2045,7 @@ class N64Graphics {
     if (bus.dp[3].bit0) throw UnsupportedError('RDP XBUS command source');
     final compute = _compute;
     if (compute == null) return _commands(start, end);
-    compute.beginStream();
-    _batchRectangles = true;
-    try {
-      _commands(start, end);
-    } finally {
-      _batchRectangles = false;
-      try {
-        _flushRectangles(defer: defer, endStream: true);
-      } finally {
-        compute.endStream();
-      }
-    }
+    _runRdpStream(compute, defer, () => _commands(start, end));
   }
 
   void _commands(int start, int end) {

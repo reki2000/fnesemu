@@ -49,12 +49,12 @@ class N64RdpPlane {
 
 /// One snapshot of the decoded color combiner and its draw-local inputs.
 class N64RdpCombiner {
-  N64RdpCombiner(this.cycles, this.primitive, this.environment, this.shade,
+  N64RdpCombiner(this.cycles, this.primitive, this.environment,
       Int32List selectors, this.shadePlanes)
       : plan =
             Int32List.sublistView(Int32List.fromList(selectors), 0, cycles * 9);
 
-  final int cycles, primitive, environment, shade;
+  final int cycles, primitive, environment;
   final Int32List plan;
   final List<N64RdpPlane>? shadePlanes;
 }
@@ -200,6 +200,8 @@ class N64RdpCompute {
   N64RdpRect? _residentColorTarget;
   final _residentColorTiles = <int>{};
 
+  bool get recordingStream => _recordingStream;
+
   void beginStream() => _recordingStream = true;
 
   void endStream() {
@@ -334,7 +336,6 @@ class N64RdpCompute {
     _input[_inputUsed++] = combiner.cycles;
     _input[_inputUsed++] = combiner.primitive;
     _input[_inputUsed++] = combiner.environment;
-    _input[_inputUsed++] = combiner.shade;
     _input[_inputUsed++] = planes == null ? 0 : 1;
     if (planes != null) {
       for (final p in planes) {
@@ -343,8 +344,6 @@ class N64RdpCompute {
         _signedInput[_inputUsed++] = p.origin;
         _signedInput[_inputUsed++] = p.exponent;
       }
-    } else {
-      _inputUsed += 16;
     }
     _input.setRange(
         _inputUsed, _inputUsed + combiner.plan.length, combiner.plan);
@@ -726,7 +725,7 @@ class N64RdpCompute {
     final colorWords = _rects.first.pixelBytes == 2 ? 1 : 2;
     if (!pending) {
       final depth = _depth;
-      final clearsPlane = depth != null && _depthClearedAtStart;
+      final clearsPlane = _depthClearedAtStart && depth != null;
       final checkpoint = _depthCheckpoint;
       if (checkpoint != null && depth != null) {
         if (clearsPlane && identical(depth, checkpoint.depth)) {
@@ -736,7 +735,7 @@ class N64RdpCompute {
         }
       }
       _deferredDepthOutput = defer && tileCount != 0 && clearsPlane &&
-          _allowResidentDepth && depth != null && depth.length <= _depthCapacity &&
+          _allowResidentDepth && depth.length <= _depthCapacity &&
           _rects.first.stride < 4096 && _residentDepthEpoch < 0xffffffff &&
           _depthOutputWords != 0;
     }
@@ -881,8 +880,12 @@ class N64RdpCompute {
   void _readColorTiles(int first, int last) {
     final target = _rects.first, done = _pendingColorTiles!;
     final words = _tilePixels * (target.pixelBytes == 2 ? 1 : 2);
-    while (first < last && done[first] != 0) first++;
-    while (last > first && done[last - 1] != 0) last--;
+    while (first < last && done[first] != 0) {
+      first++;
+    }
+    while (last > first && done[last - 1] != 0) {
+      last--;
+    }
     if (first >= last) return;
     final pixels = Uint32List.sublistView(_pixels, 0, (last - first) * words);
     _program.read(1, first * words * 4, pixels);
