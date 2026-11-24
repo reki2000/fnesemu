@@ -11,6 +11,17 @@ import 'memory_picked_directory.dart';
 import 'seven_zip_fixtures.dart';
 
 void main() {
+  test('the BIOS names keep the order of the scene', () {
+    BenchScene scene(List<String> bios) =>
+        BenchScene(name: 'a', core: 'ss', state: 'a.state', bios: bios);
+    expect(scene(['ss/a.bin', 'ss/b.bin']).biosNames, ['a.bin', 'b.bin']);
+    expect(scene(['ss/b.bin', 'ss/a.bin']).biosNames,
+        ['01-b.bin', '02-a.bin']);
+    expect(scene(['x/a.bin', 'y/a.bin']).biosNames,
+        ['01-a.bin', '02-a.bin']);
+    expect(scene([]).biosNames, isEmpty);
+  });
+
   test('parses the scenes of bench.json with their defaults', () {
     final scenes = BenchScene.parse(jsonEncode({
       'scenes': [
