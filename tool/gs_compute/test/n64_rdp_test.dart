@@ -147,44 +147,6 @@ void main() {
     core.graphics.displayList(address, defer: defer);
   }
 
-  test('a GPU geometry block transforms, lights and clips loaded vertices', () {
-    for (final core in [software, compute]) {
-      final g = core.graphics
-        ..gpuGeometry = true
-        ..scale = Vec3(8, 8, 1)
-        ..translate = Vec3(8, 8, 0)
-        ..geometry = 1 << 17
-        ..combine1 = (4 << 15) | (4 << 9);
-      g.model[0] = g.model[5] = 0.5;
-      g.lights[0]
-        ..r = 128
-        ..dz = 1;
-      g.lights[1]
-        ..r = 64
-        ..g = 32
-        ..b = 16;
-      const address = 0x6800;
-      const points = [(-4, 1), (1, 1), (-1, -1)];
-      for (var i = 0; i < points.length; i++) {
-        final at = address + i * 16;
-        final (x, y) = points[i];
-        core.bus.ramWrite(at, x, 2);
-        core.bus.ramWrite(at + 2, y, 2);
-        core.bus.ramWrite(at + 12, 0x00007fff, 4);
-      }
-      displayList(core, [
-        0x04200000, address,
-        for (var i = 0; i < 8; i++) ...[0xbf000000, 0x00000a14],
-        0xb8000000, 0,
-      ]);
-      expect(g.vertices[0]!.clip.x, -2);
-      expect(g.vertices[0]!.color.r, 192);
-      expect(g.triangles, 16);
-    }
-    checkRdram();
-    expect(sink.geometryReads, 1);
-  });
-
   void backgroundTask(N64 core, List<int> words) {
     const microcode = 'RSP Gfx ucode S2DEX fifo 2.08';
     core.bus.ram.setAll(0x5000, microcode.codeUnits);
@@ -1310,7 +1272,7 @@ class _ObservedSink implements ComputeSink {
   int cachedColorBatches = 0;
   int compactDepthBatches = 0, colorOnlyBatches = 0;
   int prefetches = 0;
-  int geometryReads = 0, depthReads = 0;
+  int depthReads = 0;
   int colorReadBytes = 0;
   int aliasedDispatches = 0, aliasedPixels = 0;
   int combinerBatches = 0, fragmentBatches = 0;
@@ -1340,17 +1302,15 @@ class _ObservedSink implements ComputeSink {
         paramStride: paramStride,
         maxDispatches: maxDispatches,
       ),
-      entries.first == 'transformVertices',
     );
   }
 }
 
 class _ObservedProgram implements ComputeProgram {
-  _ObservedProgram(this.sink, this.inner, this.geometry);
+  _ObservedProgram(this.sink, this.inner);
 
   final _ObservedSink sink;
   final ComputeProgram inner;
-  final bool geometry;
 
   int _tileFlags = 0;
   int _depthWords = 0;
@@ -1389,10 +1349,6 @@ class _ObservedProgram implements ComputeProgram {
     Uint32List params, {
     bool wait = true,
   }) {
-    if (geometry) {
-      inner.run(dispatches, count, params, wait: wait);
-      return;
-    }
     _tiled = dispatches[(count - 1) * 4] == 1;
     _aliased = dispatches[0] == 2;
     if (_aliased) sink.aliasedDispatches += count;
@@ -1409,11 +1365,6 @@ class _ObservedProgram implements ComputeProgram {
 
   @override
   void read(int binding, int byteOffset, Uint32List target) {
-    if (geometry) {
-      sink.geometryReads++;
-      inner.read(binding, byteOffset, target);
-      return;
-    }
     if (binding == 4) sink.depthReads++;
     if (binding == 1) sink.colorReadBytes += target.lengthInBytes;
     sink.reads++;

@@ -8,7 +8,6 @@ import '../../state.dart';
 import '../../util/int.dart';
 import 'bus.dart';
 import 'rdp_compute.dart';
-import 'rsp_compute.dart';
 
 /// A colour with named channels, held as two vectors: red and green, then
 /// blue and alpha. The combiner and the interpolation pass the vectors.
@@ -180,11 +179,6 @@ class N64Graphics {
   N64Graphics(this.bus);
 
   N64RdpCompute? _compute;
-  ComputeSink? _rspSink;
-  N64RspCompute? _rspCompute;
-  final _rspIndices = Uint32List(N64RspCompute.maxTriangles * 3);
-  // Geometry readback stalls the RDP pipeline on workloads with short runs.
-  bool gpuGeometry = const bool.fromEnvironment('N64_GPU_GEOMETRY');
   bool _batchRectangles = false;
 
   void syncCompute({bool depth = false}) {
@@ -210,15 +204,11 @@ class N64Graphics {
     _compute?.flush();
     _compute?.syncDepth();
     _compute?.dispose();
-    _rspCompute?.dispose();
-    _rspCompute = null;
-    _rspSink = null;
     _compute = null;
     // A draw can be followed by a RDRAM read in the same display list.
     if (sink == null || !sink.waits || Endian.host != Endian.little) return;
     try {
       _compute = N64RdpCompute(sink, bus, _replayCopyPixel);
-      _rspSink = sink;
       if (_depthExposed) _compute!.exposeDepth();
     } on Exception {
       // Keep the software renderer available when the program cannot compile.
@@ -532,11 +522,7 @@ class N64Graphics {
             break; // NOOP, MODIFYVTX, CULLDL, BRANCH_Z, LINE3D are not needed
           case 0x01:
             final n = w0.shr12.mask8, end = w0.shr1.mask7;
-            final address = resolve(w1);
-            final next = _tryGpuGeometry(address, end - n, n, pc, 99999 - commands);
-            if (next == pc) _loadVertices(address, end - n, n);
-            commands += (next - pc) ~/ 8;
-            pc = next;
+            _loadVertices(resolve(w1), end - n, n);
           case 0x05:
             drawIndices(w0, 2);
           case 0x06 || 0x07:
@@ -648,11 +634,7 @@ class N64Graphics {
         case 4:
           final count = extended ? w0.shr10.mask6 : w0.shr20.mask4 + 1;
           final first = extended ? w0.shr17.mask7 : w0.shr16.mask4;
-          final address = resolve(w1);
-          final next = _tryGpuGeometry(address, first, count, pc, 99999 - commands);
-          if (next == pc) _loadVertices(address, first, count);
-          commands += (next - pc) ~/ 8;
-          pc = next;
+          _loadVertices(resolve(w1), first, count);
         case 6:
           if (w0.shr16.mask8 == 0) {
             if (returns.length >= 64) {
@@ -862,124 +844,6 @@ class N64Graphics {
       }
     }
     if (!same) _lutState.fillRange(0, 65536, 0);
-  }
-
-  // A vertex load followed by consecutive draws has constant RDP state and
-  // can transform and clip its vertices with one GPU readback.
-  int _tryGpuGeometry(int address, int first, int count, int pc, int budget) {
-    final sink = _rspSink;
-    if (!gpuGeometry || sink == null || !rasterize || first < 0 || count < 3 ||
-        first + count > vertices.length || address + count * 16 > bus.ram.length) {
-      return pc;
-    }
-    var next = pc, triangles = 0;
-    bool record(int word, int divisor) {
-      final a = word.shr16.mask8 ~/ divisor - first;
-      final b = word.shr8.mask8 ~/ divisor - first;
-      final c = word.mask8 ~/ divisor - first;
-      if (a < 0 || a >= count || b < 0 || b >= count || c < 0 || c >= count) {
-        return false;
-      }
-      final offset = triangles++ * 3;
-      _rspIndices[offset] = a;
-      _rspIndices[offset + 1] = b;
-      _rspIndices[offset + 2] = c;
-      return true;
-    }
-    final bytes = colorSize == 3 ? 4 : 2;
-    final outputStart = colorImage + scTop * width * bytes;
-    final outputEnd = colorImage + scBottom * width * bytes;
-    while (budget-- > 0 && triangles + 2 <= N64RspCompute.maxTriangles &&
-        next + 8 <= bus.ram.length) {
-      if (next < outputEnd && next + 8 > outputStart) break;
-      final cmd = u(next, 4), op = cmd.shr24;
-      final two = f3dex2 ? op == 0x06 || op == 0x07 : op == 0xb1;
-      if (two) {
-        final previous = triangles;
-        if (!record(cmd, 2) || !record(u(next + 4, 4), 2)) {
-          triangles = previous;
-          break;
-        }
-      } else if (f3dex2 ? op == 0x05 : op == 0xbf) {
-        if (!record(f3dex2 ? cmd : u(next + 4, 4), f3dex2 || extended ? 2 : 10)) {
-          break;
-        }
-      } else {
-        break;
-      }
-      next += 8;
-    }
-    if (triangles < 8) return pc;
-
-    final Float32List result;
-    try {
-      final gpu = _rspCompute ??= N64RspCompute(sink);
-      final input = gpu.values;
-      input.setRange(4, 20, multiply(model, projection));
-      input.setRange(20, 32, model);
-      final lit = geometry.bit17, lightCount = numLights.clamp(0, 7);
-      gpu.words[2] = lit ? 1 : 0;
-      gpu.words[3] = lightCount;
-      if (lit) {
-        for (var i = 0; i <= lightCount; i++) {
-          final l = lights[i], at = 32 + i * 6;
-          input[at] = l.r;
-          input[at + 1] = l.g;
-          input[at + 2] = l.b;
-          input[at + 3] = l.dx;
-          input[at + 4] = l.dy;
-          input[at + 5] = l.dz;
-        }
-      }
-      for (var i = 0; i < count; i++) {
-        final src = address + i * 16;
-        final dst = N64RspCompute.stateWords + i * N64RspCompute.vertexWords;
-        input[dst] = signed(src, 2);
-        input[dst + 1] = signed(src + 2, 2);
-        input[dst + 2] = signed(src + 4, 2);
-        final rgba = u(src + 12, 4);
-        input[dst + 4] = rgba.shr24.mask8.toDouble();
-        input[dst + 5] = rgba.shr16.mask8.toDouble();
-        input[dst + 6] = rgba.shr8.mask8.toDouble();
-        input[dst + 7] = rgba.mask8.toDouble();
-        input[dst + 8] = signed(src + 8, 2) * (textureS / 32);
-        input[dst + 9] = signed(src + 10, 2) * (textureT / 32);
-      }
-      final indices = N64RspCompute.triangleBase;
-      gpu.words.setRange(indices, indices + triangles * 3, _rspIndices);
-      gpu.prepare(count, triangles);
-      result = gpu.result;
-    } on Exception {
-      _rspCompute?.dispose();
-      _rspCompute = null;
-      _rspSink = null;
-      return pc;
-    }
-    for (var i = 0; i < triangles; i++) {
-      final n = result[N64RspCompute.polygonBase + i * N64RspCompute.polygonWords];
-      if (!n.isFinite || n < 0 || n > 9 || n != n.truncate()) return pc;
-    }
-    N64Vertex vertex(int p) => N64Vertex(
-        Vec4(result[p], result[p + 1], result[p + 2], result[p + 3]),
-        Rgba(result[p + 4], result[p + 5], result[p + 6], result[p + 7]),
-        result[p + 8], result[p + 9]);
-
-    for (var i = 0; i < count; i++) {
-      vertices[first + i] = vertex(i * N64RspCompute.vertexWords);
-    }
-    for (var i = 0; i < triangles; i++) {
-      final base = N64RspCompute.polygonBase + i * N64RspCompute.polygonWords;
-      final n = result[base].toInt();
-      if (n < 3) continue;
-      final a = vertex(base + 1);
-      var b = vertex(base + 1 + N64RspCompute.vertexWords);
-      for (var j = 2; j < n; j++) {
-        final c = vertex(base + 1 + j * N64RspCompute.vertexWords);
-        triangle(a, b, c);
-        b = c;
-      }
-    }
-    return next;
   }
 
   void _loadVertices(int addr, int first, int count) {
