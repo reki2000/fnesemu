@@ -371,6 +371,7 @@ void main() {
 
   test('a file on the stick survives closing and reopening', () {
     final core = Psp();
+    addTearDown(core.dispose);
     core.setRom(_roundTripProgram());
     _putString(core, 0x09101000, 'ms0:/SAVE.BIN');
     _putString(core, 0x09101100, 'ms0:/NOPE.BIN');
@@ -398,6 +399,7 @@ void main() {
 
   test('directories list, rename, and resolve relative paths', () {
     final core = Psp();
+    addTearDown(core.dispose);
     core.setRom(_directoryProgram());
     _putString(core, 0x09101000, 'ms0:/PSP');
     _putString(core, 0x09101100, 'ms0:/PSP/SAVEDATA');
@@ -437,6 +439,7 @@ void main() {
     final cache = <String, Uint8List>{};
     final storage = _FakeStorage(cache);
     final core = Psp();
+    addTearDown(core.dispose);
     core.setSram(storage);
     core.setRom(_roundTripProgram());
     _putString(core, 0x09101000, 'ms0:/SAVE.BIN');
@@ -450,6 +453,7 @@ void main() {
 
     // A fresh core over the same storage reads the file back.
     final restored = Psp();
+    addTearDown(restored.dispose);
     restored.setSram(_FakeStorage(cache));
     restored.setRom(_readerProgram());
     _putString(restored, 0x09101000, 'ms0:/SAVE.BIN');

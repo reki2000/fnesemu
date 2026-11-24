@@ -135,6 +135,7 @@ void main() {
     plain[3] = 0x46;
     expect(CoreFactory.findRom('game.elf', plain)?.id, 'ps2');
     final core = Psp();
+    addTearDown(core.dispose);
     expect(core.buttons.length, 20);
     expect(core.axes, [PadAxis.leftX, PadAxis.leftY]);
   });
@@ -146,6 +147,7 @@ void main() {
     a.nop();
     final (rom, _) = buildTestElf(code: a.finish());
     final core = Psp()..setRom(rom);
+    addTearDown(core.dispose);
     final pc = core.cpu.pc;
     final step = core.exec(true);
     expect(step.elapsedClocks, 1);
@@ -159,6 +161,7 @@ void main() {
   test('a saved delay wakes after the 32-bit clock range', () {
     final rom = buildProgram(workerDelay: 22000000);
     final core = Psp()..setRom(rom);
+    addTearDown(core.dispose);
     for (var frame = 0; frame < 1200; frame++) {
       expect(core.runFrame(core.scanlinesInFrame).stopped, isFalse);
     }
@@ -166,6 +169,7 @@ void main() {
     // Save before the second core: on the Web its JIT takes the memory.
     final state = core.saveState();
     final restored = Psp()..setRom(rom);
+    addTearDown(restored.dispose);
     restored.loadState(state);
     expect(restored.cpu.clocks, core.cpu.clocks);
     for (var frame = 0; frame < 200; frame++) {
@@ -198,6 +202,7 @@ void main() {
     setUp(() {
       rom = buildProgram();
       core = Psp();
+      addTearDown(core.dispose);
       load(core);
     });
 
@@ -226,6 +231,7 @@ void main() {
         core.mem.read32(0x08900008),
       ];
       final other = Psp();
+      addTearDown(other.dispose);
       load(other);
       other.loadState(state);
       final result = runToEnd(other);
@@ -239,6 +245,7 @@ void main() {
       final state = core.saveState();
       final (otherRom, _) = buildTestElf(code: [0, 0, 0]);
       final other = Psp()..setRom(otherRom);
+      addTearDown(other.dispose);
       expect(() => other.loadState(state), throwsA(anything));
     });
   });
