@@ -34,7 +34,7 @@ const _imports = [
 /// results around a delay, and exits after joining it. Stub addresses
 /// depend on the code size, so the program is assembled twice: a probe
 /// pass yields the layout, the second pass calls the real stubs.
-Uint8List buildProgram({int workerDelay = 1000}) {
+Uint8List buildProgram({int workerDelay = 1000, bool spinWhileWaiting = false}) {
   List<int> assemble(Map<String, int> stubs) {
     int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
     final a = Asm(0x08800000);
@@ -62,7 +62,7 @@ Uint8List buildProgram({int workerDelay = 1000}) {
     a.sw(Reg.t1, 4, Reg.t0);
     a.li(Reg.a0, 0x08900020);
     a.liAbs(Reg.a1, 'worker');
-    a.li(Reg.a2, 0x30);
+    a.li(Reg.a2, spinWhileWaiting ? 0x10 : 0x30);
     a.li(Reg.a3, 0x8000);
     a.jal(stub('ThreadManForUser', _nidCreateThread));
     a.nop();
@@ -72,6 +72,16 @@ Uint8List buildProgram({int workerDelay = 1000}) {
     a.li(Reg.a2, 0);
     a.jal(stub('ThreadManForUser', _nidStartThread));
     a.nop();
+    if (spinWhileWaiting) {
+      a.li(Reg.a0, 1);
+      a.jal(stub('ThreadManForUser', _nidDelayThread));
+      a.nop();
+      a.li(Reg.t0, 0x08900000);
+      a.label('waitForWorker');
+      a.lw(Reg.t1, 8, Reg.t0);
+      a.beq(Reg.t1, Reg.zero, 'waitForWorker');
+      a.addiu(Reg.s2, Reg.s2, 1);
+    }
     a.addiu(Reg.a0, Reg.s0, 0);
     a.li(Reg.a1, 0);
     a.jal(stub('ThreadManForUser', _nidWaitThreadEnd));

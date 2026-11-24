@@ -7,8 +7,9 @@ import 'vfpu.dart';
 
 /// A saved processor state, swapped in and out by the thread scheduler.
 class AllegrexState {
-  final r = Int32List(32);
-  final f = Float32List(32);
+  final Int32List r;
+  final Uint32List fprBits;
+  late final Float32List f = Float32List.sublistView(fprBits);
   final cop0 = Int32List(32);
   int hi = 0, lo = 0;
   int pc = 0, nextPc = 0;
@@ -22,7 +23,7 @@ class AllegrexState {
   /// bit patterns: NaN payloads and signs are part of the state, and
   /// a detour through a Dart double would lose both. A fresh context
   /// holds the canonical NaN pattern, as the system's does.
-  final v = Uint32List(128)..fillRange(0, 128, 0x7f800001);
+  final Uint32List v;
 
   /// The pending operand prefixes, set by the prefix instructions and
   /// consumed by the next computational instruction. The defaults are
@@ -44,9 +45,14 @@ class AllegrexState {
   /// mantissa carries the generator's state.
   final rcx = Uint32List(8);
 
+  AllegrexState({Int32List? regs, Uint32List? fpr, Uint32List? vfpr})
+      : r = regs ?? Int32List(32),
+        fprBits = fpr ?? Uint32List(32),
+        v = (vfpr ?? Uint32List(128))..fillRange(0, 128, 0x7f800001);
+
   void saveState(StateWriter writer) {
     writer.ints(r);
-    writer.bytes(Uint8List.sublistView(f));
+    writer.bytes(Uint8List.sublistView(fprBits));
     writer.ints(cop0);
     writer.int32(hi);
     writer.int32(lo);
@@ -65,7 +71,7 @@ class AllegrexState {
 
   void loadState(StateReader reader, {bool hasVfpu = true}) {
     reader.intsInto(r);
-    reader.bytesInto(Uint8List.sublistView(f));
+    reader.bytesInto(Uint8List.sublistView(fprBits));
     reader.intsInto(cop0);
     hi = reader.int32();
     lo = reader.int32();
@@ -85,7 +91,7 @@ class AllegrexState {
 
   void copyFrom(AllegrexState other) {
     r.setAll(0, other.r);
-    f.setAll(0, other.f);
+    fprBits.setAll(0, other.fprBits);
     cop0.setAll(0, other.cop0);
     hi = other.hi;
     lo = other.lo;
@@ -119,7 +125,7 @@ class Allegrex extends AllegrexState {
   /// core answers through the kernel. A null handler makes SYSCALL a nop.
   void Function(int code)? onSyscall;
 
-  Allegrex(this.mem);
+  Allegrex(this.mem, {super.regs, super.fpr, super.vfpr});
 
   static int _u(int v) => v & 0xffffffff;
   static int _s(int v) => v.toSigned(32);
@@ -691,14 +697,12 @@ class Allegrex extends AllegrexState {
     }
   }
 
-  // The FPU register file is raw bits in a Float32List; a scratch ByteData
-  // over the same buffer gives bit access and double assembly.
-  ByteData? _fData;
-  ByteData get _fd => _fData ??= ByteData.sublistView(
-      f.buffer.asUint8List(f.offsetInBytes, f.lengthInBytes));
+  // Integer storage preserves signaling NaNs when copying raw words or
+  // moving them between the interpreter and compiled code.
+  late final ByteData _fd = ByteData.sublistView(fprBits);
 
-  int _fBits(int i) => _fd.getUint32(i * 4, Endian.little);
-  void _setF(int i, int bits) => _fd.setUint32(i * 4, bits, Endian.little);
+  int _fBits(int i) => fprBits[i];
+  void _setF(int i, int bits) => fprBits[i] = bits;
   double _d(int i) => _fd.getFloat64((i & ~1) * 4, Endian.little);
   void _setD(int i, double v) => _fd.setFloat64((i & ~1) * 4, v, Endian.little);
 

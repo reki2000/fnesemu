@@ -70,7 +70,7 @@ extension PspVfpuExec on Allegrex {
   /// bits 1-0 name the column it runs down, or the row it runs along.
   /// Bit 6 places its first lane: a pair starts at lane 0 or 2, a
   /// triple at lane 0 or 1, and a quad at lane 0.
-  List<int> _elems(int operand, int count) {
+  static List<int> _elems(int operand, int count) {
     final matrix = (operand >> 2) & 7;
     final base = matrix * 16;
     final line = operand & 3;
@@ -297,13 +297,16 @@ extension PspVfpuExec on Allegrex {
     vpfxd = AllegrexState.pfxdDefault;
   }
 
-  /// The register operand of a load or store: bits 4-0 ride in the rt
-  /// field, bits 6-5 above the offset, whose low bits carry flags.
   /// The register operand of a load or store: bits 4-0 sit above the
   /// displacement and bits 6-5 in its low two bits, which the
   /// displacement itself does not use (it is a multiple of four).
-  static int _loadReg(int w) =>
-      (((w >> 16) & 0x1f) | ((w & 3) << 5)) & 0x7f;
+  static List<int> memoryRegisters(int w) {
+    final operand = ((w >> 16) & 0x1f) | ((w & 3) << 5);
+    final op = w >>> 26;
+    return _elems(operand, op == 0x32 || op == 0x3a ? 1 : 4);
+  }
+
+  static int memoryOffset(int w) => (w & 0xfffc).toSigned(16);
 
   bool execVfpu(int w) {
     vfpuZeroLanes = 0;
@@ -339,14 +342,13 @@ extension PspVfpuExec on Allegrex {
   bool _loadStore(int w) {
     final op = w >>> 26;
     final base = r[(w >> 21) & 31];
-    final operand = _loadReg(w);
     // The displacement is sixteen bits wide; its low two bits hold
     // the operand's top bits instead, so it is a multiple of four.
-    final offset = ((w & 0xffff) & ~3).toSigned(16);
-    final addr = base + offset;
+    final addr = base + memoryOffset(w);
+    final lanes = memoryRegisters(w);
     if (op == 0x32 || op == 0x3a) {
       // LV.S / SV.S: a single element.
-      final at = _elems(operand, 1)[0];
+      final at = lanes[0];
       if (op == 0x32) {
         v[at] = mem.read32(addr);
       } else {
@@ -354,7 +356,6 @@ extension PspVfpuExec on Allegrex {
       }
       return true;
     }
-    final lanes = _elems(operand, 4);
     switch (op) {
       case 0x36: // LV.Q
         for (var i = 0; i < 4; i++) {
