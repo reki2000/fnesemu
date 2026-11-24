@@ -470,6 +470,30 @@ class Gs {
     _pendingInterrupts = active;
   }
 
+  /// The frame buffer area that the picture of the current display reads:
+  /// its format, base, buffer width and rectangle. Null when it shows none.
+  ({int psm, int bp, int bw, int x, int y, int w, int h})? get displayArea {
+    if (pmode & 3 == 0) return null;
+    final useCircuit2 = pmode & 2 != 0;
+    final fb = useCircuit2 ? dispfb2 : dispfb1;
+    final disp = useCircuit2 ? display2 : display1;
+    final magh = (disp >> 23) & 15;
+    final width = (((disp >> 32) & 0xfff) + 1) ~/ (magh + 1);
+    // every mode reads rows below dby + the lines + 1 (see [_readImage])
+    final lines = ((disp >> 44) & 0x7ff) + 2;
+    final psm = (fb >> 15) & 0x1f;
+    if (width <= 0 || width > 2048 || !GsPsm.isValid(psm)) return null;
+    return (
+      psm: psm,
+      bp: (fb & 0x1ff) * 32,
+      bw: (fb >> 9) & 0x3f,
+      x: (fb >> 32) & 0x7ff,
+      y: (fb >> 43) & 0x7ff,
+      w: width,
+      h: lines < 2048 ? lines : 2048,
+    );
+  }
+
   _Display get _display => (
         pmode: pmode,
         smode2: smode2,
