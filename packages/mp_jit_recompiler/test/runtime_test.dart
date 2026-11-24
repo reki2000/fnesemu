@@ -392,6 +392,33 @@ void main() {
         expect(rt.contains(0x100, 0), isFalse);
       });
 
+      test('a retained version comes back when its guards match', () {
+        if (factory == null) return;
+        final rt = env.rt;
+        IrBlock block(int word, int cost) => (IrBuilder(0x100)
+              ..guard(0x1010, word))
+            .finish(const IrJump(0x200), cost: cost);
+        rt.install(block(0, 3));
+        rt.invalidate(0x100, 0, retain: true);
+        env.ram[0x10] = 1;
+        expect(rt.restore(0x100, 0), isFalse);
+        rt.install(block(1, 5));
+        rt.invalidate(0x100, 0, retain: true);
+        env.ram[0x10] = 0;
+        expect(rt.restore(0x100, 0), isTrue);
+        expect(rt.contains(0x100, 0), isTrue);
+        run(0x100, budget: 10);
+        expect(rt.ctx[JitCtx.exitReason], JitReason.miss);
+        expect(rt.ctx[JitCtx.budget], 7);
+        // an invalidation without retain keeps no version
+        rt.invalidate(0x100, 0);
+        expect(rt.restore(0x100, 0), isFalse);
+        rt.install(block(0, 3));
+        rt.invalidate(0x100, 0, retain: true);
+        rt.clear();
+        expect(rt.restore(0x100, 0), isFalse);
+      });
+
       test('a missing link is filled by a later install', () {
         if (factory == null) return;
         final b1 = IrBuilder(0x100);

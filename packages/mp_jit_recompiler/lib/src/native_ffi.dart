@@ -93,6 +93,14 @@ final class _NativeRuntime extends JitRuntime
 
   /// the link slots of each target key
   final _slotsOf = <int, List<int>>{};
+
+  /// the code guards of each installed block that has some
+  final _guardsOf = <int, List<IrGuard>>{};
+
+  /// older versions of blocks by key, newest last: the entry and the guards.
+  /// Their code stays in the code buffer until [clear].
+  final _retired = <int, List<(int, List<IrGuard>)>>{};
+  static const _retiredVersions = 4;
   int _slotCount = 0;
 
   @override
@@ -349,21 +357,62 @@ final class _NativeRuntime extends JitRuntime
     _codeEnd = (at + bytes.length + 15) & ~15;
 
     final key = jitKey(block.pc, block.tag);
-    final entry = _code + at;
+    if (block.guards.isEmpty) {
+      _guardsOf.remove(key);
+    } else {
+      _guardsOf[key] = block.guards;
+    }
+    _publish(key, block.pc, block.tag, _code + at);
+    return bytes.length;
+  }
+
+  void _publish(int key, int pc, int tag, int entry) {
     _blocks.put(key, entry);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = entry;
     }
-    final d = X64Backend.dynIndex(block.pc, block.tag) * 2;
-    _dynView[d] = block.pc | block.tag << 32;
+    final d = X64Backend.dynIndex(pc, tag) * 2;
+    _dynView[d] = pc | tag << 32;
     _dynView[d + 1] = entry;
-    return bytes.length;
   }
 
   @override
-  void invalidate(int pc, int tag) {
+  bool restore(int pc, int tag) {
+    if (_retired.isEmpty) return false;
     final key = jitKey(pc, tag);
-    if (!_blocks.remove(key)) return;
+    final versions = _retired[key];
+    if (versions == null || _blocks.get(key) != IntMap.absent) return false;
+    for (var i = versions.length - 1; i >= 0; i--) {
+      final (entry, guards) = versions[i];
+      var match = true;
+      for (final g in guards) {
+        if (mappedWord(g.addr, endian: g.endian) != g.value) {
+          match = false;
+          break;
+        }
+      }
+      if (!match) continue;
+      versions.removeAt(i);
+      _guardsOf[key] = guards;
+      _publish(key, pc, tag, entry);
+      compilationStats?.restores++;
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  void invalidate(int pc, int tag, {bool retain = false}) {
+    final key = jitKey(pc, tag);
+    final entry = _blocks.get(key);
+    if (entry == IntMap.absent) return;
+    _blocks.remove(key);
+    final guards = _guardsOf.remove(key);
+    if (retain && guards != null) {
+      final versions = _retired[key] ??= [];
+      if (versions.length == _retiredVersions) versions.removeAt(0);
+      versions.add((entry, guards));
+    }
     compilationStats?.recordInvalidation(pc, tag);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = 0;
@@ -376,6 +425,8 @@ final class _NativeRuntime extends JitRuntime
   void clear() {
     compilationStats?.recordCacheClear(_blocks.length);
     _blocks.clear();
+    _guardsOf.clear();
+    _retired.clear();
     _slotsOf.clear();
     _slotView.fillRange(0, _slotCount, 0);
     _slotCount = 0;

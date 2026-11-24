@@ -13,7 +13,7 @@ final class JitCompilationStats {
   int driverCacheHits = 0, driverCacheMisses = 0, fallbackCacheHits = 0;
   int guardFailures = 0, invalidations = 0, cacheClears = 0, evictedBlocks = 0;
   int dispatchProfileClears = 0, repeatInstallsAtRetainedSites = 0;
-  int suppressedSiteEvents = 0;
+  int suppressedSiteEvents = 0, restores = 0;
   final _sites = <(int, int), _CompilationSite>{};
 
   JitCompilationStats({this.capacity = 4096}) {
@@ -103,7 +103,7 @@ final class JitCompilationStats {
     driverCacheHits = driverCacheMisses = fallbackCacheHits = 0;
     guardFailures = invalidations = cacheClears = evictedBlocks = 0;
     dispatchProfileClears = repeatInstallsAtRetainedSites = 0;
-    suppressedSiteEvents = 0;
+    suppressedSiteEvents = restores = 0;
     _sites.clear();
   }
 
@@ -130,6 +130,7 @@ final class JitCompilationStats {
       'fallbackCacheHits': fallbackCacheHits,
       'guardFailures': guardFailures,
       'invalidations': invalidations,
+      'restores': restores,
       'cacheClears': cacheClears,
       'evictedBlocks': evictedBlocks,
       'dispatchProfileClears': dispatchProfileClears,

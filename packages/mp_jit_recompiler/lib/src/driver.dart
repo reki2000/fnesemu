@@ -144,12 +144,14 @@ final class JitDriver {
       if (reason == JitReason.invalid) stats?.guardFailures++;
       if (continueAfterExit?.call(reason) == false) return reason;
       if (reason == JitReason.invalid) {
-        invalidate(pc, tag);
-        if (prepareFirst) continue;
+        invalidate(pc, tag, retain: true);
+        if (rt.restore(pc, tag) || prepareFirst) continue;
         if (!recompileInvalid && !_hot(pc, tag)) return reason;
       } else if (reason != JitReason.miss) {
         return reason;
-      } else if (prepareFirst || rt.contains(pc, tag)) {
+      } else if (prepareFirst ||
+          rt.contains(pc, tag) ||
+          rt.restore(pc, tag)) {
         // An installed target that the dispatch table lacked is already
         // refreshed by the runtime, so run it instead of translating it again.
         continue;
@@ -162,6 +164,7 @@ final class JitDriver {
   }
 
   bool _compile(int pc, int tag) {
+    if (rt.restore(pc, tag)) return true;
     final stats = rt.compilationStats;
     final block = stats == null
         ? translate(pc, tag)
@@ -180,8 +183,10 @@ final class JitDriver {
   }
 
   /// Invalidates a block and its observations. [warm] makes its next miss hot.
-  void invalidate(int pc, int tag, {bool warm = false}) {
-    rt.invalidate(pc, tag);
+  /// [retain] lets the runtime keep the code for [JitRuntime.restore], for a
+  /// block whose code guard failed.
+  void invalidate(int pc, int tag, {bool warm = false, bool retain = false}) {
+    rt.invalidate(pc, tag, retain: retain);
     final key = jitKey(pc, tag);
     _misses.remove(key);
     _fallbacks.remove(key);
