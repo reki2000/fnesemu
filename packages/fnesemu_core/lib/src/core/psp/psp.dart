@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../media_decoder.dart';
@@ -16,6 +18,7 @@ import 'elf.dart';
 import 'kernel.dart';
 import 'memory.dart';
 import 'memstick.dart';
+import 'psp_jit.dart';
 
 /// The handheld core: a MIPS32r2 processor with 32 MiB of memory, a
 /// frame buffer display of 480 by 272 pixels and a high-level kernel that
@@ -32,7 +35,8 @@ class Psp extends Core {
   static const _stateVersion = 9;
   static const _visibleLines = 272;
 
-  final mem = PspMemory();
+  final PspJit? _jit;
+  final PspMemory mem;
   late Allegrex cpu = _createCpu();
   PspKernel? _kernel;
   Uint8List? _rom;
@@ -57,6 +61,28 @@ class Psp extends Core {
   int _line = 0;
   int _nextLineAt = 0;
   final _pixels = Uint32List(480 * 272);
+
+  Psp({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
+      : this._(jit ? PspJit.create() : null);
+
+  Psp._(this._jit) : mem = _jit?.memory ?? PspMemory();
+
+  @override
+  bool get jitEnabled => _jit?.native ?? false;
+
+  @override
+  bool get jitSuspended => _jit?.suspended ?? false;
+
+  @override
+  set jitSuspended(bool value) => _jit?.suspended = value;
+
+  @override
+  int get jitClocks => _jit?.compiledClocks ?? 0;
+
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics => [
+        if (_jit case final jit?) jit.diagnostics,
+      ];
 
   void Function(AudioBuffer)? _audioOut;
 
@@ -194,12 +220,15 @@ class Psp extends Core {
   @override
   void dispose() {
     _drive = null;
+    _jit?.dispose();
   }
 
-  Allegrex _createCpu() => Allegrex(mem)
+  Allegrex _createCpu() => Allegrex(mem,
+      regs: _jit?.regs, fpr: _jit?.fpr, vfpr: _jit?.vfpr)
       ..onSyscall = (code) => _kernel?.dispatch(cpu, code);
 
   void _load() {
+    _jit?.reset();
     mem.clear();
     final image = PspElf.load(mem, _rom!);
     cpu = _createCpu();
@@ -227,19 +256,28 @@ class Psp extends Core {
     if (kernel == null || kernel.exited) {
       return ExecResult(cpu.clocks, true, false)..executed0 = false;
     }
+    final jit = step ? null : _jit;
     var executed = false;
     while (cpu.clocks < _nextLineAt) {
-      final wake = kernel.nextWake;
-      if (wake != null && cpu.clocks >= wake) kernel.wakeDue(cpu);
+      var wake = kernel.nextWake;
+      if (wake != null && cpu.clocks >= wake) {
+        kernel.wakeDue(cpu);
+        wake = kernel.nextWake;
+      }
       if (!kernel.runnable) {
-        final nextWake = kernel.nextWake;
-        cpu.clocks = nextWake != null && nextWake < _nextLineAt
-            ? nextWake
-            : _nextLineAt;
+        cpu.clocks = wake != null && wake < _nextLineAt ? wake : _nextLineAt;
         continue;
       }
       executed = true;
-      if (!cpu.step() || kernel.exited) {
+      var interpret = true;
+      if (jit != null) {
+        final deadline = wake != null && wake < _nextLineAt ? wake : _nextLineAt;
+        if (cpu.clocks < deadline) {
+          jit.run(cpu, deadline - cpu.clocks);
+          interpret = cpu.clocks < deadline;
+        }
+      }
+      if (interpret && (!cpu.step() || kernel.exited)) {
         return ExecResult(cpu.clocks, true, false);
       }
       final nextWake = kernel.nextWake;
@@ -327,6 +365,7 @@ class Psp extends Core {
     if (kernel == null) throw StateError('no media loaded');
     final reader = StateReader(state, 'psp', _stateVersion, _mediaId,
         minimumVersion: 4);
+    _jit?.reset();
     reader.section('mem');
     reader.bytesInto(mem.ram);
     reader.bytesInto(mem.vram);

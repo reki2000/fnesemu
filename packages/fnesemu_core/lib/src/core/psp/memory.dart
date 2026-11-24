@@ -17,12 +17,15 @@ class PspMemory {
   static const ramSize = 0x2000000;
   static const ramEnd = ramAt + ramSize;
 
-  final scratch = Uint8List(scratchSize);
-  final vram = Uint8List(vramSize);
-  final ram = Uint8List(ramSize);
+  final Uint8List scratch, vram, ram;
   late final ByteData _scratchData = ByteData.sublistView(scratch);
   late final ByteData _vramData = ByteData.sublistView(vram);
   late final ByteData _ramData = ByteData.sublistView(ram);
+
+  PspMemory({Uint8List? scratch, Uint8List? vram, Uint8List? ram})
+      : scratch = scratch ?? Uint8List(scratchSize),
+        vram = vram ?? Uint8List(vramSize),
+        ram = ram ?? Uint8List(ramSize);
 
   void clear() {
     scratch.fillRange(0, scratch.length, 0);

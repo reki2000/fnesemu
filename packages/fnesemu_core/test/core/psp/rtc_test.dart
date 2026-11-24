@@ -292,6 +292,7 @@ void main() {
 
   test('the guest clock reads the host time and converts consistently', () {
     final core = Psp();
+    addTearDown(core.dispose);
     core.setRom(_clockProgram());
     core.mem.write16(_fixed, 2012);
     core.mem.write16(_fixed + 2, 9);

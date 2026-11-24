@@ -34,7 +34,7 @@ const _imports = [
 /// results around a delay, and exits after joining it. Stub addresses
 /// depend on the code size, so the program is assembled twice: a probe
 /// pass yields the layout, the second pass calls the real stubs.
-Uint8List buildProgram({int workerDelay = 1000}) {
+Uint8List buildProgram({int workerDelay = 1000, bool spinWhileWaiting = false}) {
   List<int> assemble(Map<String, int> stubs) {
     int stub(String lib, int nid) => stubs['$lib/$nid'] ?? 0;
     final a = Asm(0x08800000);
@@ -62,7 +62,7 @@ Uint8List buildProgram({int workerDelay = 1000}) {
     a.sw(Reg.t1, 4, Reg.t0);
     a.li(Reg.a0, 0x08900020);
     a.liAbs(Reg.a1, 'worker');
-    a.li(Reg.a2, 0x30);
+    a.li(Reg.a2, spinWhileWaiting ? 0x10 : 0x30);
     a.li(Reg.a3, 0x8000);
     a.jal(stub('ThreadManForUser', _nidCreateThread));
     a.nop();
@@ -72,6 +72,16 @@ Uint8List buildProgram({int workerDelay = 1000}) {
     a.li(Reg.a2, 0);
     a.jal(stub('ThreadManForUser', _nidStartThread));
     a.nop();
+    if (spinWhileWaiting) {
+      a.li(Reg.a0, 1);
+      a.jal(stub('ThreadManForUser', _nidDelayThread));
+      a.nop();
+      a.li(Reg.t0, 0x08900000);
+      a.label('waitForWorker');
+      a.lw(Reg.t1, 8, Reg.t0);
+      a.beq(Reg.t1, Reg.zero, 'waitForWorker');
+      a.addiu(Reg.s2, Reg.s2, 1);
+    }
     a.addiu(Reg.a0, Reg.s0, 0);
     a.li(Reg.a1, 0);
     a.jal(stub('ThreadManForUser', _nidWaitThreadEnd));
@@ -125,6 +135,7 @@ void main() {
     plain[3] = 0x46;
     expect(CoreFactory.findRom('game.elf', plain)?.id, 'ps2');
     final core = Psp();
+    addTearDown(core.dispose);
     expect(core.buttons.length, 20);
     expect(core.axes, [PadAxis.leftX, PadAxis.leftY]);
   });
@@ -136,6 +147,7 @@ void main() {
     a.nop();
     final (rom, _) = buildTestElf(code: a.finish());
     final core = Psp()..setRom(rom);
+    addTearDown(core.dispose);
     final pc = core.cpu.pc;
     final step = core.exec(true);
     expect(step.elapsedClocks, 1);
@@ -149,12 +161,16 @@ void main() {
   test('a saved delay wakes after the 32-bit clock range', () {
     final rom = buildProgram(workerDelay: 22000000);
     final core = Psp()..setRom(rom);
+    addTearDown(core.dispose);
     for (var frame = 0; frame < 1200; frame++) {
       expect(core.runFrame(core.scanlinesInFrame).stopped, isFalse);
     }
     expect(core.cpu.clocks, greaterThan(1 << 32));
+    // Save before the second core: on the Web its JIT takes the memory.
+    final state = core.saveState();
     final restored = Psp()..setRom(rom);
-    restored.loadState(core.saveState());
+    addTearDown(restored.dispose);
+    restored.loadState(state);
     expect(restored.cpu.clocks, core.cpu.clocks);
     for (var frame = 0; frame < 200; frame++) {
       if (restored.runFrame(restored.scanlinesInFrame).stopped) break;
@@ -186,6 +202,7 @@ void main() {
     setUp(() {
       rom = buildProgram();
       core = Psp();
+      addTearDown(core.dispose);
       load(core);
     });
 
@@ -214,6 +231,7 @@ void main() {
         core.mem.read32(0x08900008),
       ];
       final other = Psp();
+      addTearDown(other.dispose);
       load(other);
       other.loadState(state);
       final result = runToEnd(other);
@@ -227,6 +245,7 @@ void main() {
       final state = core.saveState();
       final (otherRom, _) = buildTestElf(code: [0, 0, 0]);
       final other = Psp()..setRom(otherRom);
+      addTearDown(other.dispose);
       expect(() => other.loadState(state), throwsA(anything));
     });
   });

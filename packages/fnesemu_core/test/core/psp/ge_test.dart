@@ -713,6 +713,7 @@ void main() {
     test('a program draws through the system calls', () {
       final bytes = _buildGeProgram();
       final core = Psp()..setRom(bytes);
+      addTearDown(core.dispose);
       var result = core.runFrame(286);
       var frames = 1;
       while (!result.stopped && frames < 60) {
@@ -730,6 +731,7 @@ void main() {
     test('a program plays audio through the channels', () {
       final bytes = _buildAudioProgram();
       final core = Psp();
+      addTearDown(core.dispose);
       final captured = <double>[];
       core.onAudio((AudioBuffer buffer) {
         captured.addAll(buffer.buffer.map((s) => s.toDouble()));
@@ -757,6 +759,7 @@ void main() {
         () {
       final bytes = _buildLwMutexProgram();
       final core = Psp()..setRom(bytes);
+      addTearDown(core.dispose);
       var result = core.runFrame(286);
       var frames = 1;
       while (!result.stopped && frames < 60) {
@@ -774,6 +777,7 @@ void main() {
     test('the system time counts microseconds', () {
       final bytes = _buildSystemTimeProgram();
       final core = Psp()..setRom(bytes);
+      addTearDown(core.dispose);
       var result = core.runFrame(286);
       var frames = 1;
       while (!result.stopped && frames < 60) {
