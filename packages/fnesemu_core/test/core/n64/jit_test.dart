@@ -88,6 +88,37 @@ final class _Machine {
 }
 
 void main() {
+  test('compiled RAM accesses observe deferred RDP writes', () {
+    final jit = N64Jit.create(compileThreshold: 1)!;
+    final machine = _Machine(jit);
+    addTearDown(machine.dispose);
+    machine.load([
+      _i(0x23, 28, 2, 0),
+      _i(0x23, 28, 3, 0x1000),
+    ]);
+    final bus = machine.bus;
+    bus.onRdramWatch = jit.watchRdram;
+    bus.onRdramUnwatch = jit.unwatchRdram;
+    bus.ramWrite(0x4000, 0x12345678, 4);
+    bus.ramWrite(0x5000, 0x11111111, 4);
+    machine.run(2); // Install a block with both loads before watching its page.
+
+    var commits = 0;
+    machine.cpu.reset(_pc);
+    machine.cpu.r[28] = 0x80004000.toSigned(32);
+    bus.watchRdram(0x5000, 0x5010, () {
+      commits++;
+      bus.unwatchRdram();
+      bus.ramWrite(0x5000, 0x22334455, 4);
+    });
+    machine.run(1);
+    expect(machine.cpu.r[2], 0x12345678);
+    expect(commits, 0);
+    machine.run(2);
+    expect(machine.cpu.r[3], 0x22334455);
+    expect(commits, 1);
+  });
+
   test('CPU profiling preserves faults, registers, memory and clocks', () {
     final expected = _Machine(null);
     final actual =
