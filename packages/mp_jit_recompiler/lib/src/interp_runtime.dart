@@ -17,6 +17,10 @@ final class IrInterpreterRuntime extends JitRuntime {
   final Uint32List ctx;
   final _helpers = <JitHelper>[];
   final _blocks = <(int, int), IrBlock>{};
+
+  /// older versions of blocks by key, newest last
+  final _retired = <(int, int), List<IrBlock>>{};
+  static const _retiredVersions = 4;
   bool _disposed = false;
 
   /// The block map clears itself at this many blocks, as the Wasm runtime's does, so a long-lived interpreter cannot grow it without bound; a cleared block is simply retranslated on demand.
@@ -51,16 +55,40 @@ final class IrInterpreterRuntime extends JitRuntime {
   }
 
   @override
-  void invalidate(int pc, int tag) {
-    if (_blocks.remove((pc, tag)) != null) {
-      compilationStats?.recordInvalidation(pc, tag);
+  void invalidate(int pc, int tag, {bool retain = false}) {
+    final block = _blocks.remove((pc, tag));
+    if (block == null) return;
+    if (retain && block.guards.isNotEmpty) {
+      final versions = _retired[(pc, tag)] ??= [];
+      if (versions.length == _retiredVersions) versions.removeAt(0);
+      versions.add(block);
     }
+    compilationStats?.recordInvalidation(pc, tag);
+  }
+
+  @override
+  bool restore(int pc, int tag) {
+    final versions = _retired[(pc, tag)];
+    if (versions == null || _blocks.containsKey((pc, tag))) return false;
+    for (var i = versions.length - 1; i >= 0; i--) {
+      final block = versions[i];
+      if (block.guards
+          .any((g) => mappedWord(g.addr, endian: g.endian) != g.value)) {
+        continue;
+      }
+      versions.removeAt(i);
+      _blocks[(pc, tag)] = block;
+      compilationStats?.restores++;
+      return true;
+    }
+    return false;
   }
 
   @override
   void clear() {
     compilationStats?.recordCacheClear(_blocks.length);
     _blocks.clear();
+    _retired.clear();
   }
 
   @override

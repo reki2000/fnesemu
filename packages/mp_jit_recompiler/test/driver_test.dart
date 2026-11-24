@@ -110,6 +110,34 @@ void main() {
     );
   }
 
+  test('a block whose code comes back reuses its older version', () {
+    final d = driver();
+    final ram = rt.alloc(0x1000);
+    rt.mapPages(0x1000, ram.length, ram);
+    void hot() {
+      for (var i = 0; i < 3; i++) {
+        run(d, 0x200);
+      }
+    }
+
+    hot();
+    expect(translated, [0x200]);
+    // the guest copies another routine to the address
+    ram[0x200] = guarded[0x200] = 1;
+    expect(run(d, 0x200), JitReason.invalid);
+    hot();
+    expect(translated, [0x200, 0x200]);
+    // and the first one back: its block is restored without a translation
+    ram[0x200] = guarded[0x200] = 0;
+    expect(run(d, 0x200), JitReason.user);
+    expect(translated, [0x200, 0x200]);
+    // a word that matches no version translates again
+    ram[0x200] = guarded[0x200] = 2;
+    expect(run(d, 0x200), JitReason.invalid);
+    hot();
+    expect(translated, [0x200, 0x200, 0x200]);
+  });
+
   test('counters and fallbacks clear at the capacity', () {
     final d = driver(capacity: 2);
     code[0x300] = 0;

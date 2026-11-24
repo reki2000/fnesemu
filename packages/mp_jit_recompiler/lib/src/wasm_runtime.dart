@@ -359,7 +359,7 @@ final class _WasmRuntime extends JitRuntime
   }
 
   @override
-  void invalidate(int pc, int tag) {
+  void invalidate(int pc, int tag, {bool retain = false}) {
     _checkAlive();
     final slot = _blocks.remove((pc, tag));
     if (slot == null) return;
