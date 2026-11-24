@@ -26,6 +26,8 @@ dependencies:
     path: packages/cdrom_image
   mp_compute:
     path: packages/mp_compute
+  mp_media_decoder:
+    path: packages/mp_media_decoder
   mp_pixel_image:
     path: packages/mp_pixel_image
 
@@ -39,4 +41,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/app_icon.svg
+    - assets/licenses/LGPL-2.1.txt
 

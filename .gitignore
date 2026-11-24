@@ -74,3 +74,7 @@ run*.cmd
 /release-assets/
 /ci-artifacts/
 .venv/
+
+# The e2e outputs under expected/ stay local; the repository keeps their SHA-256 only.
+packages/fnesemu_core/test/e2e/*/*/expected/*
+!packages/fnesemu_core/test/e2e/*/*/expected/*.sha256

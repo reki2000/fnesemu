@@ -38,6 +38,9 @@ void main() {
     final sectors = <int, Uint8List>{};
     final pvd = Uint8List(2048);
     pvd.setRange(1, 6, ascii.encode('CD001'));
+    pvd[156] = 34;
+    pvd[156 + 25] = 2;
+    pvd[156 + 32] = 1;
     ByteData.sublistView(pvd)
       ..setUint32(80, 40, Endian.little)
       ..setUint32(156 + 2, 20, Endian.little)
@@ -56,11 +59,16 @@ void main() {
     sectors[20] = dir;
     sectors[30] = Uint8List(2048)..setRange(0, 5, ascii.encode('BOOT2'));
 
-    final iso = Iso9660((lba) async => sectors[lba] ?? Uint8List(2048));
+    final iso = Iso9660((lba) async => sectors[lba] ?? Uint8List(0));
     final file = await iso.findRootFile('system.cnf');
     expect(file, (lba: 30, size: 5));
-    expect(ascii.decode(await iso.readFile(file!)), 'BOOT2');
+    expect(ascii.decode((await iso.readFile(file!))!), 'BOOT2');
     expect(await iso.findRootFile('MISSING'), isNull);
+    sectors.remove(30);
+    expect(await iso.readFile(file), isNull);
+    dir[32] = 255;
+    final malformed = Iso9660((lba) async => sectors[lba] ?? Uint8List(0));
+    expect(await malformed.findRootFile('system.cnf'), isNull);
   });
 
   aggCase('takes the BOOT2 file name from SYSTEM.CNF', () {

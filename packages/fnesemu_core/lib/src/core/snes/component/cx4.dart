@@ -171,6 +171,21 @@ class Cx4 {
     }
   }
 
+  /// The program word address of the next instruction: the page and PC.
+  int get debugPc => (_page.shl8 | _pc).mask16;
+
+  /// The program word at word address [addr] from the program base.
+  int debugWord(int addr) {
+    final a = (_programBase + addr.mask16.shl1) & _romMask;
+    return rom[a] | rom[(a + 1) & _romMask].shl8;
+  }
+
+  /// The registers for a trace line.
+  String get debugRegisters =>
+      'a:${_a.x6} mh:${_mh.x6} ml:${_ml.x6} ext:${_extPtr.x6} '
+      'ram:${_ramPtr.x6} ${[for (var i = 0; i < 16; i++) 'r$i:${_r[i].x6}'].join(' ')} '
+      '${_n ? 'N' : 'n'}${_z ? 'Z' : 'z'}${_c ? 'C' : 'c'}';
+
   // the next byte of a LoROM address, skipping the lower half of the banks
   static int _nextLoRom(int addr) {
     addr = (addr + 1).mask24;

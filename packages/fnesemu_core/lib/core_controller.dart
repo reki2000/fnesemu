@@ -9,9 +9,11 @@ import 'src/compute_sink.dart';
 import 'src/core.dart';
 import 'src/internal/frame_counter.dart';
 import 'src/internal/frame_pacer.dart';
+import 'src/media_decoder.dart';
 import 'src/pad_button.dart';
 import 'src/pad_source.dart';
 import 'src/sram.dart';
+import 'src/state.dart';
 import 'src/types.dart';
 import 'src/util/debug.dart';
 
@@ -26,6 +28,23 @@ class CoreControllerState {
   final void Function(CoreControllerState) _notifier;
   CoreControllerState(void Function(CoreControllerState) notifier)
       : _notifier = notifier;
+}
+
+/// The timing of a [CoreController.benchmark] run.
+class BenchmarkTiming {
+  /// the measured frames
+  final int frames;
+
+  /// the real time of the measured frames, with the time given to the UI
+  final int wallUs;
+
+  /// the time spent in the core, with the picture handed to the UI
+  final int coreUs;
+
+  const BenchmarkTiming(this.frames, this.wallUs, this.coreUs);
+
+  double get fps => wallUs == 0 ? 0 : frames * 1e6 / wallUs;
+  double get coreFps => coreUs == 0 ? 0 : frames * 1e6 / coreUs;
 }
 
 /// A Controller of the emulator core.
@@ -77,11 +96,12 @@ class CoreController {
       core
         ..setBiosFiles(bios)
         ..setSram(_sram)
-        ..onAudio(_onAudio);
+        ..onAudio(_audio);
 
       if (rom != null) {
         core.setRom(rom);
       }
+      if (drive != null) await core.setCdromDrive(drive);
     } catch (_) {
       created?.dispose();
       _restoreSram(sramId, sramData);
@@ -91,14 +111,11 @@ class CoreController {
       rethrow;
     }
 
-    if (drive != null) {
-      core.setCdromDrive(drive);
-    }
-
     _core.dispose();
     _core = core
       ..input = _input
-      ..computeSink = _computeSink;
+      ..computeSink = _computeSink
+      ..mediaDecoder = _mediaDecoder;
     _system = system;
     final metadata = CoreFactory.system(system);
     debugger.setCore(_core,
@@ -205,6 +222,68 @@ class CoreController {
       debugger.executionStopped();
     }
   }
+
+  // true while a benchmark drops the audio
+  bool _muted = false;
+
+  void _audio(AudioBuffer buffer) {
+    if (!_muted) _onAudio(buffer);
+  }
+
+  /// Runs [warmup] frames and then measures up to [measure] frames, as fast
+  /// as the core can, without the real-time pacing of [run]. The pictures
+  /// are shown and the audio is dropped. The measurement ends early after
+  /// [limit] of real time, or when [stop] is called. [onProgress] receives
+  /// the frames measured so far. The emulation stays stopped afterwards.
+  Future<BenchmarkTiming> benchmark(
+      {required int warmup,
+      required int measure,
+      Duration limit = const Duration(seconds: 20),
+      void Function(int frames)? onProgress}) async {
+    if (_system.isEmpty) {
+      throw StateError('CoreController.benchmark: no core is loaded');
+    }
+    await stop();
+    final wall = Stopwatch(), inCore = Stopwatch();
+    var frames = 0;
+    _state.running = true;
+    _stopRequested = false;
+    _muted = true;
+    try {
+      for (var i = 0; i < warmup + measure && !_stopRequested; i++) {
+        final measuring = i >= warmup;
+        if (i == warmup) wall.start();
+        if (measuring) inCore.start();
+        var wait = _runFrame();
+        while (wait != null) {
+          // the time waiting for the GPU results is not in the core
+          inCore.stop();
+          await wait.catchError((Object _) {});
+          if (measuring) inCore.start();
+          wait = _runFrame();
+        }
+        inCore.stop();
+        if (measuring) {
+          frames++;
+          onProgress?.call(frames);
+          if (wall.elapsed >= limit) break;
+        }
+        // lets the UI show the picture
+        await Future.delayed(Duration.zero);
+      }
+    } finally {
+      wall.stop();
+      _muted = false;
+      _stopRequested = false;
+      _state.running = false;
+    }
+    return BenchmarkTiming(
+        frames, wall.elapsedMicroseconds, inCore.elapsedMicroseconds);
+  }
+
+  /// the media identity of the loaded core ([Core.stateMedia]); the
+  /// emulation is stopped while it is read, and resumed if it was running
+  Future<int> stateMedia() async => StateHeader.of(await saveState()).media;
 
   /// stop emulation
   Future<void> stop() {
@@ -379,6 +458,17 @@ class CoreController {
   set computeSink(ComputeSink? sink) {
     _computeSink = sink;
     _core.computeSink = sink;
+  }
+
+  MediaDecoder? _mediaDecoder;
+
+  /// the loaded core and the cores loaded later decode the movies and the
+  /// music of their media with this; null plays them without a picture or
+  /// sound
+  MediaDecoder? get mediaDecoder => _mediaDecoder;
+  set mediaDecoder(MediaDecoder? decoder) {
+    _mediaDecoder = decoder;
+    _core.mediaDecoder = decoder;
   }
 
   // returns a list of core's buttons

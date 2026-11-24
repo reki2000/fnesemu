@@ -54,7 +54,7 @@ class Iso9660 {
     final root = _parseRecord(pvd, 156);
     // a root outside the volume is not this track's file system, such as on
     // a multi-session disc which addresses an earlier session
-    return root != null && _inVolume(root) ? root : null;
+    return root != null && root.isDirectory && _inVolume(root) ? root : null;
   }
 
   bool _inVolume(Iso9660Entry entry) =>
@@ -67,6 +67,7 @@ class Iso9660 {
     final length = sector[at], nameLength = sector[at + 32];
     if (length < 34 ||
         at + length > sector.length ||
+        nameLength == 0 ||
         33 + nameLength > length) {
       return null;
     }
@@ -160,18 +161,21 @@ class Iso9660 {
     final dir = await root;
     if (dir == null) return null;
     for (final entry in await list(dir)) {
-      if (entry.name.toUpperCase() == name.toUpperCase()) {
+      if (!entry.isDirectory &&
+          entry.name.toUpperCase() == name.toUpperCase()) {
         return (lba: entry.lba, size: entry.size);
       }
     }
     return null;
   }
 
-  /// The contents of a file found by [findRootFile].
-  Future<Uint8List> readFile(({int lba, int size}) file) async {
+  /// The contents of a file, or null if any of its sectors are unreadable.
+  Future<Uint8List?> readFile(({int lba, int size}) file) async {
     final out = BytesBuilder();
     for (var i = 0; i * 2048 < file.size; i++) {
-      out.add(await readUser(file.lba + i));
+      final sector = await readUser(file.lba + i);
+      if (sector.length < 2048) return null;
+      out.add(sector);
     }
     return Uint8List.sublistView(out.toBytes(), 0, file.size);
   }

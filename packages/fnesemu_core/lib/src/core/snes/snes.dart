@@ -5,6 +5,7 @@ import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../types.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../util/state.dart';
 import '../../video_debug.dart';
@@ -12,10 +13,14 @@ import 'component/apu.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
+import 'component/cx4_disasm.dart';
 import 'component/dma.dart';
 import 'component/pad.dart';
 import 'component/ppu.dart';
 import 'component/ppu_render.dart';
+import 'component/spc700.dart';
+import 'component/spc700_disasm.dart';
+import 'component/superfx_disasm.dart';
 import 'rom/snes_file.dart';
 
 /// main class for SNES emulation.
@@ -81,7 +86,16 @@ class Snes extends Core {
   int get clocksInScanline => cpuCyclesInScanline * 6;
 
   @override
-  List<CpuInfo> get cpuInfos => [CpuInfo.ofM68(0, "65816")];
+  List<CpuInfo> get cpuInfos => [
+        CpuInfo.ofM68(0, "65816"),
+        CpuInfo.ofZ80(1, "SPC700"),
+        if (bus.sa1 != null) CpuInfo.ofM68(2, "SA-1"),
+        if (bus.superFx != null) CpuInfo.ofM68(2, "SuperFX"),
+        if (bus.cx4 != null) CpuInfo.ofZ80(2, "Cx4"),
+      ];
+
+  /// The 65816 of debugger CPU [cpuNo]: the SA-1 for 2, else the main one.
+  Cpu _cpu65816(int cpuNo) => cpuNo == 2 ? bus.sa1?.cpu ?? cpu : cpu;
 
   int _scanline = 0;
   int _frames = 0;
@@ -303,22 +317,92 @@ class Snes extends Core {
   }
 
   @override
-  (String, int) disasm(int cpuNo, int addr) => cpu.dumpDisasm(addr);
+  (String, int) disasm(int cpuNo, int addr) {
+    final gsu = bus.superFx;
+    if (cpuNo == 2 && gsu != null) {
+      addr &= 0xffffff;
+      final bytes = [for (var i = 0; i < 5; i++) gsu.debugRead(addr + i)];
+      final (text, length) = SuperFxDisasm.disasm(bytes, addr & 0xffff);
+      final code = bytes.take(length).map((b) => b.x2).join(' ');
+      return (formatDisasm(addr.x6, code, text, codeWidth: 11), length);
+    }
+    final cx4 = bus.cx4;
+    if (cpuNo == 2 && cx4 != null) {
+      addr &= 0xffff;
+      final op = cx4.debugWord(addr);
+      return (
+        formatDisasm(addr.x4, op.x4, Cx4Disasm.disasm(op), codeWidth: 4),
+        1
+      );
+    }
+    if (cpuNo != 1) return _cpu65816(cpuNo).dumpDisasm(addr);
+    addr &= 0xffff;
+    final bytes = [for (var i = 0; i < 3; i++) _spcPeek(addr + i)];
+    final (text, length) = Spc700Disasm.disasm(bytes, addr);
+    final code = bytes.take(length).map((b) => b.x2).join(' ');
+    return (formatDisasm(addr.x4, code, text, codeWidth: 8), length);
+  }
+
+  /// A byte of the sound CPU's address space without the side effects of
+  /// its I/O registers.
+  int _spcPeek(int addr) {
+    final spc = apu.spc;
+    addr &= 0xffff;
+    if (addr >= 0xffc0 && spc.control & 0x80 != 0) return iplRom[addr - 0xffc0];
+    return spc.ram[addr];
+  }
 
   @override
-  int programCounter(int cpuNo) => cpu.regs.pbr.shl16 | cpu.regs.pc;
+  int programCounter(int cpuNo) {
+    if (cpuNo == 1) return apu.spc.pc;
+    if (cpuNo == 2 && bus.superFx != null) return bus.superFx!.debugPc;
+    if (cpuNo == 2 && bus.cx4 != null) return bus.cx4!.debugPc;
+    final regs = _cpu65816(cpuNo).regs;
+    return regs.pbr.shl16 | regs.pc;
+  }
 
   @override
-  int stackPointer(int cpuNo) => cpu.regs.s;
+  int stackPointer(int cpuNo) =>
+      cpuNo == 1 ? 0x100 | apu.spc.sp : _cpu65816(cpuNo).regs.s;
 
   @override
-  TraceLog trace(int cpuNo) => cpu.trace(clock: cpu.cycle * 6);
+  TraceLog trace(int cpuNo) {
+    final gsu = bus.superFx;
+    if (cpuNo == 2 && gsu != null) {
+      final pc = gsu.debugPc;
+      return TraceLog(pc, cpu.cycle * 6, disasm(2, pc).$1.padRight(40),
+          gsu.debugRegisters, [pc, ...gsu.r]);
+    }
+    final cx4 = bus.cx4;
+    if (cpuNo == 2 && cx4 != null) {
+      final pc = cx4.debugPc;
+      return TraceLog(pc, cpu.cycle * 6, disasm(2, pc).$1.padRight(36),
+          cx4.debugRegisters, [pc]);
+    }
+    if (cpuNo == 2) return _cpu65816(2).trace();
+    if (cpuNo != 1) return cpu.trace(clock: cpu.cycle * 6);
+    final spc = apu.spc;
+    return TraceLog(
+        spc.pc,
+        spc.cycle,
+        disasm(1, spc.pc).$1.padRight(36),
+        'a:${spc.a.x2} x:${spc.x.x2} y:${spc.y.x2} sp:${spc.sp.x2} '
+            'psw:${spc.psw.x2}',
+        [spc.pc, spc.a, spc.x, spc.y, spc.sp, spc.psw]);
+  }
 
   @override
   List<int> get vram => const [];
 
   @override
-  int read(int cpuNo, int addr) => bus.read(addr);
+  int read(int cpuNo, int addr) =>
+      switch (cpuNo) {
+        1 => _spcPeek(addr),
+        2 => bus.superFx?.debugRead(addr) ??
+            bus.cx4?.ram[addr % 0xc00] ??
+            _cpu65816(2).peek(addr),
+        _ => bus.read(addr),
+      };
 
   @override
   ImageBuffer renderBg() => ImageBuffer.empty();

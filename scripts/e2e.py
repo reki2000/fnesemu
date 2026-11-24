@@ -13,7 +13,8 @@ Writing a case:
   scripts/e2e.py shoot <core>/<case> N --every E [--start S] [--input SEQ] [--cols C] [--scale X]
   scripts/e2e.py buttons [<core>/<case>]
   scripts/e2e.py set <core>/<case> --frames N --shots F1,F2,... [--input SEQ] [--note TEXT] [--history TEXT]
-  scripts/e2e.py session start <core>/<case>
+  scripts/e2e.py session start <core>/<case> [--load-state FILE]
+  scripts/e2e.py session save FILE
   scripts/e2e.py session step FRAMES [--every E] [--cols C] [--scale X]
   scripts/e2e.py session press SEQ
   scripts/e2e.py session input
@@ -32,7 +33,8 @@ updates); show prints them as the context of a case.
 Layout of a root:
   <core>/e2e.toml               the cases of the core ([[case]] tables)
   <core>/<dir>/setup.py         prepares the media and upstream data in <core>/<dir>/.build/
-  <core>/<dir>/expected/        expected data kept in the repository
+  <core>/<dir>/expected/        expected data; in the default tree the SHA-256 of each screenshot and tty output
+                                (<file>.sha256), kept in the repository, and the outputs, kept locally only
 
 A case with slow = true (minutes long) runs only with --slow.
 
@@ -58,8 +60,8 @@ shoot runs a case for N frames (with --input in place of its input) and tiles th
 frames from frame S, with their frame numbers, into sheet.png. buttons prints the button names of a case (or of
 the session) as they are written in a sequence.
 
-session start runs core_headless serve for a case in the background; step, press, shot and state control it,
-and stop ends it. step advances the session by FRAMES frames from the current frame, not to frame FRAMES (with --every, it saves the screenshots of the frames that are
+session start runs core_headless serve for a case in the background, from a state with --load-state; step,
+press, shot, save and state control it, and stop ends it. save writes the core state for a later start. step advances the session by FRAMES frames from the current frame, not to frame FRAMES (with --every, it saves the screenshots of the frames that are
 multiples of E and tiles them into sheet.png). press adds the presses of SEQ, read with the cursor at the next
 frame (@F is an absolute frame), and logs it in press.log. input prints the input of the logged presses (one
 after another, or in parallel where they overlap), e.g. for set --input "$(scripts/e2e.py session input)".
@@ -69,6 +71,12 @@ set rewrites the frames, input, note and screenshot checks of a case (the other 
 the input first. The screenshots are expected/<case>_NNNNN.png when the case shares its dir, and
 expected/frame_NNNNN.png otherwise; screenshots of the case that are no longer checked are deleted. Write the
 expected data with run --update afterwards.
+
+In the default tree, run --update writes each screenshot and tty output under expected/ together with its SHA-256
+(<file>.sha256). The repository keeps only the SHA-256 files, so it does not redistribute the pictures and texts
+of the media. A check against expected/ compares the SHA-256 of the output (of the size and the RGB pixels of an
+image, of the lines of a tty output); a local copy of the expected output only adds how far the output is from
+it. Another tree given by --root keeps no SHA-256 and compares the outputs with the files themselves.
 
 The outputs of shoot and session go to packages/fnesemu_core/.dart_tool/e2e/.
 Reading the cases needs Python 3.11 or later, and comparing images and audio needs Pillow and numpy.
@@ -114,6 +122,8 @@ class Case:
         self.name = spec["name"]
         self.id = f"{core}/{self.name}"
         self.dir = root / core / spec.get("dir", self.name)
+        # The published tree keeps the SHA-256 of its expected outputs; another tree keeps the outputs.
+        self.hashed = root.resolve() == DEFAULT_ROOT.resolve()
 
     def path(self, rel: str) -> Path:
         return (self.dir / rel).resolve()
@@ -241,6 +251,23 @@ def check_ref(check: dict):
     return next((check[k] for k in _DATA_KEYS if k in check), None)
 
 
+def hash_path(ref: Path) -> Path:
+    """The SHA-256 of an output under expected/, kept in the repository in place of the output itself."""
+    return ref.with_name(ref.name + ".sha256")
+
+
+def output_hash(check: dict, p: Path) -> str:
+    """The SHA-256 of an output: of the size and the RGB pixels of an image, of the lines of a tty output."""
+    if "tty" in check:
+        data = "\n".join(p.read_text().replace("\r", "").splitlines()).encode()
+    else:
+        from PIL import Image
+
+        image = Image.open(p).convert("RGB")
+        data = f"{image.width}x{image.height}\n".encode() + image.tobytes()
+    return hashlib.sha256(data).hexdigest()
+
+
 def compare_tty(got: Path, ref: Path):
     a, b = got.read_text().splitlines(), ref.read_text().replace("\r", "").splitlines()
     if a == b:
@@ -280,7 +307,8 @@ def compare(case: Case, out: Path, say):
         ref = case.path(check_ref(check))
         upstream = not case.is_expected(ref)
         has_upstream |= upstream
-        if not ref.exists():
+        digest = hash_path(ref) if case.hashed and not upstream else None
+        if not ref.exists() and not (digest and digest.exists()):
             say(f"  FAIL {label}: no expected data {show(ref)} (run with --update)")
             ok = False
             continue
@@ -288,7 +316,16 @@ def compare(case: Case, out: Path, say):
             say(f"  FAIL {label}: the headless runner did not write {got.name}")
             ok = False
             continue
-        if "audio" in check:
+        if digest and digest.exists() and "audio" not in check:
+            # The hash decides; a local copy of the expected output only tells how far the output is from it.
+            want = digest.read_text().strip()
+            good = output_hash(check, got) == want
+            msg = "same hash" if good else "hash differs"
+            if not good and ref.exists() and output_hash(check, ref) == want:
+                msg += "; " + (compare_tty(got, ref) if "tty" in check else compare_frame(check, got, ref))[1]
+            elif not good:
+                msg += " (no local copy of the expected output)"
+        elif "audio" in check:
             good, msg = regress.compare_audio(json.loads(ref.read_text()), got, check.get("tol"))
         elif "tty" in check:
             good, msg = compare_tty(got, ref)
@@ -319,6 +356,8 @@ def update(case: Case, out: Path, say):
             shutil.copy(out / "tty.txt", ref)
         else:
             shutil.copy(out / "vram.png", ref)
+        if case.hashed and "audio" not in check:
+            hash_path(ref).write_text(output_hash(check, ref) + "\n")
         say(f"  updated {show(ref)}")
 
 
@@ -327,7 +366,7 @@ def source_hash() -> str:
     h = hashlib.sha256()
     h.update(b"cli-native-assets-v1")
     files = [CORE_PKG / "pubspec.lock"] + sorted((CORE_PKG / "lib").rglob("*.dart")) + sorted((CORE_PKG / "tool").rglob("*.dart"))
-    for package in ("mp_jit_recompiler", "cdrom_image", "mp_pixel_image"):
+    for package in ("mp_jit_recompiler", "cdrom_image", "mp_pixel_image", "mp_media_decoder"):
         root = CORE_PKG.parent / package
         files += [root / "pubspec.yaml"]
         for directory, suffix in (("lib", "*.dart"), ("hook", "*.dart"), ("src", "*.c")):
@@ -439,8 +478,15 @@ def lint(root: Path, cases, inside_only: bool):
                 errors.append(f"{c.id}: {err}")
         except TypeError as e:
             errors.append(f"{c.id}: {e}")
-        size = sum(c.path(v).stat().st_size for ch in c.checks() for k, v in ch.items()
-                   if k in _DATA_KEYS and c.is_expected(c.path(v)) and c.path(v).exists())
+        kept = [hash_path(p) if c.hashed and hash_path(p).exists() else p
+                for p in (c.path(v) for ch in c.checks() for k, v in ch.items() if k in _DATA_KEYS)
+                if c.is_expected(p)]
+        size = sum(p.stat().st_size for p in kept if p.exists())
+        for ch in c.checks():
+            ref = check_ref(ch)
+            if ref and c.hashed and c.is_expected(c.path(ref)) and hash_path(c.path(ref)).exists():
+                if tols := [k for k in ("max_diff", "channel_tol", "palette") if k in ch]:
+                    errors.append(f"{c.id}: {', '.join(tols)} cannot apply to the SHA-256 of {ref}")
         if inside_only and size > EXPECTED_LIMIT:
             errors.append(f"{c.id}: expected data is {size} bytes (limit {EXPECTED_LIMIT})")
     names = [c.id for c in cases]
@@ -532,6 +578,8 @@ def session_start(a):
     d.mkdir(parents=True)
     log = d / "server.log"
     cmd = case.base_command(compile_headless(), "serve") + ["--port", "0"]
+    if a.load_state:
+        cmd += ["--load-state", str(Path(a.load_state).resolve())]
     subprocess.Popen(cmd, cwd=CORE_PKG, stdout=open(log, "w"), stderr=subprocess.STDOUT,
                      start_new_session=True)
     text = ""
@@ -545,6 +593,10 @@ def session_start(a):
     port = int(text.split("127.0.0.1:")[1].split()[0])
     SERVER.write_text(json.dumps({"case": case.name, "port": port}))
     print(f"session of {case.id} on port {port}")
+
+
+def session_save(a):
+    print(json.dumps(request("/save", path=str(Path(a.path).resolve()))))
 
 
 def session_step(a):
@@ -653,6 +705,7 @@ def set_case(a):
     for p in (case.dir / "expected").glob(f"{prefix}*.png"):
         if p.stem[len(prefix):].isdigit() and int(p.stem[len(prefix):]) not in shots:
             p.unlink()
+            hash_path(p).unlink(missing_ok=True)
     print(f"updated {case.id}; run e2e.py run {case.id} --update")
 
 
@@ -734,6 +787,7 @@ def main(argv=None):
         dest="session_action", required=True)
     p = session.add_parser("start", help="start the session of a case", parents=[common])
     p.add_argument("case")
+    p.add_argument("--load-state", help="start from a state saved by session save or run --save-state")
     p.set_defaults(func=session_start)
     p = session.add_parser("step", help="advance the session by FRAMES frames from the current frame", parents=[common])
     p.add_argument("frames", type=int, metavar="FRAMES", help="the number of frames to run, not a target frame")
@@ -749,6 +803,9 @@ def main(argv=None):
     p = session.add_parser("shot", help="save the current screen", parents=[common])
     p.add_argument("name", nargs="?", help="the file name without .png (default: frame_NNNNN)")
     p.set_defaults(func=session_shot)
+    p = session.add_parser("save", help="save the core state, for start --load-state", parents=[common])
+    p.add_argument("path")
+    p.set_defaults(func=session_save)
     session.add_parser("state", help="print the frame and the program counter",
                        parents=[common]).set_defaults(func=session_state)
     session.add_parser("stop", help="stop the session", parents=[common]).set_defaults(func=session_stop)

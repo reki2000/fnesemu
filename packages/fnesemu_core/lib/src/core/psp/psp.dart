@@ -2,11 +2,15 @@ import 'dart:typed_data';
 
 import '../../cdrom_drive.dart';
 import '../../core.dart';
+import '../../media_decoder.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../trace_flow.dart';
 import '../../types.dart';
+import '../../util/disasm.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
+import 'disasm.dart';
 import 'disc.dart';
 import 'elf.dart';
 import 'kernel.dart';
@@ -25,12 +29,11 @@ import 'memstick.dart';
 /// to the framework output and the multimedia coprocessor (VFPU) is
 /// emulated with a few documented accuracy limits.
 class Psp extends Core {
-  static const _stateVersion = 4;
-  static const _cpuHz = 222000000;
+  static const _stateVersion = 9;
   static const _visibleLines = 272;
 
   final mem = PspMemory();
-  late Allegrex cpu;
+  late Allegrex cpu = _createCpu();
   PspKernel? _kernel;
   Uint8List? _rom;
   CdromDrive? _drive;
@@ -42,6 +45,14 @@ class Psp extends Core {
 
   @override
   void setSram(Sram sram) => memStick.attach(sram);
+
+  MediaDecoder? _mediaDecoder;
+
+  @override
+  set mediaDecoder(MediaDecoder? decoder) {
+    _mediaDecoder = decoder;
+    _kernel?.mediaDecoder = decoder;
+  }
   int _mediaId = 0;
   int _line = 0;
   int _nextLineAt = 0;
@@ -49,22 +60,18 @@ class Psp extends Core {
 
   void Function(AudioBuffer)? _audioOut;
 
-  Psp() {
-    cpu = Allegrex(mem);
-    cpu.onSyscall = (code) => _kernel?.dispatch(cpu, code);
-  }
-
   @override
   void onAudio(void Function(AudioBuffer) onAudio) {
     _audioOut = onAudio;
   }
 
   @override
-  int get systemClockHz => _cpuHz;
+  int get systemClockHz => Allegrex.clockHz;
   @override
   int get scanlinesInFrame => 286;
   @override
-  int get clocksInScanline => _cpuHz ~/ 60 ~/ 286;
+  int get clocksInScanline =>
+      systemClockHz ~/ PspKernel.displayHz ~/ scanlinesInFrame;
   @override
   int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
 
@@ -74,6 +81,40 @@ class Psp extends Core {
   int programCounter(int cpuNo) => cpu.pc;
   @override
   int stackPointer(int cpuNo) => cpu.r[29];
+
+  @override
+  (String, int) disasm(int cpuNo, int addr) {
+    addr &= 0xfffffffc;
+    final word = mem.read32(addr);
+    return (
+      formatDisasm(_hex8(addr), _hex8(word), AllegrexDisasm.disasm(word, addr),
+          codeWidth: 8),
+      4
+    );
+  }
+
+  @override
+  TraceLog trace(int cpuNo) {
+    final word = mem.read32(cpu.pc);
+    final registers = [for (var i = 0; i < 32; i++) cpu.r[i]];
+    return TraceLog(
+        cpu.pc,
+        cpu.clocks,
+        disasm(0, cpu.pc).$1.padRight(46),
+        [
+          for (var i = 1; i < 32; i++)
+            '${AllegrexDisasm.regs[i]}:${_hex8(cpu.r[i])}',
+        ].join(' '),
+        registers,
+        instructionKey: _hex8(word),
+        flow: traceMipsFlow(word, cpu.pc, registers));
+  }
+
+  @override
+  int read(int cpuNo, int addr) => mem.read8(addr);
+
+  static String _hex8(int value) =>
+      (value & 0xffffffff).toRadixString(16).padLeft(8, '0');
   @override
   int get cpuClocks => cpu.clocks;
 
@@ -133,30 +174,41 @@ class Psp extends Core {
   /// executable was set, the disc's boot file becomes the executable;
   /// with one set, the running program simply gains the disc's files.
   @override
-  void setCdromDrive(CdromDrive drive) {
+  Future<void> setCdromDrive(CdromDrive drive) async {
     _drive = drive;
-    PspDisc.mount(drive).then((disc) {
-      if (!identical(_drive, drive) || disc == null) return;
-      _disc = disc;
-      _kernel?.disc = disc;
-      if (_rom == null && disc.bootBytes != null) {
-        _rom = disc.bootBytes;
-        _mediaId = _mediaIdOf(_rom!);
-        _load();
-      }
-    });
+    final discId = drive.status.discId;
+    _disc = null;
+    _kernel?.disc = null;
+    if (!drive.status.isReady) return;
+    final disc = await PspDisc.mount(drive, readBoot: _rom == null);
+    if (!identical(_drive, drive) || drive.status.discId != discId) return;
+    final boot = disc?.bootBytes;
+    if (_rom == null) {
+      if (boot == null) throw const FormatException('No PSP boot executable');
+      setRom(boot);
+    }
+    _disc = disc;
+    _kernel?.disc = disc;
   }
+
+  @override
+  void dispose() {
+    _drive = null;
+  }
+
+  Allegrex _createCpu() => Allegrex(mem)
+      ..onSyscall = (code) => _kernel?.dispatch(cpu, code);
 
   void _load() {
     mem.clear();
-    cpu = Allegrex(mem);
-    cpu.onSyscall = (code) => _kernel?.dispatch(cpu, code);
     final image = PspElf.load(mem, _rom!);
+    cpu = _createCpu();
     final kernel = PspKernel(mem, padPort, image.end);
     kernel.audioSink = (samples) =>
         _audioOut?.call(AudioBuffer(44100, 2, samples));
     kernel.disc = _disc;
     kernel.memStick = memStick;
+    kernel.mediaDecoder = _mediaDecoder;
     _kernel = kernel;
     final main = kernel.startModule(image);
     cpu.copyFrom(main.state);
@@ -169,36 +221,32 @@ class Psp extends Core {
     if (_rom != null) _load();
   }
 
-  static const _stepLine = 1;
-  static const _stepStopped = 2;
-
   @override
   ExecResult exec(bool step) {
-    final status = _advance();
-    return ExecResult(cpu.clocks, status == _stepStopped, status == _stepLine);
-  }
-
-  /// Runs to the next scanline boundary. When no thread can run, time
-  /// still passes: the clock jumps to the next wake-up or the boundary.
-  int _advance() {
     final kernel = _kernel;
-    if (kernel == null || kernel.exited) return _stepStopped;
-    final target = _nextLineAt;
-    while (cpu.clocks < target) {
-      if (!kernel.runnable) {
-        final wake = kernel.nextWake;
-        var jump = target;
-        if (wake != null && wake < jump) jump = wake;
-        if (jump > cpu.clocks) cpu.clocks = jump;
-        if (wake != null && cpu.clocks >= wake) kernel.wakeDue(cpu);
-        if (!kernel.runnable && cpu.clocks >= target) break;
-        if (kernel.exited) return _stepStopped;
-        continue;
-      }
-      if (!cpu.step()) return _stepStopped;
-      if (kernel.exited) return _stepStopped;
+    if (kernel == null || kernel.exited) {
+      return ExecResult(cpu.clocks, true, false)..executed0 = false;
+    }
+    var executed = false;
+    while (cpu.clocks < _nextLineAt) {
       final wake = kernel.nextWake;
       if (wake != null && cpu.clocks >= wake) kernel.wakeDue(cpu);
+      if (!kernel.runnable) {
+        final nextWake = kernel.nextWake;
+        cpu.clocks = nextWake != null && nextWake < _nextLineAt
+            ? nextWake
+            : _nextLineAt;
+        continue;
+      }
+      executed = true;
+      if (!cpu.step() || kernel.exited) {
+        return ExecResult(cpu.clocks, true, false);
+      }
+      final nextWake = kernel.nextWake;
+      if (nextWake != null && cpu.clocks >= nextWake) kernel.wakeDue(cpu);
+      if (step && cpu.clocks < _nextLineAt) {
+        return ExecResult(cpu.clocks, false, false);
+      }
     }
     _nextLineAt += clocksInScanline;
     _line++;
@@ -207,7 +255,7 @@ class Psp extends Core {
       kernel.flushAudio(cpu.clocks);
     }
     if (_line >= scanlinesInFrame) _line = 0;
-    return _stepLine;
+    return ExecResult(cpu.clocks, false, true)..executed0 = executed;
   }
 
   @override
@@ -227,6 +275,8 @@ class Psp extends Core {
     return ImageBuffer(480, 272, _pixels);
   }
 
+  /// The color of a frame buffer pixel. The display shows no alpha, so
+  /// every pixel is opaque whatever its alpha bits hold.
   static int _pixel(PspMemory mem, int at, int format) {
     switch (format) {
       case 0: // 5 bits red, 6 green, 5 blue
@@ -241,16 +291,15 @@ class Psp extends Core {
         final r = (v & 0x1f) << 3 | (v & 0x1f) >> 2;
         final g = (v >> 5 & 0x1f) << 3 | (v >> 5 & 0x1f) >> 2;
         final b = (v >> 10 & 0x1f) << 3 | (v >> 10 & 0x1f) >> 2;
-        return (v & 0x8000 != 0 ? 0xff000000 : 0) | r | g << 8 | b << 16;
+        return 0xff000000 | r | g << 8 | b << 16;
       case 2: // 4 bits per channel
         final v = mem.read16(at);
         final r = (v & 0xf) << 4 | v & 0xf;
         final g = (v >> 4 & 0xf) << 4 | (v >> 4 & 0xf);
         final b = (v >> 8 & 0xf) << 4 | (v >> 8 & 0xf);
-        final a = (v >> 12 & 0xf) << 4 | (v >> 12 & 0xf);
-        return a << 24 | r | g << 8 | b << 16;
+        return 0xff000000 | r | g << 8 | b << 16;
       default: // 8 bits per channel, stored red first
-        return mem.read32(at);
+        return 0xff000000 | mem.read32(at);
     }
   }
 
@@ -264,10 +313,10 @@ class Psp extends Core {
     writer.bytes(mem.vram);
     writer.bytes(mem.scratch);
     writer.section('cpu');
-    _writeCpu(writer, cpu);
-    writer.int32(cpu.clocks);
+    cpu.saveState(writer);
+    writer.int64(cpu.clocks);
     writer.int32(_line);
-    writer.int32(_nextLineAt);
+    writer.int64(_nextLineAt);
     kernel.saveState(writer, cpu);
     return writer.take();
   }
@@ -276,60 +325,20 @@ class Psp extends Core {
   void loadState(Uint8List state) {
     final kernel = _kernel;
     if (kernel == null) throw StateError('no media loaded');
-    final reader = StateReader(state, 'psp', _stateVersion, _mediaId);
+    final reader = StateReader(state, 'psp', _stateVersion, _mediaId,
+        minimumVersion: 4);
     reader.section('mem');
     reader.bytesInto(mem.ram);
     reader.bytesInto(mem.vram);
     reader.bytesInto(mem.scratch);
     reader.section('cpu');
-    _readCpu(reader, cpu);
-    cpu.clocks = reader.int32();
+    cpu.loadState(reader);
+    final legacy = reader.version == 4;
+    cpu.clocks = legacy ? reader.int32().toUnsigned(32) : reader.int64();
     _line = reader.int32();
-    _nextLineAt = reader.int32();
+    _nextLineAt = legacy ? reader.int32().toUnsigned(32) : reader.int64();
     kernel.loadState(reader);
     reader.end();
-  }
-
-  static void _writeCpu(StateWriter writer, AllegrexState state) {
-    writer.ints(state.r);
-    writer.bytes(state.f.buffer
-        .asUint8List(state.f.offsetInBytes, state.f.lengthInBytes));
-    writer.ints(state.cop0);
-    writer.int32(state.hi);
-    writer.int32(state.lo);
-    writer.int32(state.pc);
-    writer.int32(state.nextPc);
-    writer.int32(state.fcr31);
-    writer.int32(state.fcc);
-    writer.boolean(state.linked);
-    writer.bytes(state.v.buffer
-        .asUint8List(state.v.offsetInBytes, state.v.lengthInBytes));
-    writer.int32(state.vpfxs);
-    writer.int32(state.vpfxt);
-    writer.int32(state.vpfxd);
-    writer.int32(state.vcc);
-    writer.ints(state.rcx);
-  }
-
-  static void _readCpu(StateReader reader, AllegrexState state) {
-    reader.intsInto(state.r);
-    reader.bytesInto(state.f.buffer
-        .asUint8List(state.f.offsetInBytes, state.f.lengthInBytes));
-    reader.intsInto(state.cop0);
-    state.hi = reader.int32();
-    state.lo = reader.int32();
-    state.pc = reader.int32();
-    state.nextPc = reader.int32();
-    state.fcr31 = reader.int32();
-    state.fcc = reader.int32();
-    state.linked = reader.boolean();
-    reader.bytesInto(state.v.buffer
-        .asUint8List(state.v.offsetInBytes, state.v.lengthInBytes));
-    state.vpfxs = reader.int32();
-    state.vpfxt = reader.int32();
-    state.vpfxd = reader.int32();
-    state.vcc = reader.int32();
-    reader.intsInto(state.rcx);
   }
 
   @override
@@ -341,8 +350,32 @@ class Psp extends Core {
     final kernel = _kernel;
     if (kernel == null) return 'psp: no media';
     final thread = kernel.current;
+    final failed = cpu.failedAt < 0
+        ? ''
+        : 'failed at 0x${cpu.failedAt.toRadixString(16)} word '
+            '0x${cpu.failedWord.toRadixString(16).padLeft(8, '0')}\n';
     return 'pc 0x${cpu.pc.toRadixString(16)} thread ${thread?.name ?? '-'} '
         'vcount ${kernel.vcount} unknown ${kernel.unknownCalls.length}\n'
+        '$failed'
+        '${kernel.threads.values.map((t) => '  thread ${t.id} ${t.name} '
+            'prio 0x${t.priority.toRadixString(16)} status ${t.status} pc 0x${t.state.pc.toRadixString(16)} '
+            'ra 0x${t.state.r[31].toRadixString(16)}'
+            '${_waitDetail(t)}\n').join()}'
+        '${kernel.unknownCallLines.map((line) => '  $line\n').join()}'
         '${kernel.log.toString()}';
+  }
+
+  /// What a blocked thread waits on, and the kernel call it made last.
+  static String _waitDetail(PspThread t) {
+    final wait = switch (t.status) {
+      PspThreadStatus.waitEvent => ' event ${t.waitEvent} '
+          'bits 0x${t.waitBits.toRadixString(16)} mode ${t.waitMode}',
+      PspThreadStatus.waitSema => ' sema ${t.waitSema}',
+      _ => '',
+    };
+    final call = t.lastCall;
+    return call == null
+        ? wait
+        : '$wait last ${call.library} 0x${call.nid.toRadixString(16)}';
   }
 }

@@ -10,6 +10,26 @@ class StateMismatch implements Exception {
   String toString() => 'StateMismatch: $message';
 }
 
+/// The header of a saved state: the core that saved it, its format version
+/// and the identity of the media it was saved with.
+class StateHeader {
+  final String core;
+  final int version;
+  final int media;
+
+  const StateHeader(this.core, this.version, this.media);
+
+  /// Reads the header of [state]; throws [StateMismatch] when it is not a
+  /// state written by [StateWriter].
+  factory StateHeader.of(Uint8List state) {
+    final r = StateReader._header(state);
+    if (r._tryString() != 'fnesemu-state') {
+      throw const StateMismatch('not a fnesemu state');
+    }
+    return StateHeader(r.string(), r.int32(), r.int64());
+  }
+}
+
 /// Writes the logical state of a core as typed little-endian values.
 ///
 /// A state starts with a header naming the core, its format version and an
@@ -73,10 +93,13 @@ class StateWriter {
 class StateReader {
   final ByteData _data;
   int _at = 0;
+  late final int version;
 
   /// Reads and validates the header; throws [StateMismatch] when the core,
-  /// version or media identity differs.
-  StateReader(Uint8List state, String core, int version, int media)
+  /// version or media identity differs. Versions from [minimumVersion] up to
+  /// [currentVersion] are accepted, only [currentVersion] without it.
+  StateReader(Uint8List state, String core, int currentVersion, int media,
+      {int? minimumVersion})
       : _data = ByteData.sublistView(state) {
     if (_tryString() != 'fnesemu-state') {
       throw const StateMismatch('not a fnesemu state');
@@ -85,12 +108,15 @@ class StateReader {
     if (savedCore != core) {
       throw StateMismatch('state of $savedCore, not $core');
     }
-    final savedVersion = int32();
-    if (savedVersion != version) {
-      throw StateMismatch('format version $savedVersion, expected $version');
+    version = int32();
+    if (version > currentVersion ||
+        version < (minimumVersion ?? currentVersion)) {
+      throw StateMismatch('format version $version, expected $currentVersion');
     }
     if (int64() != media) throw const StateMismatch('different media');
   }
+
+  StateReader._header(Uint8List state) : _data = ByteData.sublistView(state);
 
   String? _tryString() {
     try {

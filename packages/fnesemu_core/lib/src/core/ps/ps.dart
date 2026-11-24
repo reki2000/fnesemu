@@ -154,6 +154,7 @@ class Ps extends Core {
     }
 
     bus.rom.setAll(0, files.first);
+    _biosMedia = stateMediaHash(files.first);
 
     if (fastBoot) {
       const fastBootSequence = [
@@ -313,9 +314,14 @@ class Ps extends Core {
 
   static const _stateVersion = 1;
 
-  /// The BIOS bytes, the sideloaded PS-EXE and the inserted disc.
+  // the hash of the BIOS image as given, before the fast boot patch
+  int? _biosMedia;
+
+  /// The BIOS image, the sideloaded PS-EXE and the inserted disc. The BIOS
+  /// counts as given, so that a state saved with [fastBoot] loads into a
+  /// core without it.
   int get _media {
-    var h = stateMediaHash(bus.rom);
+    var h = _biosMedia ?? stateMediaHash(bus.rom);
     h = stateMediaHashAll(h, cpu.exe);
     return stateMediaHashAll(h, [cdrom.driveMedia]);
   }

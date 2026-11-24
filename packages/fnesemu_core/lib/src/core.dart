@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'cdrom_drive.dart';
 import 'compute_sink.dart';
 import 'core_debug.dart';
+import 'media_decoder.dart';
 import 'pad_button.dart';
 import 'pad_source.dart';
 import 'sram.dart';
+import 'state.dart';
 import 'types.dart';
 import 'video_debug.dart';
 
@@ -53,8 +56,8 @@ class Core extends CoreDebug {
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio) {}
 
-  /// connects the CD-ROM drive. cores without a CD-ROM ignore it
-  void setCdromDrive(CdromDrive drive) {}
+  /// Connects the drive and completes any media loading needed before boot.
+  FutureOr<void> setCdromDrive(CdromDrive drive) {}
 
   /// sets the BIOS (system ROM) images supplied by the user. called before
   /// [setRom], or instead of it to boot the BIOS without a cartridge.
@@ -67,6 +70,11 @@ class Core extends CoreDebug {
   /// runs the video chip on the host GPU in the cores that support it;
   /// null draws in the core. other cores ignore it
   set computeSink(ComputeSink? sink) {}
+
+  /// decodes the movies and the music of the media in the cores that play
+  /// them; null plays them without a picture or sound. other cores ignore
+  /// it
+  set mediaDecoder(MediaDecoder? decoder) {}
 
   /// Asks for the results on the GPU that the core needs before it runs on
   /// or saves a state, when the sink cannot wait by itself
@@ -90,6 +98,11 @@ class Core extends CoreDebug {
   /// core, media or format version. Callbacks, media and configuration of
   /// this instance are kept.
   void loadState(Uint8List state) => throw UnsupportedError('Core.loadState');
+
+  /// The media identity that [saveState] writes in the [StateHeader], for
+  /// finding the media of a saved state. Cores may override it with a way
+  /// that does not save the whole state.
+  int get stateMedia => StateHeader.of(saveState()).media;
 
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');
