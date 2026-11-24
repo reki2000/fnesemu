@@ -46,6 +46,23 @@ class Timers {
     }
   }
 
+  /// The CPU cycles until the next overflow of a prescaled channel
+  /// that raises an interrupt or drives a count-up channel, or a large
+  /// number when there is none.
+  int cyclesToOverflow() {
+    var cycles = 0x7fffffff;
+    for (int ch = 0; ch < 4; ch++) {
+      if (_activeMask & (1 << ch) == 0) continue;
+      if (!_irqEnable(ch) && !(ch < 3 && _enabled(ch + 1) && _countUp(ch + 1))) {
+        continue;
+      }
+      final shift = _prescalerShift[_control[ch].mask2];
+      final left = (0x10000 - _counter[ch]).shl(shift) - _sub[ch];
+      if (left < cycles) cycles = left;
+    }
+    return cycles;
+  }
+
   void _increment(int ch, int amount) {
     int c = _counter[ch] + amount;
     if (c <= 0xffff) {
