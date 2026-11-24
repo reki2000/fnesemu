@@ -68,13 +68,37 @@ final class PspJit extends JitAdapter {
     }
   }
 
+  /// Maps video memory page [page] in all mirrors as its [state] of
+  /// [PspVramGuard] allows: a synced page for reads, a page the CPU wrote
+  /// for both, and a page the GPU wrote for neither. The accesses that miss
+  /// leave compiled code, and the interpreter makes them through the guard.
+  void setVramPage(int page, int state) {
+    final offset = page << rt.pageShift;
+    final bytes = rt.pageBytes;
+    for (var m = 0; m < PspMemory.vramMirrors; m += PspMemory.vramSize) {
+      final at = PspMemory.vramAt + m + offset;
+      switch (state) {
+        case PspVramGuard.synced:
+          rt.mapPages(at, bytes, memory.vram, offset: offset, write: false);
+          rt.unmapPages(at, bytes, read: false);
+        case PspVramGuard.cpuDirty:
+          rt.mapPages(at, bytes, memory.vram, offset: offset);
+        default:
+          rt.unmapPages(at, bytes);
+      }
+    }
+  }
+
   int? _codeWord(int pc) {
     if (pc < 0 || pc > 0xffffffff || pc & 3 != 0) return null;
     final phys = PspMemory.physical(pc);
+    // Code in video memory is not compiled while the GPU owns it, so that
+    // the page mappings stay those of [setVramPage].
     if (phys >= PspMemory.ramAt && phys < PspMemory.ramEnd ||
         phys >= PspMemory.scratchAt &&
             phys < PspMemory.scratchAt + PspMemory.scratchSize ||
-        phys >= PspMemory.vramAt &&
+        memory.guard == null &&
+            phys >= PspMemory.vramAt &&
             phys < PspMemory.vramAt + PspMemory.vramMirrors) {
       return memory.read32(pc);
     }
