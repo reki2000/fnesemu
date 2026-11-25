@@ -418,7 +418,11 @@ class CompiledApp {
       UH: x0 => new Uint8Array(x0),
       UI: () => globalThis.AudioStream,
       UJ: (x0,x1) => { x0.width = x1 },
-      UK: (d, precision) => d.toPrecision(precision),
+      UK: (o) => {
+        const typeofValue = typeof o;
+        return (typeofValue === 'object') ||
+            typeofValue === 'function';
+      },
       UL: () => globalThis.navigator.gpu,
       V: (constructor, args) => {
         const factoryFunction = constructor.bind.apply(
@@ -439,7 +443,7 @@ class CompiledApp {
       VH: (x0,x1,x2) => x0.slice(x1,x2),
       VI: x0 => x0.uninit(),
       VJ: (x0,x1) => x0.toDataURL(x1),
-      VK: (d, f) => d.toExponential(f),
+      VK: (d, precision) => d.toPrecision(precision),
       VL: x0 => x0.hardwareConcurrency,
       W: x0 => new Array(x0),
       WB: o => {
@@ -455,7 +459,7 @@ class CompiledApp {
       WH: (x0,x1) => x0.decode(x1),
       WI: x0 => x0.resume(),
       WJ: (x0,x1,x2,x3) => x0.drawImage(x1,x2,x3),
-      WK: (wasmFunction,f) => finalizeWrapper(f, function(x0,x1,x2) { return wasmFunction(f,arguments.length,x0,x1,x2) }),
+      WK: (d, f) => d.toExponential(f),
       WL: x0 => x0.userAgent,
       X: o => [o],
       XB: Function.prototype.call.bind(DataView.prototype.setFloat64),
@@ -473,7 +477,7 @@ class CompiledApp {
       XH: (x0,x1) => x0.adoptText(x1),
       XI: (x0,x1,x2,x3,x4,x5) => x0.init(x1,x2,x3,x4,x5),
       XJ: (x0,x1) => x0.getContext(x1),
-      XK: x0 => globalThis.WebAssembly.validate(x0),
+      XK: (wasmFunction,f) => finalizeWrapper(f, function(x0,x1,x2) { return wasmFunction(f,arguments.length,x0,x1,x2) }),
       XL: x0 => x0.navigator,
       Y: (o0, o1) => [o0, o1],
       YB: Function.prototype.call.bind(DataView.prototype.setUint8),
@@ -485,11 +489,7 @@ class CompiledApp {
       YH: x0 => x0.first(),
       YI: Function.prototype.call.bind(DataView.prototype.getBigUint64),
       YJ: x0 => x0.displayHeight,
-      YK: (o) => {
-        const typeofValue = typeof o;
-        return (typeofValue === 'object') ||
-            typeofValue === 'function';
-      },
+      YK: x0 => globalThis.WebAssembly.validate(x0),
       YL: x0 => x0.name,
       Z: (o0, o1, o2) => [o0, o1, o2],
       ZB: (t, s) => t.set(s),
