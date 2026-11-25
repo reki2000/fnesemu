@@ -211,6 +211,7 @@ final class Sh2Jit extends JitAdapter {
   @override
   void reset() {
     super.reset();
+    _interpretPc = -1;
     rt.ctx[JitCtx.stop] = 0;
   }
 
@@ -218,9 +219,17 @@ final class Sh2Jit extends JitAdapter {
   int? get idleCheckPc =>
       rt.ctx[JitCtx.stop] == 0 ? null : rt.ctx[Sh2Translator.idleFromPc];
 
+  /// the PC of the instruction that the last batch left to the interpreter,
+  /// or -1; entering the code there again would leave before any work
+  int _interpretPc = -1;
+
   /// Returns the next PC and elapsed clocks, or null when CPU execution is due.
   (int, int)? run(int pc, int budget) {
     idleDetected = false;
+    if (pc == _interpretPc) {
+      _interpretPc = -1;
+      return null;
+    }
     if (budget <= 0 || pc.isOdd) return null;
     if (_driver.isFallback(pc, 0)) return null;
     if (releaseCodePages) rt.ctx[JitCtx.faultAddr] = 0xffffffff;
@@ -240,6 +249,7 @@ final class Sh2Jit extends JitAdapter {
     }
     final elapsed = _driver.lastClocks;
     if (elapsed == 0) return null;
+    if (reason == Sh2Translator.interpret) _interpretPc = rt.exitPc;
     return (rt.exitPc, elapsed);
   }
 
