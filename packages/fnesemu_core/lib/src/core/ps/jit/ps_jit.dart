@@ -29,7 +29,10 @@ final class PsJit extends JitAdapter {
   static const ctxRegs = R3000Translator.ctxRegs;
   static const ctxHi = R3000Translator.ctxHi, ctxLo = R3000Translator.ctxLo;
   static const ctxPendingValue = R3000Translator.ctxPendingValue;
-  static const _ctxWords = ctxPendingValue + 1;
+
+  /// the 64 GTE registers, which the blocks move themselves, see [Cop2]
+  static const ctxCop2 = ctxPendingValue + 1;
+  static const _ctxWords = ctxCop2 + 64;
 
   /// the exit of an instruction run by the interpreter
   static const reasonInterpret = R3000Translator.reasonInterpret;
@@ -93,6 +96,17 @@ final class PsJit extends JitAdapter {
     return jit = PsJit._(rt, native, compileThreshold);
   }
 
+  /// whether the GTE registers live in the context
+  bool _holdsCop2 = false;
+
+  /// gives the GTE registers back to the cpu before the context goes
+  @override
+  void dispose() {
+    if (_holdsCop2) cpu.cop2.releaseRegisters();
+    _holdsCop2 = false;
+    super.dispose();
+  }
+
   /// connects the cpu and the bus created on [regs], [ram], [rom] and
   /// [scratchPad]
   void attach(R3000 cpu, Bus bus) {
@@ -113,6 +127,8 @@ final class PsJit extends JitAdapter {
     _syncScratchPad();
 
     final cop2 = cpu.cop2;
+    cop2.useRegisters(Uint32List.sublistView(rt.ctx, ctxCop2, ctxCop2 + 64));
+    _holdsCop2 = true;
     _translator = R3000Translator(
       fetch: _fetch,
       endsAfterStore: _endsAfterStore,
@@ -132,6 +148,11 @@ final class PsJit extends JitAdapter {
           cop2.writeCtrl(reg, value);
           return 0;
         }),
+      ),
+      cop2Registers: (
+        ctx: ctxCop2,
+        read: Cop2.heldRegister,
+        write: Cop2.writeForms
       ),
       isHook: _isHook,
       maxInstructions: 64,
