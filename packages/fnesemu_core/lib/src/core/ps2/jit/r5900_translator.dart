@@ -214,6 +214,11 @@ final class R5900Translator {
   /// runtime has the vector operations.
   bool _cop2Usable = false;
 
+  /// Whether the TLB mapped the user addresses from 0x30000000 to main
+  /// memory less 0x30000000 (the tag's bit 2, set by the adapter from
+  /// [Tlb.ucabIdentity]).
+  bool _ucab = false;
+
   /// whether the runtime has the vector operations ([JitRuntime.vectors])
   final bool vectors;
 
@@ -287,6 +292,7 @@ final class R5900Translator {
   IrBlock? translate(int pc, {int tag = 0}) {
     _cop1Usable = tag & 1 != 0;
     _cop2Usable = tag & 2 != 0 && vectors;
+    _ucab = tag & 4 != 0;
     b = IrBuilder(pc, tag: tag);
     _vu0.reset(b);
     _wideRegs.fillRange(0, 32, null);
@@ -526,14 +532,20 @@ final class R5900Translator {
   /// exits unless it is aligned to [size] and in a segment that the
   /// adapter maps to main memory: user addresses below 0x40000000 (which
   /// the adapter requires to be mapped one to one) and the unmapped kernel
-  /// segments. The scratchpad is moved to [scratchAlias], and the other
-  /// addresses that reach that alias exit. Pages outside main memory and
-  /// the scratchpad exit at the access.
+  /// segments. In blocks compiled with [_ucab], the user addresses from
+  /// 0x30000000 reach main memory at the address less 0x30000000. The
+  /// scratchpad is moved to [scratchAlias], and the other addresses that
+  /// reach that alias exit. Pages outside main memory and the scratchpad
+  /// exit at the access.
   IrValue _checkAddress(IrValue address, int size, IrExit exit) {
     final scratch = b.eq(b.and(address, _c(~(Ps2Bus.scratchSize - 1))),
         _c(Ps2Bus.scratchBase));
-    final mapped = b.select(scratch,
+    var mapped = b.select(scratch,
         b.xor(address, _c(Ps2Bus.scratchBase ^ scratchAlias)), address);
+    if (_ucab) {
+      final ucab = b.eq(b.shrU(address, _c(28)), _c(3));
+      mapped = b.select(ucab, b.and(address, _c(0x0fffffff)), mapped);
+    }
     final segment = b.shrU(mapped, _c(29));
     final allowed = b.and(b.shrU(_c(0x33), segment), _c(1));
     var bad = b.eq(allowed, _c(0));
@@ -541,6 +553,12 @@ final class R5900Translator {
         bad,
         b.eq(b.and(address, _c(0x1fffffff & ~(Ps2Bus.scratchSize - 1))),
             _c(scratchAlias)));
+    if (_ucab) {
+      bad = b.or(
+          bad,
+          b.eq(b.and(address, _c(~(Ps2Bus.scratchSize - 1))),
+              _c(0x30000000 | scratchAlias)));
+    }
     if (size > 1) bad = b.or(bad, b.ne(b.and(address, _c(size - 1)), _c(0)));
     b.exitIf(bad, exit);
     return mapped;

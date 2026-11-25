@@ -165,7 +165,10 @@ final class Ps2Jit extends JitAdapter {
   }
 
   bool _outsideRam(int base, int offset) {
-    final address = cpu.reg(base) + offset;
+    var address = (cpu.reg(base) + offset) & 0xffffffff;
+    if (address >>> 28 == 3 && cpu.bus.tlb!.ucabIdentity) {
+      address &= 0x0fffffff;
+    }
     return !_isScratch(address) && (address & 0x1fffffff) >= ram.length;
   }
 
@@ -193,15 +196,17 @@ final class Ps2Jit extends JitAdapter {
     // set keep working when the bit later clears. COP2 counts as usable
     // only when VU0 keeps its registers in the context.
     final status = cpu.cop0[R5900.cop0Status];
+    final tlb = cpu.bus.tlb!;
     final tag = (status >> 29 & 1) |
-        (_vu0 != null && identical(cpu.vu0, _vu0) ? status >> 29 & 2 : 0);
+        (_vu0 != null && identical(cpu.vu0, _vu0) ? status >> 29 & 2 : 0) |
+        (tlb.ucabIdentity ? 4 : 0);
     final slot = (pc >> 2) & _refusedMask;
     if (_refusedKey[slot] == pc | tag << 32 &&
         _ram.getUint32(pc & 0x1fffffff, Endian.little) == _refusedWord[slot]) {
       return false;
     }
     if (!_canFetch(pc)) return false;
-    if (!cpu.bus.tlb!.userIdentity) return false;
+    if (!tlb.userIdentity) return false;
     if (pc == _unmappedLoadPc &&
         _ram.getUint32(pc & 0x1fffffff, Endian.little) == _unmappedLoadWord &&
         _outsideRam(_unmappedLoadBase, _unmappedLoadOffset)) {
