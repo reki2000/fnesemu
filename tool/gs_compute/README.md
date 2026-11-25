@@ -1,9 +1,9 @@
 # Compute GS checks
 
-Tools that check the compute GS of the PS2 core (`packages/fnesemu_core/lib/src/core/ps2/gs/gs_compute.dart`) and the compute CORE of the DC core (`packages/fnesemu_core/lib/src/core/dc/dc_compute.dart`) on the GPU through `packages/mp_compute`.
+Tools that check the compute GS of the PS2 core (`packages/fnesemu_core/lib/src/core/ps2/gs/gs_compute.dart`) the compute CORE of the DC core (`packages/fnesemu_core/lib/src/core/dc/dc_compute.dart`) and the compute GE of the PSP core (`packages/fnesemu_core/lib/src/core/psp/ge_compute.dart`) on the GPU through `packages/mp_compute`.
 
 - `bin/frame_check.dart`: replays a GS frame trace through the core's software raster and through the compute GS, and compares the local memory and the displayed buffer.
-- `bin/core_check.dart`: runs the whole core from a state twice, with the software renderer and with the compute program attached as the app attaches it, and compares the pictures of each frame. `--core` selects `ps2` (the default) or `dc`.
+- `bin/core_check.dart`: runs the whole core from a state twice, with the software renderer and with the compute program attached as the app attaches it, and compares the pictures of each frame. `--core` selects `ps2` (the default), `dc` or `psp`. `--delay 1` compares each software picture with the compute picture of the next frame, for the PSP, which shows the picture of the GPU one frame late.
 - `test/dc_render_test.dart`: runs the DC renderer tests of `packages/fnesemu_core/test/core/dc/gpu_*_test.dart` with the compute program attached to each renderer. It is skipped when there is no adapter.
 - `bin/trace_stats.dart`: counts the primitives, states and transfers of a trace.
 - `bin/dc_capture.dart`: runs the DC core from a state and writes the inputs of renders (registers, palette and VRAM) to capture files.
@@ -16,7 +16,7 @@ Traces come from `packages/fnesemu_core/tool/gs_trace_record.dart`.
 
 ```
 dart run bin/frame_check.dart TRACE_DIR [--adapter NAME] [--rounds N] [--chunk STEPS] [--dump N]
-dart run bin/core_check.dart STATE FRAMES OUT BIOS DISC [--core ps2|dc] [--bios DIR] [--jit] [--adapter NAME] [--max-over8 N]
+dart run bin/core_check.dart STATE FRAMES OUT BIOS DISC [--core ps2|dc|psp] [--bios DIR] [--jit] [--adapter NAME] [--max-over8 N] [--delay N]
 dart test test/dc_render_test.dart
 dart run bin/trace_stats.dart TRACE_DIR
 dart run bin/dc_capture.dart STATE FRAMES OUT BOOT DISC [--bios FILE] [--jit on|off] [--count N]
@@ -44,6 +44,11 @@ For timing, build with `dart build cli --target bin/frame_check.dart`. `MPC_PROF
 - A check that the software renderer throws at a pixel is reported by the GPU as an error code, and the core throws it when it reaches that region entry.
 - Only the VRAM pages inside the texture spans of a render that were written since they were last copied are uploaded.
 - The tiles of a render are written to VRAM only when a CPU or DMA access, the scanout, the next render or a saved state needs them, so the CPU, the DMA and the display see the same bytes as without the wait. The render tests read VRAM directly, so `dc_render_test` turns this off with `deferTiles`.
+
+## Differences of the PSP compute GE
+
+- Barycentric weights, texture coordinates and colours use 32-bit floats on the GPU where the core uses doubles, so a few pixels differ by a step.
+- A draw that reads a texture in the pages it draws into can read pixels that other threads of its batch already wrote.
 
 ## Notes on speed
 

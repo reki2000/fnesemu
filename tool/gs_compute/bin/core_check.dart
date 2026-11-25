@@ -4,14 +4,17 @@
 //
 // dart run bin/core_check.dart STATE FRAMES OUT MEDIA... [--core NAME]
 //     [--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N]
-//     [--warmup N]
+//     [--warmup N] [--delay N]
 //
-// --core is ps2 (the default) or dc. MEDIA are the BIOS and the disc, or
-// for dc the boot ROM and the disc, with the flash as --bios. Writes the last pictures as software.png
+// --core is ps2 (the default), dc or psp. MEDIA are the BIOS and the disc,
+// for dc the boot ROM and the disc, with the flash as --bios, and for psp
+// the disc. Writes the last pictures as software.png
 // and compute.png to OUT, and prints the time per frame of both runs. Exits
 // with 1 when a picture has more than --max-over8 (16) pixels that differ by
 // more than 8 in a channel, as the compute GS interpolates in 32-bit floats.
 // --warmup runs N frames before the FRAMES that are timed and compared.
+// --delay compares each software picture with the compute picture N frames
+// later, for a core that shows the picture of the GPU one frame late.
 //
 // The headless session is imported from its directory, as it is not in a
 // library of fnesemu_core.
@@ -81,7 +84,7 @@ Future<void> main(List<String> args) async {
   if (positional.length < 4) {
     stderr.writeln('usage: STATE FRAMES OUT MEDIA... [--core NAME] '
         '[--bios FILE] [--jit on|off] [--adapter NAME] [--max-over8 N] '
-        '[--warmup N]');
+        '[--warmup N] [--delay N]');
     exit(64);
   }
   final [state, frameText, out, ...media] = positional;
@@ -93,6 +96,7 @@ Future<void> main(List<String> args) async {
   ];
   final maxOver8 = int.parse(option('--max-over8', '16'));
   final warmup = int.parse(option('--warmup', '0'));
+  final delay = int.parse(option('--delay', '0'));
 
   final gpu = WgpuComputeSink.open(adapter: option('--adapter', ''));
   if (gpu == null) exit(2);
@@ -118,8 +122,8 @@ Future<void> main(List<String> args) async {
   );
 
   var worst = 0;
-  for (var f = 0; f < frames; f++) {
-    final a = software[f], b = compute[f];
+  for (var f = 0; f + delay < frames; f++) {
+    final a = software[f], b = compute[f + delay];
     var over8 = 0, differing = 0;
     if (a.length != b.length) {
       over8 = a.length;

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../util/state.dart';
 import 'allegrex.dart';
+import 'ge_compute.dart';
 import 'memory.dart';
 
 /// One queued display list. Execution is synchronous in this core: a list
@@ -59,6 +60,12 @@ class PspGe {
 
   final _palette = Uint32List(1024);
   int _paletteCount = 0;
+
+  /// counts the palette loads, so that [compute] copies a palette once
+  int _paletteVersion = 0;
+
+  /// The GPU that rasterizes the draws while it is set; null draws here.
+  GeCompute? compute;
 
   // List execution state.
   int _base = 0;
@@ -196,6 +203,7 @@ class PspGe {
   void _run(Allegrex cpu, PspGeList entry) {
     var pc = entry.pc;
     var budget = 1000000;
+    compute?.invalidateRam();
     _stack.clear();
     _offsetStack.clear();
     var signal = -1;
@@ -228,6 +236,7 @@ class PspGe {
           if (entry.state != stateDone) entry.state = stateDrawingDone;
           if (finishFunc != 0) {
             callbackRunner?.call(cpu, finishFunc, arg & 0xffff, finishArg);
+            compute?.invalidateRam();
           }
           break;
         case 0x0e: // SIGNAL
@@ -306,6 +315,7 @@ class PspGe {
           break;
         case 0xea: // TRANSFERSTART
           _transfer(arg);
+          compute?.invalidateRam();
           break;
         default:
           break; // state commands live in the register file alone
@@ -349,6 +359,7 @@ class PspGe {
       default:
         if (signalFunc != 0) {
           callbackRunner?.call(cpu, signalFunc, value, signalArg);
+          compute?.invalidateRam();
         }
         break;
     }
@@ -364,6 +375,7 @@ class PspGe {
     final total = blocks * (format == 3 ? 8 : 16);
     final phys = PspMemory.physical(addr);
     _paletteCount = 0;
+    _paletteVersion++;
     for (var i = 0; i < total && _paletteCount < 1024; i++) {
       if (format == 3) {
         _palette[_paletteCount++] = mem.read32(phys + i * 4);
@@ -407,6 +419,14 @@ class PspGe {
     final dx = regs[0xec] & 0x3ff, dy = (regs[0xec] >> 10) & 0x3ff;
     final w = (regs[0xee] & 0x3ff) + 1, h = ((regs[0xee] >> 10) & 0x3ff) + 1;
     final bpp = (arg & 1) == 0 ? 2 : 4;
+    if (compute?.transfer(src + (sy * srcPitch + sx) * bpp, srcPitch * bpp,
+            dst + (dy * dstPitch + dx) * bpp, dstPitch * bpp, w * bpp, h) ??
+        false) {
+      return;
+    }
+    // a source that the GPU drew is read back once, not at each byte
+    compute?.syncRange(src + (sy * srcPitch + sx) * bpp,
+        ((h - 1) * srcPitch + w) * bpp);
     for (var y = 0; y < h; y++) {
       final s = src + ((sy + y) * srcPitch + sx) * bpp;
       final d = dst + ((dy + y) * dstPitch + dx) * bpp;
@@ -607,6 +627,19 @@ extension PspGeDrawing on PspGe {
     final cleared = ((flags & 1 != 0 ? ~alpha : 0) |
             (flags & 2 != 0 ? alpha : 0)) &
         full;
+    final gpu = compute;
+    if (gpu != null &&
+        (flags & 4 == 0 || _zWidth > 0) &&
+        gpu.target(_fbAddr, _fbWidth, _fbFormat, _zAddr, _zWidth, _maxY())) {
+      gpu
+        ..reserve()
+        ..word(0, color)
+        ..word(1, depth)
+        ..word(2, cleared)
+        ..word(3, flags)
+        ..emit(GeCompute.clear, x0, y0, x1, y1, flags & 4 != 0);
+      return;
+    }
     for (var y = y0; y < y1; y++) {
       for (var x = x0; x < x1; x++) {
         if (cleared == full) {
@@ -975,6 +1008,19 @@ extension PspGeRaster on PspGe {
     final y1 = math.min(clip[3], math.max(a.y, b.y).ceil());
     final spanX = (b.x - a.x).abs() < 0.001 ? 1.0 : b.x - a.x;
     final spanY = (b.y - a.y).abs() < 0.001 ? 1.0 : b.y - a.y;
+    final gpu = compute;
+    if (gpu != null && _gpuState(gpu)) {
+      gpu
+        ..float(0, a.x)
+        ..float(1, a.y)
+        ..float(2, a.su)
+        ..float(3, a.sv)
+        ..float(4, spanX)
+        ..float(5, spanY)
+        ..vertex(1, b.x, b.y, b.z, b.su, b.sv, 1, b.r, b.g, b.b, b.a)
+        ..emit(GeCompute.sprite, x0, y0, x1, y1, _gpuDepth(gpu));
+      return;
+    }
     for (var y = y0; y < y1; y++) {
       for (var x = x0; x < x1; x++) {
         final s = _Vertex()
@@ -1035,6 +1081,19 @@ extension PspGeRaster on PspGe {
     final denom = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
     if (denom == 0) return;
     final flat = !_smooth;
+    final gpu = compute;
+    if (gpu != null && _gpuState(gpu)) {
+      // flat shading takes the last vertex's color everywhere
+      final (r0, g0, b0, a0) = flat ? (c.r, c.g, c.b, c.a) : (a.r, a.g, a.b, a.a);
+      final (r1, g1, b1, a1) = flat ? (c.r, c.g, c.b, c.a) : (b.r, b.g, b.b, b.a);
+      gpu
+        ..vertex(0, a.x, a.y, a.z, a.su, a.sv, a.invW, r0, g0, b0, a0)
+        ..vertex(1, b.x, b.y, b.z, b.su, b.sv, b.invW, r1, g1, b1, a1)
+        ..vertex(2, c.x, c.y, c.z, c.su, c.sv, c.invW, c.r, c.g, c.b, c.a)
+        ..emit(GeCompute.triangle, minX, minY, maxX + 1, maxY + 1,
+            _gpuDepth(gpu));
+      return;
+    }
     for (var y = minY; y <= maxY; y++) {
       for (var x = minX; x <= maxX; x++) {
         final px = x + 0.5, py = y + 0.5;
@@ -1096,6 +1155,14 @@ extension PspGeRaster on PspGe {
     final clip = _clipRect();
     final x = v.x.floor(), y = v.y.floor();
     if (x < clip[0] || y < clip[1] || x >= clip[2] || y >= clip[3]) return;
+    final gpu = compute;
+    if (gpu != null && _gpuState(gpu)) {
+      gpu
+        ..vertex(0, x.toDouble(), y.toDouble(), v.z, v.su, v.sv, v.invW, v.r,
+            v.g, v.b, v.a)
+        ..emit(GeCompute.point, x, y, x + 1, y + 1, _gpuDepth(gpu));
+      return;
+    }
     final s = _Vertex()
       ..x = x.toDouble()
       ..y = y.toDouble()
@@ -1108,6 +1175,89 @@ extension PspGeRaster on PspGe {
       ..b = v.b
       ..a = v.a;
     _shade(s);
+  }
+
+  static final _floatBits = Float32List(1);
+  static final _floatWord = Uint32List.view(_floatBits.buffer);
+
+  static int _bits(double v) {
+    _floatBits[0] = v;
+    return _floatWord[0];
+  }
+
+  /// Whether the draw set by [_gpuState] reads or writes the depth buffer.
+  bool _gpuDepth(GeCompute gpu) =>
+      gpu.state[GeCompute.sFlags] & GeCompute.fDepth != 0;
+
+  /// Sets the target and the state of the next draw on [gpu], with the
+  /// registers that [_shade] reads; false leaves the draw to this
+  /// rasterizer.
+  bool _gpuState(GeCompute gpu) {
+    if (!gpu.target(_fbAddr, _fbWidth, _fbFormat, _zAddr, _zWidth, _maxY())) {
+      return false;
+    }
+    final s = gpu.state;
+    final textured = _textured;
+    final depth = regs[0x23] & 1 != 0 && _zWidth > 0;
+    final through = regs[0x12] & 0x800000 != 0;
+    final filter = regs[0xc6];
+    s
+      ..[0] = (textured ? 1 : 0) |
+          (regs[0x22] & 1 != 0 ? 2 : 0) |
+          (regs[0x24] & 1 != 0 && _fbFormat != 0 ? 4 : 0) |
+          (depth ? 8 : 0) |
+          (depth && regs[0xe7] & 1 == 0 ? 16 : 0) |
+          (regs[0x21] & 1 != 0 ? 32 : 0) |
+          (through ? 64 : 0) |
+          (!through && regs[0xc0] & 3 == 0 ? 128 : 0) |
+          (((filter >> 8) & 7) == 1 || (filter & 7) == 1 ? 256 : 0) |
+          (regs[0xc2] & 1 != 0 ? 512 : 0) |
+          ((regs[0xc9] >> 8) & 1 != 0 ? 1024 : 0)
+      ..[1] = regs[0xc9] & 7
+      ..[2] = regs[0xca]
+      ..[3] = regs[0xdb]
+      ..[4] = regs[0xdc]
+      ..[5] = regs[0xdd]
+      ..[6] = regs[0xde]
+      ..[7] = regs[0xdf]
+      ..[8] = regs[0xe0]
+      ..[9] = regs[0xe1]
+      ..[10] = _keepMask
+      ..fillRange(11, stateWords, 0);
+    if (!textured) return gpu.setState(0, 0, _palette, 0, 0, false);
+    final level = _textureLevel();
+    final size = regs[0xb8 + level];
+    final texW = 1 << (size & 0xff).clamp(0, 10);
+    final texH = 1 << ((size >> 8) & 0xff).clamp(0, 10);
+    final format = regs[0xc3] & 0xf;
+    final bufWidth = regs[0xa8 + level] & 0xffff;
+    final pitch = bufWidth == 0 ? texW : bufWidth;
+    final base = _addr(regs[0xa0 + level], regs[0xa8 + level]);
+    final swizzled = regs[0xc2] & 1 != 0;
+    // the bytes from the base up to the last texel, which every texel
+    // offset stays below as it grows with x and y
+    final bytes = switch (format) {
+      4 => _texelOffset((texW - 1) >> 1, texH - 1, pitch >> 1, 1, swizzled) +
+          1,
+      5 => _texelOffset(texW - 1, texH - 1, pitch, 1, swizzled) + 1,
+      0 || 1 || 2 || 6 =>
+        _texelOffset(texW - 1, texH - 1, pitch, 2, swizzled) + 2,
+      3 || 7 => _texelOffset(texW - 1, texH - 1, pitch, 4, swizzled) + 4,
+      _ => 0,
+    };
+    s
+      ..[12] = texW
+      ..[13] = texH
+      ..[14] = pitch
+      ..[15] = format
+      ..[16] = regs[0xc7]
+      ..[17] = regs[0xc5]
+      ..[20] = _bits(PspGe._floatArg(regs[0x48]))
+      ..[21] = _bits(PspGe._floatArg(regs[0x49]))
+      ..[22] = _bits(PspGe._floatArg(regs[0x4a]))
+      ..[23] = _bits(PspGe._floatArg(regs[0x4b]));
+    return gpu.setState(base, bytes, _palette, _paletteCount, _paletteVersion,
+        format >= 4 && format <= 7);
   }
 
   /// The per-fragment pipeline: texture, texture function, alpha test,

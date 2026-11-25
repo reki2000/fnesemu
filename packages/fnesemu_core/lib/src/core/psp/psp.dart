@@ -3,22 +3,27 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../cdrom_drive.dart';
+import '../../compute_sink.dart';
 import '../../core.dart';
 import '../../media_decoder.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
+import '../../util/debug.dart';
 import '../../util/disasm.dart';
 import '../../util/state.dart';
 import 'allegrex.dart';
 import 'disasm.dart';
 import 'disc.dart';
 import 'elf.dart';
+import 'ge_compute.dart';
 import 'kernel.dart';
 import 'memory.dart';
 import 'memstick.dart';
 import 'psp_jit.dart';
+
+final _log = DebugLog('psp');
 
 /// The handheld core: a MIPS32r2 processor with 32 MiB of memory, a
 /// frame buffer display of 480 by 272 pixels and a high-level kernel that
@@ -28,7 +33,8 @@ import 'psp_jit.dart';
 /// The memory stick is a writable file tree persisted through the
 /// framework's backup storage, so saved data survives restarts.
 /// The graphics processor is emulated in software (see the graphics
-/// engine's own notes for its coverage), the audio channels are mixed
+/// engine's own notes for its coverage) or rasterizes on the host GPU
+/// with a compute sink, the audio channels are mixed
 /// to the framework output and the multimedia coprocessor (VFPU) is
 /// emulated with a few documented accuracy limits.
 class Psp extends Core {
@@ -220,7 +226,35 @@ class Psp extends Core {
   @override
   void dispose() {
     _drive = null;
+    _gpu?.dispose();
+    _gpu = null;
     _jit?.dispose();
+  }
+
+  GeCompute? _gpu;
+  ComputeSink? _computeSink;
+
+  /// Rasterizes on [sink] when it waits for the GPU by itself. On a sink
+  /// that does not, the graphics engine draws in software.
+  @override
+  set computeSink(ComputeSink? sink) {
+    if (identical(sink, _computeSink)) return;
+    _computeSink = sink;
+    _gpu?.detach();
+    _gpu = null;
+    _kernel?.ge.compute = null;
+    if (sink == null || !sink.waits) return;
+    try {
+      // blocks compiled from video memory would map its pages
+      _jit?.reset();
+      final gpu = GeCompute(mem, sink)..onPage = _jit?.setVramPage;
+      gpu.attach();
+      _gpu = gpu;
+      _kernel?.ge.compute = gpu;
+      _log.info('drawing on ${sink.name}');
+    } catch (e) {
+      _log.warn('no compute GE on ${sink.name}: $e');
+    }
   }
 
   Allegrex _createCpu() => Allegrex(mem,
@@ -230,6 +264,8 @@ class Psp extends Core {
   void _load() {
     _jit?.reset();
     mem.clear();
+    // the cleared memory replaces what the GPU holds
+    _gpu?.reload();
     final image = PspElf.load(mem, _rom!);
     cpu = _createCpu();
     final kernel = PspKernel(mem, padPort, image.end);
@@ -238,6 +274,7 @@ class Psp extends Core {
     kernel.disc = _disc;
     kernel.memStick = memStick;
     kernel.mediaDecoder = _mediaDecoder;
+    kernel.ge.compute = _gpu;
     _kernel = kernel;
     final main = kernel.startModule(image);
     cpu.copyFrom(main.state);
@@ -292,7 +329,11 @@ class Psp extends Core {
       kernel.onVblank(cpu);
       kernel.flushAudio(cpu.clocks);
     }
-    if (_line >= scanlinesInFrame) _line = 0;
+    if (_line >= scanlinesInFrame) {
+      _line = 0;
+      // after the frame buffer swaps that follow the vblank
+      _gpu?.endFrame(kernel.fbAddr, kernel.fbWidth, kernel.fbFormat);
+    }
     return ExecResult(cpu.clocks, false, true)..executed0 = executed;
   }
 
@@ -303,6 +344,20 @@ class Psp extends Core {
     final base = kernel.fbAddr, stride = kernel.fbWidth;
     final format = kernel.fbFormat;
     final bpp = format == 3 ? 4 : 2;
+    // the GPU shows the frame buffer at the end of the last frame but one
+    if (_gpu?.display case final copy?) {
+      final stride = _gpu!.displayStride, format = _gpu!.displayFormat;
+      final bpp = format == 3 ? 4 : 2;
+      for (var y = 0; y < 272; y++) {
+        for (var x = 0; x < 480; x++) {
+          final at = (y * stride + x) * bpp;
+          final word = copy[at >> 2];
+          _pixels[y * 480 + x] = _color(
+              bpp == 4 ? word : (word >> ((at & 2) * 8)) & 0xffff, format);
+        }
+      }
+      return ImageBuffer(480, 272, _pixels);
+    }
     for (var y = 0; y < 272; y++) {
       for (var x = 0; x < 480; x++) {
         _pixels[y * 480 + x] = base == 0
@@ -315,29 +370,30 @@ class Psp extends Core {
 
   /// The color of a frame buffer pixel. The display shows no alpha, so
   /// every pixel is opaque whatever its alpha bits hold.
-  static int _pixel(PspMemory mem, int at, int format) {
+  static int _pixel(PspMemory mem, int at, int format) =>
+      _color(format == 3 ? mem.read32(at) : mem.read16(at), format);
+
+  /// The opaque color of the frame buffer value [v].
+  static int _color(int v, int format) {
     switch (format) {
       case 0: // 5 bits red, 6 green, 5 blue
-        final v = mem.read16(at);
         final r5 = v & 0x1f, g6 = (v >> 5) & 0x3f, b5 = (v >> 11) & 0x1f;
         final r = (r5 << 3) | (r5 >> 2);
         final g = (g6 << 2) | (g6 >> 4);
         final b = (b5 << 3) | (b5 >> 2);
         return 0xff000000 | r | g << 8 | b << 16;
       case 1: // 5 bits per channel and one alpha bit
-        final v = mem.read16(at);
         final r = (v & 0x1f) << 3 | (v & 0x1f) >> 2;
         final g = (v >> 5 & 0x1f) << 3 | (v >> 5 & 0x1f) >> 2;
         final b = (v >> 10 & 0x1f) << 3 | (v >> 10 & 0x1f) >> 2;
         return 0xff000000 | r | g << 8 | b << 16;
       case 2: // 4 bits per channel
-        final v = mem.read16(at);
         final r = (v & 0xf) << 4 | v & 0xf;
         final g = (v >> 4 & 0xf) << 4 | (v >> 4 & 0xf);
         final b = (v >> 8 & 0xf) << 4 | (v >> 8 & 0xf);
         return 0xff000000 | r | g << 8 | b << 16;
       default: // 8 bits per channel, stored red first
-        return 0xff000000 | mem.read32(at);
+        return 0xff000000 | v;
     }
   }
 
@@ -345,6 +401,7 @@ class Psp extends Core {
   Uint8List saveState() {
     final kernel = _kernel;
     if (kernel == null) throw StateError('no media loaded');
+    _gpu?.sync();
     final writer = StateWriter('psp', _stateVersion, _mediaId);
     writer.section('mem');
     writer.bytes(mem.ram);
@@ -370,6 +427,7 @@ class Psp extends Core {
     reader.bytesInto(mem.ram);
     reader.bytesInto(mem.vram);
     reader.bytesInto(mem.scratch);
+    _gpu?.reload();
     reader.section('cpu');
     cpu.loadState(reader);
     final legacy = reader.version == 4;

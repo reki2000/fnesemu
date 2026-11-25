@@ -1,5 +1,16 @@
 import 'dart:typed_data';
 
+/// Owns the video memory while the GPU draws into it: a CPU read of a
+/// [gpuNewer] page, and a CPU write to a page that is not [cpuDirty], go to
+/// [access] before they take place.
+abstract interface class PspVramGuard {
+  /// the states of a 4 KiB page in [PspMemory.vramPages]
+  static const synced = 0, gpuNewer = 1, cpuDirty = 2;
+
+  /// Called before an access at [offset] of the video memory.
+  void access(int offset, bool write);
+}
+
 /// The physical memory map of the handheld: a 16 KiB scratchpad, 2 MiB of
 /// video memory and 32 MiB of main memory. Every virtual mirror of the map
 /// (the direct space, the cached mirror at 0x40000000, the uncached one at
@@ -22,6 +33,11 @@ class PspMemory {
   late final ByteData _vramData = ByteData.sublistView(vram);
   late final ByteData _ramData = ByteData.sublistView(ram);
 
+  /// The owner of the video memory while the GPU has it, and the states of
+  /// its pages; null while the CPU has it.
+  PspVramGuard? guard;
+  Uint8List? vramPages;
+
   PspMemory({Uint8List? scratch, Uint8List? vram, Uint8List? ram})
       : scratch = scratch ?? Uint8List(scratchSize),
         vram = vram ?? Uint8List(vramSize),
@@ -37,14 +53,24 @@ class PspMemory {
   /// machine's fixed map differ only in the top three bits.
   static int physical(int addr) => addr & 0x1fffffff;
 
-  (ByteData, int) _region(int phys) {
+  (ByteData, int) _region(int phys, [bool write = false]) {
     if (phys >= ramAt && phys < ramEnd) return (_ramData, phys - ramAt);
     // Video memory repeats every 2 MiB up to 0x04800000; games read the
     // depth buffer as a texture through such a mirror. Some mirrors may
     // present the depth buffer in another layout on the hardware, which
     // is not verified here, so all of them read the memory as stored.
     if (phys >= vramAt && phys < vramAt + vramMirrors) {
-      return (_vramData, (phys - vramAt) & (vramSize - 1));
+      final at = (phys - vramAt) & (vramSize - 1);
+      final pages = vramPages;
+      if (pages != null) {
+        final state = pages[at >> 12];
+        if (write
+            ? state != PspVramGuard.cpuDirty
+            : state == PspVramGuard.gpuNewer) {
+          guard!.access(at, write);
+        }
+      }
+      return (_vramData, at);
     }
     if (phys >= scratchAt && phys < scratchAt + scratchSize) {
       return (_scratchData, phys - scratchAt);
@@ -70,19 +96,19 @@ class PspMemory {
   }
 
   void write8(int addr, int value) {
-    final (data, at) = _region(physical(addr));
+    final (data, at) = _region(physical(addr), true);
     if (at >= 0) data.setUint8(at, value & 0xff);
   }
 
   void write16(int addr, int value) {
-    final (data, at) = _region(physical(addr));
+    final (data, at) = _region(physical(addr), true);
     if (at >= 0 && at + 1 < data.lengthInBytes) {
       data.setUint16(at, value & 0xffff, Endian.little);
     }
   }
 
   void write32(int addr, int value) {
-    final (data, at) = _region(physical(addr));
+    final (data, at) = _region(physical(addr), true);
     if (at >= 0 && at + 3 < data.lengthInBytes) {
       data.setUint32(at, value, Endian.little);
     }
