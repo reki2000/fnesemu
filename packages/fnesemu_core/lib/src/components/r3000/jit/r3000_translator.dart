@@ -32,8 +32,11 @@ final class R3000Translator {
   /// helper id of MFC0, which both embeddings run as a call
   final int mfc0;
 
-  /// helper ids of the COP2 register and control transfers and of the command word, or null when the embedding has no COP2 the blocks run
+  /// helper ids of the COP2 register and control transfers and of the command word, or null when the embedding has no COP2 the blocks run. When [cop2Registers] is given, the blocks move the registers it holds themselves and call the transfer helpers only for the others.
   final ({int cmd, int mfc, int cfc, int mtc, int ctc})? cop2;
+
+  /// the context words of the 64 COP2 registers as MFC2 and CFC2 read them, the data registers then the control registers, or null when the helpers move all of them. [read] gives the register a block loads for register r of MFC2 (r) and CFC2 (32 + r), or -1 when the helper derives it; [write] gives how a block stores a write: 0 as it is, 1 sign extended from 16 bits, 2 zero extended from 16 bits, and -1 through the helper.
+  final ({int ctx, int Function(int reg) read, List<int> write})? cop2Registers;
 
   /// helper id of the divides, or null when the blocks emit the IR divides and select the division by zero results themselves
   final int? div;
@@ -55,6 +58,7 @@ final class R3000Translator {
       required this.endsAfterStore,
       required this.mfc0,
       this.cop2,
+      this.cop2Registers,
       this.div,
       this.ramSize,
       this.isHook,
@@ -460,14 +464,14 @@ final class _Block {
         } else {
           switch (rs) {
             case 0x00:
-              _commit(load: (rt, b.call(c2.mfc, b.c32(rd))));
+              _commit(load: (rt, _cop2Read(rd, c2.mfc)));
             case 0x02:
-              _commit(load: (rt, b.call(c2.cfc, b.c32(rd))));
+              _commit(load: (rt, _cop2Read(32 + rd, c2.cfc)));
             case 0x04:
-              b.call(c2.mtc, b.c32(rd), u());
+              _cop2Write(rd, c2.mtc, u());
               _commit();
             default: // 0x06
-              b.call(c2.ctc, b.c32(rd), u());
+              _cop2Write(32 + rd, c2.ctc, u());
               _commit();
           }
         }
@@ -501,12 +505,36 @@ final class _Block {
         _swr(ea(), u());
         _commit();
       case 0x32: // lwc2
-        b.call(t.cop2!.mtc, b.c32(rt), _load(4, _aligned(ea(), ~3)));
+        _cop2Write(rt, t.cop2!.mtc, _load(4, _aligned(ea(), ~3)));
         _commit();
       case 0x3a: // swc2
         final a = _aligned(ea(), ~3);
-        _store(4, a, b.call(t.cop2!.mfc, b.c32(rt)));
+        _store(4, a, _cop2Read(rt, t.cop2!.mfc));
         _commit();
+    }
+  }
+
+  /// the value of COP2 register [reg] (0-63), [helper] given the register in its bank
+  IrValue _cop2Read(int reg, int helper) {
+    final regs = t.cop2Registers;
+    final held = regs?.read(reg) ?? -1;
+    return held >= 0
+        ? b.ctxLoad(regs!.ctx + held)
+        : b.call(helper, b.c32(reg & 31));
+  }
+
+  /// writes [value] to COP2 register [reg] (0-63), [helper] given the register in its bank
+  void _cop2Write(int reg, int helper, IrValue value) {
+    final regs = t.cop2Registers;
+    switch (regs?.write[reg] ?? -1) {
+      case 0:
+        b.ctxStore(regs!.ctx + reg, value);
+      case 1:
+        b.ctxStore(regs!.ctx + reg, b.sext16(value));
+      case 2:
+        b.ctxStore(regs!.ctx + reg, b.zext16(value));
+      default:
+        b.call(helper, b.c32(reg & 31), value);
     }
   }
 
