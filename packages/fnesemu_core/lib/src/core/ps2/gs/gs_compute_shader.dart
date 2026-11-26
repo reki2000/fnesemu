@@ -568,7 +568,8 @@ fn level(state: u32, n: u32) -> Level {
 }
 
 // GsRaster._sampleLevel and _sample: level n at level 0 coordinates (u, v).
-// The texels are read in a loop, so that the texel read is compiled once.
+// The taps are separate values: a loop over an array of them keeps the
+// array in memory on some GPUs.
 fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
     v: f32, linear: bool) -> u32 {
   let l = level(state, n);
@@ -583,27 +584,26 @@ fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
   var v0: i32;
   var fu = 0.0;
   var fv = 0.0;
-  var taps = 1u;
   if (linear) {
     u0 = i32(floor(su - 0.5));
     v0 = i32(floor(sv - 0.5));
     fu = su - 0.5 - f32(u0);
     fv = sv - 0.5 - f32(v0);
-    taps = 4u;
   } else {
     u0 = i32(floor(su));
     v0 = i32(floor(sv));
   }
-  var c: array<u32, 4>;
-  for (var k = 0u; k < taps; k++) {
-    c[k] = texel(state, from_snap, version, l,
-        wrap(u0 + i32(k & 1u), wms, size, l.minu, l.maxu),
-        wrap(v0 + i32(k >> 1u), wmt, height, l.minv, l.maxv));
-  }
-  if (!linear || (c[0] == c[1] && c[0] == c[2] && c[0] == c[3])) {
-    return c[0];
-  }
-  return bilinear(c[0], c[1], c[2], c[3], fu, fv);
+  let wu0 = wrap(u0, wms, size, l.minu, l.maxu);
+  let wv0 = wrap(v0, wmt, height, l.minv, l.maxv);
+  let c0 = texel(state, from_snap, version, l, wu0, wv0);
+  if (!linear) { return c0; }
+  let wu1 = wrap(u0 + 1, wms, size, l.minu, l.maxu);
+  let wv1 = wrap(v0 + 1, wmt, height, l.minv, l.maxv);
+  let c1 = texel(state, from_snap, version, l, wu1, wv0);
+  let c2 = texel(state, from_snap, version, l, wu0, wv1);
+  let c3 = texel(state, from_snap, version, l, wu1, wv1);
+  if (c0 == c1 && c0 == c2 && c0 == c3) { return c0; }
+  return bilinear(c0, c1, c2, c3, fu, fv);
 }
 
 // GsRaster._texture without the texture function
@@ -651,12 +651,10 @@ fn texture(state: u32, attrs: u32, from_snap: bool, version: u32,
       }
     }
   }
-  var c: array<u32, 2>;
-  for (var j = 0u; j < levels; j++) {
-    c[j] = sample_level(state, from_snap, version, n + j, u, v, linear);
-  }
-  if (levels == 1u) { return c[0]; }
-  return bilinear(c[0], c[1], c[0], c[1], frac, 0.0);
+  let c0 = sample_level(state, from_snap, version, n, u, v, linear);
+  if (levels == 1u) { return c0; }
+  let c1 = sample_level(state, from_snap, version, n + 1u, u, v, linear);
+  return bilinear(c0, c1, c0, c1, frac, 0.0);
 }
 
 fn alpha_passes(atst: u32, a: i32, aref: i32) -> bool {
