@@ -1011,12 +1011,37 @@ class Gs {
     // FFMD=0 reads alternating source rows; FFMD=1 reads consecutive rows.
     final consecutive = smode2 & 2 != 0;
     final mem = this.mem;
+    // the layout is looked up per row: a row of a page takes its units from
+    // one row of the page table
+    final layout = mem.layout(psm);
+    final table = layout.table;
+    final xBits = layout.xBits, yBits = layout.yBits;
+    final xMask = (1 << xBits) - 1, yMask = (1 << yBits) - 1;
+    final pages = layout.pagesInRow(bw), unitShift = layout.unitShift;
+    final words = mem.words;
+    final is16 = psm == GsPsm.ct16 || psm == GsPsm.ct16s;
+    final is32 = psm == GsPsm.ct32 || psm == GsPsm.ct24;
     for (var y = 0; y < height; y++) {
       final sourceY = interlaced && !consecutive ? y * 2 + parity : y;
-      final sy = interlaced ? sourceY ~/ (magv + 1) : sourceY;
+      final sy = dby + (interlaced ? sourceY ~/ (magv + 1) : sourceY);
+      final row = (sy & yMask) << xBits;
+      final rowBase = bp * 64 + (sy >> yBits) * pages * 2048;
+      final o = y * width;
       for (var x = 0; x < width; x++) {
-        final raw = mem.read(psm, bp, bw, dbx + x, dby + sy);
-        out[y * width + x] = _displayColor(psm, raw);
+        final px = dbx + x;
+        final i = ((rowBase + (px >> xBits) * 2048) << unitShift) +
+            table[row | (px & xMask)];
+        if (is32) {
+          out[o + x] = 0xff000000 | (words[i & 0xfffff] & 0xffffff);
+        } else if (is16) {
+          final h = words[(i >> 1) & 0xfffff] >>> ((i & 1) << 4);
+          out[o + x] = 0xff000000 |
+              (((h >> 10) & 31) << 19) |
+              (((h >> 5) & 31) << 11) |
+              ((h & 31) << 3);
+        } else {
+          out[o + x] = _displayColor(psm, mem.readAt(psm, i));
+        }
       }
     }
     final field = ImageBuffer(width, height, out,
