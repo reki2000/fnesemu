@@ -109,6 +109,7 @@ struct Params {
 @group(0) @binding(4) var<storage, read> data: array<u32>;
 @group(0) @binding(5) var<storage, read_write> cluts: array<u32>;
 @group(0) @binding(6) var<uniform> P: Params;
+@group(0) @binding(7) var<storage, read_write> bins: array<atomic<u32>>;
 
 // ---- local memory layout (GsMemory.unitIndex) ----
 
@@ -1053,14 +1054,63 @@ fn line_pixels(i: u32, x: u32, y: u32, fval: ptr<function, u32>,
   }
 }
 
+// P.a: first primitive, count, tile x, tile y
+// P.b: tiles in a row, rows, words of a bit set
+// Sets the bit of each primitive in the bit set of each tile it meets. The
+// raster of the batch clears the bit sets after it reads them.
+@compute @workgroup_size(256)
+fn bin(@builtin(global_invocation_id) g: vec3u) {
+  let k = g.x + g.y * 65535u * 256u;
+  if (k >= P.a.y) { return; }
+  let o = (P.a.x + k) * SETUP_WORDS;
+  let mn = setups[o];
+  let mx = setups[o + 1u];
+  let x0 = P.a.z;
+  let y0 = P.a.w;
+  let minx = mn & 0xffffu;
+  let miny = mn >> 16u;
+  let maxx = mx & 0xffffu;
+  let maxy = mx >> 16u;
+  if (minx > maxx || maxx < x0 || maxy < y0) { return; }
+  let i0 = select(0u, (minx - x0) >> 4u, minx > x0);
+  let j0 = select(0u, (miny - y0) >> 4u, miny > y0);
+  let i1 = min((maxx - x0) >> 4u, P.b.x - 1u);
+  let j1 = min((maxy - y0) >> 4u, P.b.y - 1u);
+  let words = P.b.z;
+  let word = k >> 5u;
+  let bit = 1u << (k & 31u);
+  for (var j = j0; j <= j1; j++) {
+    for (var i = i0; i <= i1; i++) {
+      atomicOr(&bins[(j * P.b.x + i) * words + word], bit);
+    }
+  }
+}
+
 var<workgroup> scan: array<u32, 256>;
 var<workgroup> list: array<u32, 256>;
+
+fn raster_prim(prim: u32, x: u32, y: u32, fval: ptr<function, u32>,
+    zval: ptr<function, u32>, fdirty: ptr<function, bool>,
+    zdirty: ptr<function, bool>) {
+  if ((prims[prim * PRIM_WORDS] & 0xffu) == KIND_LINE) {
+    line_pixels(prim, x, y, fval, zval, fdirty, zdirty);
+    return;
+  }
+  var fr: Frag;
+  if (fragment(prim, x, y, &fr)) {
+    let p = prim * PRIM_WORDS;
+    pixel(prims[p + 1u], prims[p] >> 8u, (prims[p] & 0x1000000u) != 0u,
+        prims[p + 2u], x, y, fr, fval, zval, fdirty, zdirty);
+  }
+}
 
 // P.a: first primitive, count, tile x, tile y
 // P.b: frame bp, pages, psm, uses depth
 // P.c: depth bp, pages, psm
+// P.d: whether the bins list the primitives, words of a bit set
 @compute @workgroup_size(16, 16)
 fn raster(@builtin(workgroup_id) wg: vec3u,
+    @builtin(num_workgroups) ng: vec3u,
     @builtin(local_invocation_id) lid: vec3u,
     @builtin(local_invocation_index) li: u32) {
   let tx = P.a.z + wg.x * 16u;
@@ -1082,7 +1132,25 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
   }
   let first = P.a.x;
   let count = P.a.y;
-  for (var base = 0u; base < count; base += 256u) {
+  if (P.d.x != 0u) {
+    // the primitives of the tile from its bit set, in order
+    let words = P.d.y;
+    let at = (wg.y * ng.x + wg.x) * words;
+    for (var w = 0u; w < words; w++) {
+      var m = atomicLoad(&bins[at + w]);
+      while (m != 0u) {
+        let prim = first + w * 32u + countTrailingZeros(m);
+        m &= m - 1u;
+        raster_prim(prim, x, y, &fval, &zval, &fdirty, &zdirty);
+      }
+    }
+    // clear the bit set for the next batch once every invocation read it
+    workgroupBarrier();
+    for (var w = li; w < words; w += 256u) {
+      atomicStore(&bins[at + w], 0u);
+    }
+  }
+  for (var base = select(0u, count, P.d.x != 0u); base < count; base += 256u) {
     let i = first + base + li;
     var f = 0u;
     if (base + li < count) {
@@ -1103,17 +1171,7 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
     if (f == 1u) { list[scan[li] - 1u] = i; }
     let total = workgroupUniformLoad(&scan[255]);
     for (var k = 0u; k < total; k++) {
-      let prim = list[k];
-      if ((prims[prim * PRIM_WORDS] & 0xffu) == KIND_LINE) {
-        line_pixels(prim, x, y, &fval, &zval, &fdirty, &zdirty);
-        continue;
-      }
-      var fr: Frag;
-      if (fragment(prim, x, y, &fr)) {
-        let p = prim * PRIM_WORDS;
-        pixel(prims[p + 1u], prims[p] >> 8u, (prims[p] & 0x1000000u) != 0u,
-            prims[p + 2u], x, y, fr, &fval, &zval, &fdirty, &zdirty);
-      }
+      raster_prim(list[k], x, y, &fval, &zval, &fdirty, &zdirty);
     }
     workgroupBarrier();
   }
