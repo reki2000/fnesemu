@@ -214,7 +214,7 @@ final class _NativeRuntime extends JitRuntime
   int get compileThreshold => 4;
 
   @override
-  bool get vectors => !_os.arm64;
+  bool get vectors => true;
 
   @override
   Uint8List alloc(int size) {

@@ -34,7 +34,7 @@ The reference executor uses `BigInt` for exact i64 semantics on every Dart compi
 
 A backend chooses the forms of each value: the images, the decoded binary64 lanes or the flags. It computes a form only when a use needs it, so a chain of arithmetic operations stays decoded and drops the flags nobody reads.
 
-The operations are available only when `JitRuntime.vectors` is true: in the reference executor, on x86-64 (SSE2) and in Wasm runtimes that validate SIMD modules. The ARM64 backend rejects them. The exact semantics of each operation are in the comments of `IrOp`.
+The operations are available only when `JitRuntime.vectors` is true: in the reference executor, on x86-64 (SSE2), on ARM64 (Advanced SIMD) and in Wasm runtimes that validate SIMD modules. The exact semantics of each operation are in the comments of `IrOp`.
 
 ## Optimizer
 

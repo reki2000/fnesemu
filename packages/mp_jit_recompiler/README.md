@@ -11,7 +11,7 @@ A block recompiler for emulator cores. A core translates guest code to `IrBlock`
 
 Every backend provides the same IR and runtime features on every platform: both value widths, both memory byte orders, floating-point operations, buffer sharing, entry counters and diagnostics. Frontends and cores therefore emit one lowering and do not query backend capabilities. A new IR feature is complete only when the reference executor and all compiled backends implement it. Block profiling is the one compiled-only diagnostic.
 
-The vector operations are the one exception. `JitRuntime.vectors` reports whether a runtime runs them: the reference executor, x86-64 and Wasm with SIMD do, and ARM64 does not yet. A frontend that uses them keeps a scalar lowering for the other runtimes. See [vector values](docs/ir.md#vector-values).
+The vector operations are the one exception. `JitRuntime.vectors` reports whether a runtime runs them: the reference executor, x86-64, ARM64 and Wasm with SIMD do. A frontend that uses them keeps a scalar lowering for the other runtimes. See [vector values](docs/ir.md#vector-values).
 
 ## Documentation
 
