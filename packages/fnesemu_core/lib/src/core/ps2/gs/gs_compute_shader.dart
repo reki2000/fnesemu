@@ -495,18 +495,46 @@ fn wrap(c: i32, mode: u32, size: i32, minv: i32, maxv: i32) -> u32 {
   }
 }
 
+// the texture state that the taps of a pixel share, read from the state
+// words once
+struct Tex {
+  psm: u32,
+  // the format of the texel colours: the CLUT format for indexed formats
+  cpsm: u32,
+  // the first entry of the CLUT version and the CLUT offset
+  clut: u32,
+  clutoff: u32,
+  aem: bool,
+  ta0: u32,
+  ta1: u32,
+  wms: u32,
+  wmt: u32,
+}
+
+fn tex_state(state: u32, version: u32) -> Tex {
+  var t: Tex;
+  t.psm = st(state, S_TPSM);
+  t.cpsm = select(st(state, S_TCOLOR), st(state, S_CLUTPSM), is_indexed(t.psm));
+  t.clut = version * 512u;
+  t.clutoff = st(state, S_CLUTOFF);
+  t.aem = st(state, S_AEM) != 0u;
+  t.ta0 = st(state, S_TA0);
+  t.ta1 = st(state, S_TA1);
+  t.wms = st(state, S_WMS);
+  t.wmt = st(state, S_WMT);
+  return t;
+}
+
 // GsRaster._color
-fn color(state: u32, psm: u32, raw: u32) -> u32 {
-  let aem = st(state, S_AEM) != 0u;
-  let ta0 = st(state, S_TA0);
-  let ta1 = st(state, S_TA1);
+fn color(t: Tex, raw: u32) -> u32 {
+  let psm = t.cpsm;
   if (psm == CT32) { return raw; }
   if (psm == CT24) {
     let rgb = raw & 0xffffffu;
-    return rgb | (select(ta0, 0u, aem && rgb == 0u) << 24u);
+    return rgb | (select(t.ta0, 0u, t.aem && rgb == 0u) << 24u);
   }
-  let alpha = select(select(ta0, ta1, (raw & 0x8000u) != 0u), 0u,
-      aem && (raw & 0x7fffu) == 0u);
+  let alpha = select(select(t.ta0, t.ta1, (raw & 0x8000u) != 0u), 0u,
+      t.aem && (raw & 0x7fffu) == 0u);
   return ((raw & 31u) << 3u) | (((raw >> 5u) & 31u) << 11u) |
       (((raw >> 10u) & 31u) << 19u) | (alpha << 24u);
 }
@@ -515,18 +543,25 @@ fn is_indexed(psm: u32) -> bool {
   return psm == T8 || psm == T8H || psm == T4 || psm == T4HL || psm == T4HH;
 }
 
-// GsRaster._texel
-fn texel(state: u32, from_snap: bool, version: u32, l: Level, u: u32,
-    v: u32) -> u32 {
-  let tpsm = st(state, S_TPSM);
-  let i = unit_index(tpsm, l.tbp, l.pages, u, v);
-  if (tpsm == CT32) { return word_at(i, from_snap); }
-  let raw = read_unit(tpsm, i, from_snap);
-  if (is_indexed(tpsm)) {
-    let entry = (st(state, S_CLUTOFF) + raw) & 511u;
-    return color(state, st(state, S_CLUTPSM), cluts[version * 512u + entry]);
+// GsRaster._texel for a texel of format psm
+fn texel(t: Tex, psm: u32, from_snap: bool, l: Level, u: u32, v: u32) -> u32 {
+  let i = unit_index(psm, l.tbp, l.pages, u, v);
+  if (psm == CT32) { return word_at(i, from_snap); }
+  let raw = read_unit(psm, i, from_snap);
+  if (is_indexed(psm)) {
+    return color(t, cluts[t.clut + ((t.clutoff + raw) & 511u)]);
   }
-  return color(state, st(state, S_TCOLOR), raw);
+  return color(t, raw);
+}
+
+// the texels (u0, v0), (u1, v0), (u0, v1) and (u1, v1), or the first one
+// only when linear is false
+fn taps(t: Tex, psm: u32, from_snap: bool, l: Level, u0: u32, v0: u32,
+    u1: u32, v1: u32, linear: bool) -> vec4u {
+  let c0 = texel(t, psm, from_snap, l, u0, v0);
+  if (!linear) { return vec4u(c0); }
+  return vec4u(c0, texel(t, psm, from_snap, l, u1, v0),
+      texel(t, psm, from_snap, l, u0, v1), texel(t, psm, from_snap, l, u1, v1));
 }
 
 fn mix4(c00: u32, c10: u32, c01: u32, c11: u32, fu: f32, fv: f32,
@@ -570,16 +605,14 @@ fn level(state: u32, n: u32) -> Level {
 // GsRaster._sampleLevel and _sample: level n at level 0 coordinates (u, v).
 // The taps are separate values: a loop over an array of them keeps the
 // array in memory on some GPUs.
-fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
-    v: f32, linear: bool) -> u32 {
+fn sample_level(state: u32, t: Tex, from_snap: bool, n: u32, u: f32, v: f32,
+    linear: bool) -> u32 {
   let l = level(state, n);
   let scale = 1.0 / f32(1u << n);
   let su = u * scale;
   let sv = v * scale;
   let size = 1i << l.tw;
   let height = 1i << l.th;
-  let wms = st(state, S_WMS);
-  let wmt = st(state, S_WMT);
   var u0: i32;
   var v0: i32;
   var fu = 0.0;
@@ -593,17 +626,22 @@ fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
     u0 = i32(floor(su));
     v0 = i32(floor(sv));
   }
-  let wu0 = wrap(u0, wms, size, l.minu, l.maxu);
-  let wv0 = wrap(v0, wmt, height, l.minv, l.maxv);
-  let c0 = texel(state, from_snap, version, l, wu0, wv0);
-  if (!linear) { return c0; }
-  let wu1 = wrap(u0 + 1, wms, size, l.minu, l.maxu);
-  let wv1 = wrap(v0 + 1, wmt, height, l.minv, l.maxv);
-  let c1 = texel(state, from_snap, version, l, wu1, wv0);
-  let c2 = texel(state, from_snap, version, l, wu0, wv1);
-  let c3 = texel(state, from_snap, version, l, wu1, wv1);
-  if (c0 == c1 && c0 == c2 && c0 == c3) { return c0; }
-  return bilinear(c0, c1, c2, c3, fu, fv);
+  let wu0 = wrap(u0, t.wms, size, l.minu, l.maxu);
+  let wv0 = wrap(v0, t.wmt, height, l.minv, l.maxv);
+  let wu1 = wrap(u0 + 1, t.wms, size, l.minu, l.maxu);
+  let wv1 = wrap(v0 + 1, t.wmt, height, l.minv, l.maxv);
+  // the indexed formats with a literal format, so that the address of a
+  // texel takes no branch on the format
+  var c: vec4u;
+  if (t.psm == T8) {
+    c = taps(t, T8, from_snap, l, wu0, wv0, wu1, wv1, linear);
+  } else if (t.psm == T4) {
+    c = taps(t, T4, from_snap, l, wu0, wv0, wu1, wv1, linear);
+  } else {
+    c = taps(t, t.psm, from_snap, l, wu0, wv0, wu1, wv1, linear);
+  }
+  if (!linear || (c.x == c.y && c.x == c.z && c.x == c.w)) { return c.x; }
+  return bilinear(c.x, c.y, c.z, c.w, fu, fv);
 }
 
 // GsRaster._texture without the texture function
@@ -651,9 +689,10 @@ fn texture(state: u32, attrs: u32, from_snap: bool, version: u32,
       }
     }
   }
-  let c0 = sample_level(state, from_snap, version, n, u, v, linear);
+  let t = tex_state(state, version);
+  let c0 = sample_level(state, t, from_snap, n, u, v, linear);
   if (levels == 1u) { return c0; }
-  let c1 = sample_level(state, from_snap, version, n + 1u, u, v, linear);
+  let c1 = sample_level(state, t, from_snap, n + 1u, u, v, linear);
   return bilinear(c0, c1, c0, c1, frac, 0.0);
 }
 
