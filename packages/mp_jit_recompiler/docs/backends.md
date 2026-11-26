@@ -25,7 +25,7 @@ The ARM64 backend supports the complete integer IR, both memory byte orders, cal
 - X19-X23 hold the context, read and write page tables, link slots and dynamic table. The trampoline saves the callee-saved registers it uses and LR, keeps SP aligned to 16 bytes and probes its stack frame in 4KiB steps. X18 stays reserved for the platform.
 - SSA values use eight-byte stack slots and constants are materialized at use sites. The backend does not yet allocate SSA values to host registers.
 - Floating-point add, subtract and multiply use the caller-saved V0/V1 registers. Binary32 operands widen to binary64 before evaluation and narrow afterward to match the reference executor.
-- The vector operations are not implemented, and `vectors` is false.
+- Vector operations use Advanced SIMD with the temporaries V0-V7. V16-V31 keep copies of the bits and of the decoded binary64 halves of v128 values until a host call, and the slots are still written for stubs and exits. V8-V15 stay unused, as the ABI keeps their low halves across calls. The constants are in a pool after the code and are loaded with LDR (literal). Decoding shifts the magnitude of an image into a binary64 and multiplies it by 2^896, which is exact for every exponent, so it needs no out-of-line path.
 
 ### Checks
 

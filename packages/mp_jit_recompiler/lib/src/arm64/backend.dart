@@ -5,12 +5,22 @@ import 'allocation.dart';
 import 'assembler.dart';
 
 /// AAPCS64 code generation, also used by the ARM64 desktop ABIs.
-/// X19-X23 hold runtime pointers; X18 and SIMD registers are untouched.
+/// X19-X23 hold runtime pointers; X18 and V8-V15 are untouched.
 /// SSA spill slots survive every helper and unmapped-memory callback.
 /// X24-X28 and X8-X15 hold values that [Arm64Allocation] assigns.
+/// V16-V31 hold copies of v128 values until a host call, and V0-V7 are
+/// temporaries.
 abstract final class Arm64Backend {
   static const maxValues = 4096;
-  static const frame = 16 + maxValues * 8;
+
+  /// the v128 values of a block
+  static const maxVectors = 1024;
+
+  /// The v128 value slots, above the scalar slots: the bits of a value,
+  /// then the flags of a vector unit operation.
+  static const _vectorSlots = 16 + maxValues * 8;
+  static const _vectorSlot = 32;
+  static const frame = _vectorSlots + maxVectors * _vectorSlot;
   static const saved = [
     (19, 20),
     (21, 22),
@@ -74,7 +84,196 @@ abstract final class Arm64Backend {
     final stubs = <void Function()>[];
     final fused = irFusedCompareConsumers(block);
     final registers = Arm64Allocation(block, fused).registers;
-    bool wide(int v) => block.insts[v].type == IrType.i64;
+    final insts = block.insts;
+    bool wide(int v) => insts[v].type == IrType.i64;
+    bool vector(int v) => insts[v].type == IrType.v128;
+
+    // The slots of the v128 values are numbered densely.
+    final vectorIndex = List<int>.filled(insts.length, -1);
+    var vectorCount = 0;
+    for (var v = 0; v < insts.length; v++) {
+      if (vector(v)) vectorIndex[v] = vectorCount++;
+    }
+    if (vectorCount > maxVectors) {
+      throw StateError('block too long: $vectorCount vector values');
+    }
+    int vectorSlot(int v) => _vectorSlots + _vectorSlot * vectorIndex[v];
+    // the vector unit operations whose flags are read, and the last use of
+    // each v128 value
+    final needFlags = List<bool>.filled(insts.length, false);
+    final vectorUse = List<int>.filled(insts.length, -1);
+    for (var i = 0; i < insts.length; i++) {
+      final inst = insts[i];
+      if (inst.op == IrOp.vuMac) needFlags[inst.a] = true;
+      for (final x in [inst.a, inst.b, inst.c]) {
+        if (x >= 0 && x < i && vector(x)) vectorUse[x] = i;
+      }
+    }
+
+    // V16 to V31 are copies of the forms of v128 values: the key 4 * v is
+    // the bits of v, and 4 * v + 1 + half the binary64 values of a half of
+    // its lanes. The slots hold the bits all the same, which exits, stubs
+    // and the code after a host call read.
+    const firstCopy = 16, copies = 16;
+    final copyKey = List<int>.filled(copies, -1);
+    final copyStamp = List<int>.filled(copies, 0);
+    final copyOf = <int, int>{};
+    var stamp = 0, at = 0, opStamp = 0;
+
+    /// the copy of [key], or null
+    int? copy(int key) {
+      final c = copyOf[key];
+      if (c == null) return null;
+      copyStamp[c] = ++stamp;
+      return firstCopy + c;
+    }
+
+    /// a copy for [key]: its own, a dead one, or the one used least
+    /// recently, which is not one that the current operation reads
+    int claim(int key) {
+      var c = copyOf[key];
+      if (c == null) {
+        var best = 0;
+        for (var k = 0; k < copies; k++) {
+          final other = copyKey[k];
+          if (other < 0 || vectorUse[other >> 2] < at) {
+            best = k;
+            break;
+          }
+          if (copyStamp[k] < copyStamp[best]) best = k;
+        }
+        final other = copyKey[best];
+        if (other >= 0) {
+          if (copyStamp[best] > opStamp && vectorUse[other >> 2] >= at) {
+            throw StateError('too many vector copies');
+          }
+          copyOf.remove(other);
+        }
+        c = best;
+        copyKey[c] = key;
+        copyOf[key] = c;
+      }
+      copyStamp[c] = ++stamp;
+      return firstCopy + c;
+    }
+
+    void forget() {
+      copyKey.fillRange(0, copies, -1);
+      copyOf.clear();
+    }
+
+    /// the register with the bits of [v]
+    int bits(int v) {
+      final c = copy(4 * v);
+      if (c != null) return c;
+      final d = claim(4 * v);
+      a.vmemory(true, d, 31, vectorSlot(v));
+      return d;
+    }
+
+    /// Writes the bits of [v] to its slot from [d], its copy.
+    void putBits(int v, int d) => a.vmemory(false, d, 31, vectorSlot(v));
+
+    void lanes32(int q, int x) => a.vconstant(q, [x, x, x, x]);
+    void lanes64(int q, int x) => a.vconstant(q, [x, x >> 32, x, x >> 32]);
+
+    /// the binary64 values of half [half] of the lanes of [v], with the
+    /// temporaries V2, V3 and V7
+    int decoded(int v, int half) {
+      final c = copy(4 * v + 1 + half);
+      if (c != null) return c;
+      final x = bits(v);
+      // an exponent 0 is the value +0
+      lanes32(7, 0x7f800000);
+      a.v3(V.and, 2, x, 7);
+      a.v2(V.cmeq0, 2, 2);
+      a.v3(V.bic, 2, x, 2);
+      lanes32(7, 0x7fffffff);
+      a.v3(V.and, 3, 2, 7);
+      a.v3(V.eor, 2, 2, 3);
+      // The magnitude shifted into a binary64 keeps its exponent field, so
+      // that a multiplication by 2^896 gives its value exactly; then the
+      // sign.
+      final lo = claim(4 * v + 1), hi = claim(4 * v + 2);
+      a.vushll(lo, 3, 29);
+      a.vushll(hi, 3, 29, high: true);
+      lanes64(7, (1023 + 896) << 52);
+      a.v3(V.fmul2d, lo, lo, 7);
+      a.v3(V.fmul2d, hi, hi, 7);
+      a.vshll32(3, 2);
+      a.v3(V.orr, lo, lo, 3);
+      a.vshll32(3, 2, high: true);
+      a.v3(V.orr, hi, hi, 3);
+      return half == 0 ? lo : hi;
+    }
+
+    /// the binary64 values of half [half] of the lanes [lanes] of [v], as
+    /// [IrOp.vShuffle] selects them, in a copy or in [temp]
+    int selected(int v, int lanes, int half, int temp) {
+      final p = (lanes >> 4 * half) & 3, q = (lanes >> 4 * half + 2) & 3;
+      final x = decoded(v, p >> 1), y = decoded(v, q >> 1);
+      if (p & 1 == 0 && q == p + 1) return x;
+      a.vdupLane64(temp, x, p & 1);
+      if (q != p) a.vins64(temp, 1, y, q & 1);
+      return temp;
+    }
+
+    /// The images of the binary64 values in V0 (lanes 0 and 1) and V1
+    /// (lanes 2 and 3), truncated, as the bits of [v], and their flags when
+    /// [IrOp.vuMac] reads them.
+    void encode(int v) {
+      a.v3(V.uzp2, 2, 0, 1); // the high words
+      a.v3(V.uzp1, 3, 0, 1); // the low words
+      lanes32(7, 0x7fffffff);
+      a.v3(V.and, 4, 2, 7);
+      lanes32(7, 897 << 20);
+      a.v3(V.cmhi4s, 5, 7, 4); // the zeros, below the smallest normal
+      lanes32(7, (1152 << 20) - 1);
+      a.v3(V.cmhi4s, 6, 4, 7); // the overflows
+      // the bits of a normal image: the exponent rebiased and the fraction
+      // truncated
+      a.vshl(0, 2, 3);
+      a.vsri(0, 3, 29);
+      lanes32(7, 896 << 23);
+      a.v3(V.sub4s, 0, 0, 7);
+      final d = claim(4 * v);
+      a.v3(V.bic, d, 0, 5);
+      a.v3(V.orr, d, d, 6);
+      lanes32(7, 0x80000000);
+      a.v3(V.bit, d, 2, 7);
+      putBits(v, d);
+      if (!needFlags[v]) return;
+      a.v3(V.orr, 1, 4, 3);
+      a.v3(V.cmtst4s, 1, 1, 1);
+      a.v3(V.and, 1, 1, 5); // the underflows
+      a.v2(V.cmlt0, 3, 2); // the signs
+      // the bit of lane k of each mask, at 3 - k of its group
+      for (final (x, group) in const [(5, 0), (3, 4), (1, 8), (6, 12)]) {
+        a.vconstant(7, [for (var k = 0; k < 4; k++) 1 << (group + 3 - k)]);
+        a.v3(V.and, x, x, 7);
+      }
+      a.v3(V.orr, 5, 5, 3);
+      a.v3(V.orr, 1, 1, 6);
+      a.v3(V.orr, 5, 5, 1);
+      a.v2(V.addv4s, 5, 5);
+      a.vumov(0, 5, 0);
+      a.memory(false, 0, 31, vectorSlot(v) + 16, size: 4);
+    }
+
+    /// The [IrOp.vuMax] key of each lane of [x] into [k], with the
+    /// temporaries [t], [u] and V7: the magnitude, negated for a sign, and
+    /// 0 for an exponent 0.
+    void imageKey(int k, int x, int t, int u) {
+      lanes32(7, 0x7fffffff);
+      a.v3(V.and, k, x, 7);
+      a.v2(V.neg4s, t, k);
+      a.v2(V.cmlt0, u, x);
+      a.v3(V.bit, k, t, u);
+      lanes32(7, 0x7f800000);
+      a.v3(V.and, t, x, 7);
+      a.v2(V.cmeq0, t, t);
+      a.v3(V.bic, k, k, t);
+    }
     void load(int reg, int value) {
       final i = block.insts[value];
       final r = registers[value];
@@ -156,6 +355,11 @@ abstract final class Arm64Backend {
       List<(int, IrValue)> stores = const [],
     }) {
       for (final (word, v) in stores) {
+        if (vector(v.index)) {
+          a.vmemory(true, 0, 31, vectorSlot(v.index));
+          a.vmemory(false, 0, 19, word * 4);
+          continue;
+        }
         a.memory(false, source(v.index, 0), 19, word * 4,
             size: wide(v.index) ? 8 : 4);
       }
@@ -307,6 +511,8 @@ abstract final class Arm64Backend {
     });
     for (var v = 0; v < block.insts.length; v++) {
       final i = block.insts[v], w = wide(v);
+      at = v;
+      opStamp = stamp;
       void binary(int op) {
         final left = source(i.a, 0), right = source(i.b, 1);
         final d = target(v, 0);
@@ -323,24 +529,194 @@ abstract final class Arm64Backend {
       }
 
       switch (i.op) {
-        case IrOp.vSplat ||
-            IrOp.vExtract ||
-            IrOp.vInsert ||
-            IrOp.vShuffle ||
-            IrOp.vBlend ||
-            IrOp.vuAdd ||
+        case IrOp.vSplat:
+          final x = source(i.a, 0), d = claim(4 * v);
+          a.vdupGeneral(d, x);
+          putBits(v, d);
+        case IrOp.vExtract:
+          final x = bits(i.a), d = target(v, 0);
+          a.vumov(d, x, i.imm);
+          save(d, v);
+        case IrOp.vInsert:
+          final x = bits(i.a), y = source(i.b, 0), d = claim(4 * v);
+          a.vmov(d, x);
+          a.vinsGeneral(d, i.imm, y);
+          putBits(v, d);
+        case IrOp.vShuffle:
+          final x = bits(i.a), d = claim(4 * v), lanes = i.imm;
+          if (lanes == 0xe4) {
+            a.vmov(d, x);
+          } else if (lanes == 0x55 * (lanes & 3)) {
+            a.vdupLane(d, x, lanes & 3);
+          } else {
+            // the byte indexes of the lanes for TBL
+            a.vconstant(7, [
+              for (var k = 0; k < 4; k++)
+                0x03020100 + 0x04040404 * ((lanes >> 2 * k) & 3),
+            ]);
+            a.v3(V.tbl, d, x, 7);
+          }
+          putBits(v, d);
+        case IrOp.vBlend:
+          final x = bits(i.a), y = bits(i.b), d = claim(4 * v);
+          if (i.imm == 15) {
+            a.vmov(d, y);
+          } else {
+            a.vmov(d, x);
+            if (i.imm != 0) {
+              a.vconstant(7, [
+                for (var k = 0; k < 4; k++) i.imm & (1 << k) != 0 ? -1 : 0,
+              ]);
+              a.v3(V.bit, d, y, 7);
+            }
+          }
+          putBits(v, d);
+        case IrOp.vuAdd ||
             IrOp.vuSub ||
             IrOp.vuMul ||
             IrOp.vuMadd ||
-            IrOp.vuMsub ||
-            IrOp.vuMac ||
-            IrOp.vuItof ||
-            IrOp.vuFtoi ||
-            IrOp.vuMax ||
-            IrOp.vuMin ||
-            IrOp.vuClip:
-          // [JitRuntime.vectors] is false for this backend
-          throw UnsupportedError('vector operations');
+            IrOp.vuMsub:
+          // the binary64 results of the halves into V0 and V1, from the
+          // selected lanes in copies or in V4 and V5
+          final aLanes = i.imm & 0xff, bLanes = i.imm >> 8;
+          for (var half = 0; half < 2; half++) {
+            final x = selected(i.a, aLanes, half, 4);
+            final y = selected(i.b, bLanes, half, 5);
+            switch (i.op) {
+              case IrOp.vuAdd:
+                a.v3(V.fadd2d, half, x, y);
+              case IrOp.vuSub:
+                a.v3(V.fsub2d, half, x, y);
+              case IrOp.vuMul:
+                a.v3(V.fmul2d, half, x, y);
+              default:
+                // rounded after the product and after the sum, unfused
+                a.v3(V.fmul2d, 6, x, y);
+                a.v3(i.op == IrOp.vuMadd ? V.fadd2d : V.fsub2d, half,
+                    decoded(i.c, half), 6);
+            }
+          }
+          encode(v);
+        case IrOp.vuMac:
+          final d = target(v, 0);
+          a.memory(true, d, 31, vectorSlot(i.a) + 16, size: 4);
+          save(d, v);
+        case IrOp.vuItof:
+          final x = bits(i.a);
+          a.vsxtl(2, x);
+          a.vsxtl(3, x, high: true);
+          a.vscvtf(0, 2, i.imm);
+          a.vscvtf(1, 3, i.imm);
+          encode(v);
+        case IrOp.vuFtoi:
+          // saturated to 64 bits, then to 32 bits
+          a.vfcvtzs(0, decoded(i.a, 0), i.imm);
+          a.vfcvtzs(1, decoded(i.a, 1), i.imm);
+          final d = claim(4 * v);
+          a.vsqxtn(d, 0);
+          a.vsqxtn(d, 1, high: true);
+          putBits(v, d);
+        case IrOp.vuMax || IrOp.vuMin:
+          final x = bits(i.a), y = bits(i.b);
+          imageKey(2, x, 3, 4);
+          imageKey(5, y, 3, 4);
+          // the lanes that take b
+          if (i.op == IrOp.vuMax) {
+            a.v3(V.cmgt4s, 6, 5, 2);
+          } else {
+            a.v3(V.cmgt4s, 6, 2, 5);
+          }
+          final d = claim(4 * v);
+          a.vmov(d, x);
+          a.v3(V.bit, d, y, 6);
+          putBits(v, d);
+        case IrOp.vuClip:
+          final x = bits(i.a), y = bits(i.b);
+          // the limit, the magnitude of lane 3 of b, as a key
+          a.vdupLane(2, y, 3);
+          lanes32(7, 0x7fffffff);
+          a.v3(V.and, 3, 2, 7);
+          lanes32(7, 0x7f800000);
+          a.v3(V.and, 4, 2, 7);
+          a.v2(V.cmeq0, 4, 4);
+          a.v3(V.bic, 3, 3, 4);
+          imageKey(5, x, 4, 6);
+          a.v3(V.cmgt4s, 4, 5, 3); // above
+          a.v2(V.neg4s, 6, 3);
+          a.v3(V.cmgt4s, 6, 6, 5); // below
+          a.vconstant(7, const [1, 4, 16, 0]);
+          a.v3(V.and, 4, 4, 7);
+          a.vconstant(7, const [2, 8, 32, 0]);
+          a.v3(V.and, 6, 6, 7);
+          a.v3(V.orr, 4, 4, 6);
+          a.v2(V.addv4s, 4, 4);
+          final d = target(v, 0);
+          a.vumov(d, 4, 0);
+          save(d, v);
+        case IrOp.ctxLoad when vector(v):
+          final d = claim(4 * v);
+          a.vmemory(true, d, 19, i.imm * 4);
+          putBits(v, d);
+        case IrOp.ctxStore when vector(i.a):
+          a.vmemory(false, bits(i.a), 19, i.imm * 4);
+        case IrOp.load when vector(v):
+          // the callbacks read the words into the slot
+          final done = Arm64Label();
+          final slot = vectorSlot(v);
+          final slow = i.exit >= 0
+              ? unmapped(block.exits[i.exit])
+              : stub(() {
+                  a.memory(false, 0, 31, 0, size: 4);
+                  for (var k = 0; k < 4; k++) {
+                    a.memory(true, 0, 31, 0, size: 4);
+                    if (k != 0) {
+                      a.constant(1, 4 * k);
+                      a.alu(0x0b000000, 0, 0, 1);
+                    }
+                    a.constant(1, 4);
+                    a.constant(2, 0);
+                    a.call(env.readFn);
+                    a.memory(false, 0, 31, slot + 4 * k, size: 4);
+                  }
+                  a.branch(done);
+                });
+          load(0, i.a);
+          lookup(false);
+          a.cmp(5, 31, wide: true);
+          a.branch(slow, 0);
+          a.alu(0x0b000000, 5, 5, 3, wide: true);
+          a.vmemory(true, 0, 5, 0);
+          a.vmemory(false, 0, 31, slot);
+          a.bind(done);
+          if (i.exit < 0) forget();
+        case IrOp.store when vector(i.b):
+          final done = Arm64Label();
+          final slot = vectorSlot(i.b);
+          final x = bits(i.b);
+          final slow = i.exit >= 0
+              ? unmapped(block.exits[i.exit])
+              : stub(() {
+                  a.memory(false, 0, 31, 0, size: 4);
+                  for (var k = 0; k < 4; k++) {
+                    a.memory(true, 0, 31, 0, size: 4);
+                    if (k != 0) {
+                      a.constant(1, 4 * k);
+                      a.alu(0x0b000000, 0, 0, 1);
+                    }
+                    a.memory(true, 1, 31, slot + 4 * k, size: 4);
+                    a.constant(2, 4);
+                    a.call(env.writeFn);
+                  }
+                  a.branch(done);
+                });
+          load(0, i.a);
+          lookup(true);
+          a.cmp(5, 31, wide: true);
+          a.branch(slow, 0);
+          a.alu(0x0b000000, 5, 5, 3, wide: true);
+          a.vmemory(false, x, 5, 0);
+          a.bind(done);
+          if (i.exit < 0) forget();
         case IrOp.constant:
           break;
         case IrOp.ctxLoad:
@@ -489,6 +865,7 @@ abstract final class Arm64Backend {
           a.bind(done);
           finishLoad(i);
           save(0, v);
+          if (i.exit < 0) forget();
         case IrOp.store:
           final done = Arm64Label();
           final slow = i.exit >= 0
@@ -526,6 +903,7 @@ abstract final class Arm64Backend {
           swap(0, i.imm, i.endian);
           a.memory(false, 0, 5, 0, size: i.imm);
           a.bind(done);
+          if (i.exit < 0) forget();
         case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
           load(0, i.a);
           load(1, i.b);
@@ -583,6 +961,7 @@ abstract final class Arm64Backend {
           load(2, i.c);
           a.call(env.helperFn(i.imm));
           save(0, v);
+          forget();
         case IrOp.exitIf:
           final e = block.exits[i.aux];
           final dest = stub(
@@ -655,6 +1034,7 @@ abstract final class Arm64Backend {
     for (var i = 0; i < stubs.length; i++) {
       stubs[i]();
     }
+    a.finishPool();
     return a.bytes;
   }
 }
