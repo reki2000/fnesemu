@@ -27,7 +27,13 @@ const _versions = 2048;
 
 // step kinds: the indices of the entry points in [_entryPoints]
 const _setup = 0, _raster = 1, _clut = 2, _upload = 3, _copy = 4, _snapshot = 5;
-const _entryPoints = ['setup', 'raster', 'clut', 'upload', 'copy', 'snapshot'];
+const _bin = 6;
+const _entryPoints = [
+  'setup', 'raster', 'clut', 'upload', 'copy', 'snapshot', 'bin', //
+];
+
+// the words of the bit sets of the primitives that meet each tile of a batch
+const _binWords = 4 * 1024 * 1024;
 
 // the bindings of the program
 const _vramBinding = 0, _primBinding = 2, _dataBinding = 4, _clutBinding = 5;
@@ -39,6 +45,7 @@ const _bindings = [
   ComputeBinding(ComputeBindingKind.readOnlyStorage, _dataWords * 4),
   ComputeBinding(ComputeBindingKind.storage, _versions * 512 * 4), // CLUTs
   ComputeBinding(ComputeBindingKind.params, 64),
+  ComputeBinding(ComputeBindingKind.storage, _binWords * 4), // bins
 ];
 
 /// 512 pages of 8 KiB as a bit set
@@ -467,11 +474,22 @@ class GsCompute implements GsResidentSink {
     final fbp = (frame & 0x1ff) * 32, fbw = frame >> 16 & 0x3f;
     final fpsm = frame >> 24 & 0x3f;
     final zbp = (zbuf & 0x1ff) * 32, zpsm = 0x30 | (zbuf >> 24 & 0xf);
-    final x0 = _bx0 & ~15, y0 = _by0 & ~15;
-    _step(_raster, ((_bx1 - x0) >> 4) + 1, ((_by1 - y0) >> 4) + 1, [
+    final x0 = _bx0 & ~7, y0 = _by0 & ~7;
+    final tilesX = ((_bx1 - x0) >> 3) + 1, tilesY = ((_by1 - y0) >> 3) + 1;
+    // The bins list the primitives of each tile; a batch too large for them
+    // makes each tile test all primitives.
+    final words = (_batchCount + 31) >> 5;
+    final binned = tilesX * tilesY * words <= _binWords;
+    if (binned) {
+      _linearStep(_bin, _batchCount, [
+        _batchFirst, _batchCount, x0, y0, tilesX, tilesY, words, //
+      ]);
+    }
+    _step(_raster, tilesX, tilesY, [
       _batchFirst, _batchCount, x0, y0, //
       fbp, gs.mem.layout(fpsm).pagesInRow(fbw), fpsm, _batchUsesZ ? 1 : 0,
       zbp, gs.mem.layout(zpsm).pagesInRow(fbw), zpsm, 0,
+      binned ? 1 : 0, words,
     ]);
     _batchCount = 0;
     _batchWrites.clear();

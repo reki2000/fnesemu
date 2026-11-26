@@ -13,9 +13,14 @@ import 'r5900/r5900.dart';
 /// devices run, so [skip] accounts whole passes up to the next device
 /// clock and checks the register again after the devices have run.
 final class EeIdleLoop {
-  EeIdleLoop(this.cpu);
+  EeIdleLoop(this.cpu)
+      : _ram32 =
+            Uint32List.view(cpu.bus.ram.buffer, cpu.bus.ram.offsetInBytes);
 
   final R5900 cpu;
+
+  /// the RAM as words, where a loop of NOPs is watched
+  final Uint32List _ram32;
 
   /// the address of the load, or -1 while no loop is watched
   int _pc = -1;
@@ -38,10 +43,94 @@ final class EeIdleLoop {
   /// whether two passes have left the same registers
   bool _idle = false;
 
+  /// the start of a loop of NOPs that branches back to itself, or -1
+  int _spinPc = -1;
+
+  /// the word index of [_spinPc] in the RAM
+  int _spinWord = 0;
+
+  /// the instructions of one pass of that loop, the branch and its delay
+  /// slot included
+  int _spinPass = 0;
+  int _spinBranchWord = 0;
+
+  /// Addresses that do not start such a loop, by their low bits.
+  final _spinRejected = Int32List(256)..fillRange(0, 256, -1);
+
   void reset() {
     _pc = -1;
     _rejected.fillRange(0, 256, -1);
     _idle = false;
+    _spinPc = -1;
+    _spinRejected.fillRange(0, 256, -1);
+  }
+
+  /// Accounts whole passes of a loop that runs only NOPs and branches back
+  /// to its start, as an idle thread does while it waits for an interrupt,
+  /// until the first pass that ends at or after [limit]. Nothing but the
+  /// clock changes in such a loop, so the passes need no check of the
+  /// registers. Returns false when the instructions must run.
+  bool skipSpin(int limit) {
+    final pc = cpu.pc;
+    if (pc != _spinPc) {
+      final slot = (pc >> 2) & 255;
+      if (_spinRejected[slot] == pc.toSigned(32)) return false;
+      if (!_watchSpin(pc)) {
+        _spinRejected[slot] = pc.toSigned(32);
+        return false;
+      }
+    }
+    if (!cpu.bus.tlb!.userIdentity ||
+        !cpu.prepareCompiled() ||
+        !_sameSpin()) {
+      return false;
+    }
+    final pass = _spinPass;
+    var passes = (limit - cpu.clocks + pass - 1) ~/ pass;
+    final untilCompare = cpu.instructionsUntilCompare;
+    if (untilCompare != 0 && passes * pass >= untilCompare) {
+      passes = (untilCompare - 1) ~/ pass;
+    }
+    if (passes <= 0) return false;
+    cpu.idle(passes * pass);
+    return true;
+  }
+
+  /// Starts to watch a loop of NOPs at [at] in the RAM, or returns false
+  /// when there is none. The loop is read as the compiled code reads it:
+  /// through the identity mapping of the TLB.
+  bool _watchSpin(int at) {
+    _spinPc = -1;
+    if (at & 3 != 0 || !cpu.bus.tlb!.userIdentity) return false;
+    final ram = _ram32, word = (at & 0x1fffffff) >> 2;
+    for (var i = 0; i < 16; i++) {
+      final a = at + i * 4;
+      // the words of the loop stay on one page
+      if ((a + 4) & ~0xfff != at & ~0xfff) return false;
+      if (word + i + 1 >= ram.length) return false;
+      final w = ram[word + i];
+      if (w == 0) continue;
+      // BEQ with the same register twice always branches
+      final op = w >>> 26, rs = (w >>> 21) & 31, rt = (w >>> 16) & 31;
+      if (op != 4 || rs != rt || _branchTarget(w, a) != at) return false;
+      if (ram[word + i + 1] != 0) return false;
+      _spinPc = at;
+      _spinWord = word;
+      _spinPass = i + 2;
+      _spinBranchWord = w;
+      return true;
+    }
+    return false;
+  }
+
+  /// whether the words of the watched loop of NOPs are still there
+  bool _sameSpin() {
+    final ram = _ram32, word = _spinWord, branch = _spinPass - 2;
+    for (var i = 0; i < branch; i++) {
+      if (ram[word + i] != 0) return false;
+    }
+    return ram[word + branch] == _spinBranchWord &&
+        ram[word + branch + 1] == 0;
   }
 
   /// Called after the interpreter has run the instruction at [at].

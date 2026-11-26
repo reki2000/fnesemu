@@ -9,7 +9,7 @@ const gsComputeShader = r'''
 //
 // Entry points, one per step kind:
 //   setup     per primitive: bounds and edges (or line steps) into setups
-//   raster    one 16x16 tile per workgroup: the primitives of a batch in
+//   raster    one 8x8 tile per workgroup: the primitives of a batch in
 //             order, the frame and depth of the pixel kept in registers
 //   clut      CLUT versions from descriptors
 //   upload    host to local transfer words into pixels
@@ -109,6 +109,7 @@ struct Params {
 @group(0) @binding(4) var<storage, read> data: array<u32>;
 @group(0) @binding(5) var<storage, read_write> cluts: array<u32>;
 @group(0) @binding(6) var<uniform> P: Params;
+@group(0) @binding(7) var<storage, read_write> bins: array<atomic<u32>>;
 
 // ---- local memory layout (GsMemory.unitIndex) ----
 
@@ -401,19 +402,31 @@ fn add_wide(a: vec2u, b: vec2u) -> vec2u {
   return vec2u(lo, a.y + b.y + select(0u, 1u, lo < a.x));
 }
 
-// floor(n / d + 0.5) for n.y < d < 2^31
+fn sub_wide(a: vec2u, b: vec2u) -> vec2u {
+  return vec2u(a.x - b.x, a.y - b.y - select(0u, 1u, a.x < b.x));
+}
+
+// a quotient of n / d that is at most the exact one and within 2^-16 of it
+fn div_below(n: vec2u, fd: f32) -> u32 {
+  let v = (f32(n.y) * 4294967296.0 + f32(n.x)) / fd * 0.99999;
+  return u32(max(floor(v) - 1.0, 0.0));
+}
+
+// floor(n / d + 0.5) for n.y < d < 2^31: two estimates from below by the
+// float division leave a remainder of a few d, which the loop takes off
 fn div_round(n: vec2u, d: u32) -> u32 {
-  var r = n.y;
-  var q = 0u;
-  for (var i = 31i; i >= 0i; i--) {
-    r = (r << 1u) | ((n.x >> u32(i)) & 1u);
-    q = q << 1u;
-    if (r >= d) {
-      r -= d;
-      q |= 1u;
-    }
+  let fd = f32(d);
+  let q0 = div_below(n, fd);
+  var r = sub_wide(n, mul_wide(q0, d));
+  let q1 = div_below(r, fd);
+  r = sub_wide(r, mul_wide(q1, d));
+  var q = q0 + q1;
+  // bounded, so that a wrong estimate cannot hang the GPU
+  for (var k = 0u; k < 8u && (r.y != 0u || r.x >= d); k++) {
+    r = sub_wide(r, vec2u(d, 0u));
+    q++;
   }
-  return q + select(0u, 1u, r * 2u >= d);
+  return q + select(0u, 1u, r.x * 2u >= d);
 }
 
 // floor(n / d) + 0.5 rounded up, for d < 2^31 and a quotient below 2^32
@@ -555,7 +568,8 @@ fn level(state: u32, n: u32) -> Level {
 }
 
 // GsRaster._sampleLevel and _sample: level n at level 0 coordinates (u, v).
-// The texels are read in a loop, so that the texel read is compiled once.
+// The taps are separate values: a loop over an array of them keeps the
+// array in memory on some GPUs.
 fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
     v: f32, linear: bool) -> u32 {
   let l = level(state, n);
@@ -570,27 +584,26 @@ fn sample_level(state: u32, from_snap: bool, version: u32, n: u32, u: f32,
   var v0: i32;
   var fu = 0.0;
   var fv = 0.0;
-  var taps = 1u;
   if (linear) {
     u0 = i32(floor(su - 0.5));
     v0 = i32(floor(sv - 0.5));
     fu = su - 0.5 - f32(u0);
     fv = sv - 0.5 - f32(v0);
-    taps = 4u;
   } else {
     u0 = i32(floor(su));
     v0 = i32(floor(sv));
   }
-  var c: array<u32, 4>;
-  for (var k = 0u; k < taps; k++) {
-    c[k] = texel(state, from_snap, version, l,
-        wrap(u0 + i32(k & 1u), wms, size, l.minu, l.maxu),
-        wrap(v0 + i32(k >> 1u), wmt, height, l.minv, l.maxv));
-  }
-  if (!linear || (c[0] == c[1] && c[0] == c[2] && c[0] == c[3])) {
-    return c[0];
-  }
-  return bilinear(c[0], c[1], c[2], c[3], fu, fv);
+  let wu0 = wrap(u0, wms, size, l.minu, l.maxu);
+  let wv0 = wrap(v0, wmt, height, l.minv, l.maxv);
+  let c0 = texel(state, from_snap, version, l, wu0, wv0);
+  if (!linear) { return c0; }
+  let wu1 = wrap(u0 + 1, wms, size, l.minu, l.maxu);
+  let wv1 = wrap(v0 + 1, wmt, height, l.minv, l.maxv);
+  let c1 = texel(state, from_snap, version, l, wu1, wv0);
+  let c2 = texel(state, from_snap, version, l, wu0, wv1);
+  let c3 = texel(state, from_snap, version, l, wu1, wv1);
+  if (c0 == c1 && c0 == c2 && c0 == c3) { return c0; }
+  return bilinear(c0, c1, c2, c3, fu, fv);
 }
 
 // GsRaster._texture without the texture function
@@ -638,12 +651,10 @@ fn texture(state: u32, attrs: u32, from_snap: bool, version: u32,
       }
     }
   }
-  var c: array<u32, 2>;
-  for (var j = 0u; j < levels; j++) {
-    c[j] = sample_level(state, from_snap, version, n + j, u, v, linear);
-  }
-  if (levels == 1u) { return c[0]; }
-  return bilinear(c[0], c[1], c[0], c[1], frac, 0.0);
+  let c0 = sample_level(state, from_snap, version, n, u, v, linear);
+  if (levels == 1u) { return c0; }
+  let c1 = sample_level(state, from_snap, version, n + 1u, u, v, linear);
+  return bilinear(c0, c1, c0, c1, frac, 0.0);
 }
 
 fn alpha_passes(atst: u32, a: i32, aref: i32) -> bool {
@@ -1053,18 +1064,67 @@ fn line_pixels(i: u32, x: u32, y: u32, fval: ptr<function, u32>,
   }
 }
 
-var<workgroup> scan: array<u32, 256>;
-var<workgroup> list: array<u32, 256>;
+// P.a: first primitive, count, tile x, tile y
+// P.b: tiles in a row, rows, words of a bit set
+// Sets the bit of each primitive in the bit set of each tile it meets. The
+// raster of the batch clears the bit sets after it reads them.
+@compute @workgroup_size(256)
+fn bin(@builtin(global_invocation_id) g: vec3u) {
+  let k = g.x + g.y * 65535u * 256u;
+  if (k >= P.a.y) { return; }
+  let o = (P.a.x + k) * SETUP_WORDS;
+  let mn = setups[o];
+  let mx = setups[o + 1u];
+  let x0 = P.a.z;
+  let y0 = P.a.w;
+  let minx = mn & 0xffffu;
+  let miny = mn >> 16u;
+  let maxx = mx & 0xffffu;
+  let maxy = mx >> 16u;
+  if (minx > maxx || maxx < x0 || maxy < y0) { return; }
+  let i0 = select(0u, (minx - x0) >> 3u, minx > x0);
+  let j0 = select(0u, (miny - y0) >> 3u, miny > y0);
+  let i1 = min((maxx - x0) >> 3u, P.b.x - 1u);
+  let j1 = min((maxy - y0) >> 3u, P.b.y - 1u);
+  let words = P.b.z;
+  let word = k >> 5u;
+  let bit = 1u << (k & 31u);
+  for (var j = j0; j <= j1; j++) {
+    for (var i = i0; i <= i1; i++) {
+      atomicOr(&bins[(j * P.b.x + i) * words + word], bit);
+    }
+  }
+}
+
+var<workgroup> scan: array<u32, 64>;
+var<workgroup> list: array<u32, 64>;
+
+fn raster_prim(prim: u32, x: u32, y: u32, fval: ptr<function, u32>,
+    zval: ptr<function, u32>, fdirty: ptr<function, bool>,
+    zdirty: ptr<function, bool>) {
+  if ((prims[prim * PRIM_WORDS] & 0xffu) == KIND_LINE) {
+    line_pixels(prim, x, y, fval, zval, fdirty, zdirty);
+    return;
+  }
+  var fr: Frag;
+  if (fragment(prim, x, y, &fr)) {
+    let p = prim * PRIM_WORDS;
+    pixel(prims[p + 1u], prims[p] >> 8u, (prims[p] & 0x1000000u) != 0u,
+        prims[p + 2u], x, y, fr, fval, zval, fdirty, zdirty);
+  }
+}
 
 // P.a: first primitive, count, tile x, tile y
 // P.b: frame bp, pages, psm, uses depth
 // P.c: depth bp, pages, psm
-@compute @workgroup_size(16, 16)
+// P.d: whether the bins list the primitives, words of a bit set
+@compute @workgroup_size(8, 8)
 fn raster(@builtin(workgroup_id) wg: vec3u,
+    @builtin(num_workgroups) ng: vec3u,
     @builtin(local_invocation_id) lid: vec3u,
     @builtin(local_invocation_index) li: u32) {
-  let tx = P.a.z + wg.x * 16u;
-  let ty = P.a.w + wg.y * 16u;
+  let tx = P.a.z + wg.x * 8u;
+  let ty = P.a.w + wg.y * 8u;
   let x = tx + lid.x;
   let y = ty + lid.y;
   let fpsm = P.b.z;
@@ -1082,18 +1142,36 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
   }
   let first = P.a.x;
   let count = P.a.y;
-  for (var base = 0u; base < count; base += 256u) {
+  if (P.d.x != 0u) {
+    // the primitives of the tile from its bit set, in order
+    let words = P.d.y;
+    let at = (wg.y * ng.x + wg.x) * words;
+    for (var w = 0u; w < words; w++) {
+      var m = atomicLoad(&bins[at + w]);
+      while (m != 0u) {
+        let prim = first + w * 32u + countTrailingZeros(m);
+        m &= m - 1u;
+        raster_prim(prim, x, y, &fval, &zval, &fdirty, &zdirty);
+      }
+    }
+    // clear the bit set for the next batch once every invocation read it
+    workgroupBarrier();
+    for (var w = li; w < words; w += 64u) {
+      atomicStore(&bins[at + w], 0u);
+    }
+  }
+  for (var base = select(0u, count, P.d.x != 0u); base < count; base += 64u) {
     let i = first + base + li;
     var f = 0u;
     if (base + li < count) {
       let mn = setups[i * SETUP_WORDS];
       let mx = setups[i * SETUP_WORDS + 1u];
-      f = select(0u, 1u, (mn & 0xffffu) <= tx + 15u && (mx & 0xffffu) >= tx &&
-          (mn >> 16u) <= ty + 15u && (mx >> 16u) >= ty);
+      f = select(0u, 1u, (mn & 0xffffu) <= tx + 7u && (mx & 0xffffu) >= tx &&
+          (mn >> 16u) <= ty + 7u && (mx >> 16u) >= ty);
     }
     scan[li] = f;
     workgroupBarrier();
-    for (var off = 1u; off < 256u; off <<= 1u) {
+    for (var off = 1u; off < 64u; off <<= 1u) {
       var v = scan[li];
       if (li >= off) { v += scan[li - off]; }
       workgroupBarrier();
@@ -1101,19 +1179,9 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
       workgroupBarrier();
     }
     if (f == 1u) { list[scan[li] - 1u] = i; }
-    let total = workgroupUniformLoad(&scan[255]);
+    let total = workgroupUniformLoad(&scan[63]);
     for (var k = 0u; k < total; k++) {
-      let prim = list[k];
-      if ((prims[prim * PRIM_WORDS] & 0xffu) == KIND_LINE) {
-        line_pixels(prim, x, y, &fval, &zval, &fdirty, &zdirty);
-        continue;
-      }
-      var fr: Frag;
-      if (fragment(prim, x, y, &fr)) {
-        let p = prim * PRIM_WORDS;
-        pixel(prims[p + 1u], prims[p] >> 8u, (prims[p] & 0x1000000u) != 0u,
-            prims[p + 2u], x, y, fr, &fval, &zval, &fdirty, &zdirty);
-      }
+      raster_prim(list[k], x, y, &fval, &zval, &fdirty, &zdirty);
     }
     workgroupBarrier();
   }

@@ -501,7 +501,8 @@ class Ps2 extends Core {
       final jit = this.jit;
       while (cpu.clocks < limit) {
         final before = cpu.clocks;
-        if (_idle.skip(limit, _nextScanlineClock - _registerReadClocks)) {
+        if (_idle.skip(limit, _nextScanlineClock - _registerReadClocks) ||
+            _idle.skipSpin(limit)) {
           _result.elapsedClocks = cpu.clocks - before;
           continue;
         }
