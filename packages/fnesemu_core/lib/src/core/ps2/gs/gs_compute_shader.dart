@@ -402,19 +402,31 @@ fn add_wide(a: vec2u, b: vec2u) -> vec2u {
   return vec2u(lo, a.y + b.y + select(0u, 1u, lo < a.x));
 }
 
-// floor(n / d + 0.5) for n.y < d < 2^31
+fn sub_wide(a: vec2u, b: vec2u) -> vec2u {
+  return vec2u(a.x - b.x, a.y - b.y - select(0u, 1u, a.x < b.x));
+}
+
+// a quotient of n / d that is at most the exact one and within 2^-16 of it
+fn div_below(n: vec2u, fd: f32) -> u32 {
+  let v = (f32(n.y) * 4294967296.0 + f32(n.x)) / fd * 0.99999;
+  return u32(max(floor(v) - 1.0, 0.0));
+}
+
+// floor(n / d + 0.5) for n.y < d < 2^31: two estimates from below by the
+// float division leave a remainder of a few d, which the loop takes off
 fn div_round(n: vec2u, d: u32) -> u32 {
-  var r = n.y;
-  var q = 0u;
-  for (var i = 31i; i >= 0i; i--) {
-    r = (r << 1u) | ((n.x >> u32(i)) & 1u);
-    q = q << 1u;
-    if (r >= d) {
-      r -= d;
-      q |= 1u;
-    }
+  let fd = f32(d);
+  let q0 = div_below(n, fd);
+  var r = sub_wide(n, mul_wide(q0, d));
+  let q1 = div_below(r, fd);
+  r = sub_wide(r, mul_wide(q1, d));
+  var q = q0 + q1;
+  // bounded, so that a wrong estimate cannot hang the GPU
+  for (var k = 0u; k < 8u && (r.y != 0u || r.x >= d); k++) {
+    r = sub_wide(r, vec2u(d, 0u));
+    q++;
   }
-  return q + select(0u, 1u, r * 2u >= d);
+  return q + select(0u, 1u, r.x * 2u >= d);
 }
 
 // floor(n / d) + 0.5 rounded up, for d < 2^31 and a quotient below 2^32
