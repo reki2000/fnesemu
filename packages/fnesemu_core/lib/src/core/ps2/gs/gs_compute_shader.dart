@@ -9,7 +9,7 @@ const gsComputeShader = r'''
 //
 // Entry points, one per step kind:
 //   setup     per primitive: bounds and edges (or line steps) into setups
-//   raster    one 16x16 tile per workgroup: the primitives of a batch in
+//   raster    one 8x8 tile per workgroup: the primitives of a batch in
 //             order, the frame and depth of the pixel kept in registers
 //   clut      CLUT versions from descriptors
 //   upload    host to local transfer words into pixels
@@ -1082,10 +1082,10 @@ fn bin(@builtin(global_invocation_id) g: vec3u) {
   let maxx = mx & 0xffffu;
   let maxy = mx >> 16u;
   if (minx > maxx || maxx < x0 || maxy < y0) { return; }
-  let i0 = select(0u, (minx - x0) >> 4u, minx > x0);
-  let j0 = select(0u, (miny - y0) >> 4u, miny > y0);
-  let i1 = min((maxx - x0) >> 4u, P.b.x - 1u);
-  let j1 = min((maxy - y0) >> 4u, P.b.y - 1u);
+  let i0 = select(0u, (minx - x0) >> 3u, minx > x0);
+  let j0 = select(0u, (miny - y0) >> 3u, miny > y0);
+  let i1 = min((maxx - x0) >> 3u, P.b.x - 1u);
+  let j1 = min((maxy - y0) >> 3u, P.b.y - 1u);
   let words = P.b.z;
   let word = k >> 5u;
   let bit = 1u << (k & 31u);
@@ -1096,8 +1096,8 @@ fn bin(@builtin(global_invocation_id) g: vec3u) {
   }
 }
 
-var<workgroup> scan: array<u32, 256>;
-var<workgroup> list: array<u32, 256>;
+var<workgroup> scan: array<u32, 64>;
+var<workgroup> list: array<u32, 64>;
 
 fn raster_prim(prim: u32, x: u32, y: u32, fval: ptr<function, u32>,
     zval: ptr<function, u32>, fdirty: ptr<function, bool>,
@@ -1118,13 +1118,13 @@ fn raster_prim(prim: u32, x: u32, y: u32, fval: ptr<function, u32>,
 // P.b: frame bp, pages, psm, uses depth
 // P.c: depth bp, pages, psm
 // P.d: whether the bins list the primitives, words of a bit set
-@compute @workgroup_size(16, 16)
+@compute @workgroup_size(8, 8)
 fn raster(@builtin(workgroup_id) wg: vec3u,
     @builtin(num_workgroups) ng: vec3u,
     @builtin(local_invocation_id) lid: vec3u,
     @builtin(local_invocation_index) li: u32) {
-  let tx = P.a.z + wg.x * 16u;
-  let ty = P.a.w + wg.y * 16u;
+  let tx = P.a.z + wg.x * 8u;
+  let ty = P.a.w + wg.y * 8u;
   let x = tx + lid.x;
   let y = ty + lid.y;
   let fpsm = P.b.z;
@@ -1156,22 +1156,22 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
     }
     // clear the bit set for the next batch once every invocation read it
     workgroupBarrier();
-    for (var w = li; w < words; w += 256u) {
+    for (var w = li; w < words; w += 64u) {
       atomicStore(&bins[at + w], 0u);
     }
   }
-  for (var base = select(0u, count, P.d.x != 0u); base < count; base += 256u) {
+  for (var base = select(0u, count, P.d.x != 0u); base < count; base += 64u) {
     let i = first + base + li;
     var f = 0u;
     if (base + li < count) {
       let mn = setups[i * SETUP_WORDS];
       let mx = setups[i * SETUP_WORDS + 1u];
-      f = select(0u, 1u, (mn & 0xffffu) <= tx + 15u && (mx & 0xffffu) >= tx &&
-          (mn >> 16u) <= ty + 15u && (mx >> 16u) >= ty);
+      f = select(0u, 1u, (mn & 0xffffu) <= tx + 7u && (mx & 0xffffu) >= tx &&
+          (mn >> 16u) <= ty + 7u && (mx >> 16u) >= ty);
     }
     scan[li] = f;
     workgroupBarrier();
-    for (var off = 1u; off < 256u; off <<= 1u) {
+    for (var off = 1u; off < 64u; off <<= 1u) {
       var v = scan[li];
       if (li >= off) { v += scan[li - off]; }
       workgroupBarrier();
@@ -1179,7 +1179,7 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
       workgroupBarrier();
     }
     if (f == 1u) { list[scan[li] - 1u] = i; }
-    let total = workgroupUniformLoad(&scan[255]);
+    let total = workgroupUniformLoad(&scan[63]);
     for (var k = 0u; k < total; k++) {
       raster_prim(list[k], x, y, &fval, &zval, &fdirty, &zdirty);
     }

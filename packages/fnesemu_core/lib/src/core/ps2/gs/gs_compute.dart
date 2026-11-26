@@ -474,8 +474,8 @@ class GsCompute implements GsResidentSink {
     final fbp = (frame & 0x1ff) * 32, fbw = frame >> 16 & 0x3f;
     final fpsm = frame >> 24 & 0x3f;
     final zbp = (zbuf & 0x1ff) * 32, zpsm = 0x30 | (zbuf >> 24 & 0xf);
-    final x0 = _bx0 & ~15, y0 = _by0 & ~15;
-    final tilesX = ((_bx1 - x0) >> 4) + 1, tilesY = ((_by1 - y0) >> 4) + 1;
+    final x0 = _bx0 & ~7, y0 = _by0 & ~7;
+    final tilesX = ((_bx1 - x0) >> 3) + 1, tilesY = ((_by1 - y0) >> 3) + 1;
     // The bins list the primitives of each tile; a batch too large for them
     // makes each tile test all primitives.
     final words = (_batchCount + 31) >> 5;
