@@ -1066,8 +1066,9 @@ fn line_pixels(i: u32, x: u32, y: u32, fval: ptr<function, u32>,
 
 // P.a: first primitive, count, tile x, tile y
 // P.b: tiles in a row, rows, words of a bit set
-// Sets the bit of each primitive in the bit set of each tile it meets. The
-// raster of the batch clears the bit sets after it reads them.
+// Sets the bit of each primitive in the bit set of each tile it meets, and
+// the bit of its word in the summary words before the bit set. The raster of
+// the batch clears them after it reads them.
 @compute @workgroup_size(256)
 fn bin(@builtin(global_invocation_id) g: vec3u) {
   let k = g.x + g.y * 65535u * 256u;
@@ -1087,11 +1088,14 @@ fn bin(@builtin(global_invocation_id) g: vec3u) {
   let i1 = min((maxx - x0) >> 3u, P.b.x - 1u);
   let j1 = min((maxy - y0) >> 3u, P.b.y - 1u);
   let words = P.b.z;
+  let summary = (words + 31u) >> 5u;
   let word = k >> 5u;
   let bit = 1u << (k & 31u);
   for (var j = j0; j <= j1; j++) {
     for (var i = i0; i <= i1; i++) {
-      atomicOr(&bins[(j * P.b.x + i) * words + word], bit);
+      let at = (j * P.b.x + i) * (summary + words);
+      atomicOr(&bins[at + (word >> 5u)], 1u << (word & 31u));
+      atomicOr(&bins[at + summary + word], bit);
     }
   }
 }
@@ -1143,20 +1147,27 @@ fn raster(@builtin(workgroup_id) wg: vec3u,
   let first = P.a.x;
   let count = P.a.y;
   if (P.d.x != 0u) {
-    // the primitives of the tile from its bit set, in order
+    // the primitives of the tile from its bit set, in order, reading only
+    // the words that the summary marks
     let words = P.d.y;
-    let at = (wg.y * ng.x + wg.x) * words;
-    for (var w = 0u; w < words; w++) {
-      var m = atomicLoad(&bins[at + w]);
-      while (m != 0u) {
-        let prim = first + w * 32u + countTrailingZeros(m);
-        m &= m - 1u;
-        raster_prim(prim, x, y, &fval, &zval, &fdirty, &zdirty);
+    let summary = (words + 31u) >> 5u;
+    let at = (wg.y * ng.x + wg.x) * (summary + words);
+    for (var s = 0u; s < summary; s++) {
+      var marked = atomicLoad(&bins[at + s]);
+      while (marked != 0u) {
+        let w = s * 32u + countTrailingZeros(marked);
+        marked &= marked - 1u;
+        var m = atomicLoad(&bins[at + summary + w]);
+        while (m != 0u) {
+          let prim = first + w * 32u + countTrailingZeros(m);
+          m &= m - 1u;
+          raster_prim(prim, x, y, &fval, &zval, &fdirty, &zdirty);
+        }
       }
     }
     // clear the bit set for the next batch once every invocation read it
     workgroupBarrier();
-    for (var w = li; w < words; w += 64u) {
+    for (var w = li; w < summary + words; w += 64u) {
       atomicStore(&bins[at + w], 0u);
     }
   }

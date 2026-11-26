@@ -32,7 +32,8 @@ const _entryPoints = [
   'setup', 'raster', 'clut', 'upload', 'copy', 'snapshot', 'bin', //
 ];
 
-// the words of the bit sets of the primitives that meet each tile of a batch
+// the words of the bit sets of the primitives that meet each tile of a batch,
+// with their summary words
 const _binWords = 4 * 1024 * 1024;
 
 // the bindings of the program
@@ -479,7 +480,8 @@ class GsCompute implements GsResidentSink {
     // The bins list the primitives of each tile; a batch too large for them
     // makes each tile test all primitives.
     final words = (_batchCount + 31) >> 5;
-    final binned = tilesX * tilesY * words <= _binWords;
+    final binned =
+        tilesX * tilesY * (((words + 31) >> 5) + words) <= _binWords;
     if (binned) {
       _linearStep(_bin, _batchCount, [
         _batchFirst, _batchCount, x0, y0, tilesX, tilesY, words, //
