@@ -179,7 +179,7 @@ class VdpLineState {
   }
 
   // sprite pixels of the line
-  final spLine = Int32List(320);
+  final spLine = Uint32List(320);
 
   final a = _Plane();
   final b = _Plane();

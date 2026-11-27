@@ -59,9 +59,9 @@ class Ps2Bus {
   // TLB, so a TLB change clears them.
   static const _pageCount = 1 << 20;
   static const _scratchPages = 0x10000000, _biosPages = 0x20000000;
-  final _readPages = Int32List(_pageCount);
-  final _writePages = Int32List(_pageCount);
-  final _filled = Int32List(4096);
+  final _readPages = Uint32List(_pageCount);
+  final _writePages = Uint32List(_pageCount);
+  final _filled = Uint32List(4096);
   int _filledCount = 0;
 
   int _fetchEpoch = 0;

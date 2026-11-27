@@ -829,7 +829,7 @@ class DcTextureCache {
       : texels = Uint32List(size),
         stamps = Uint32List(size);
   final Uint32List texels, stamps;
-  final Int32List levelOffsets;
+  final Uint32List levelOffsets;
   int generation = 1;
 
   /// The generation in which every level-0 texel was decoded.

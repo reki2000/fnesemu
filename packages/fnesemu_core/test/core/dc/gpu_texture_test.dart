@@ -129,7 +129,7 @@ void main() {
     // MIP-mapped, bilinear, D-adjust 1.0.
     final tex = texture(tcw: 0x8800c000, tsp: copy | 0x2000 | 0x400);
     var size = 0;
-    final offsets = Int32List(tex.maxLevel + 1);
+    final offsets = Uint32List(tex.maxLevel + 1);
     for (var level = 0; level <= tex.maxLevel; level++) {
       offsets[level] = size;
       size += (tex.width >> level) * (tex.height >> level);
@@ -156,7 +156,7 @@ void main() {
     }
     final tex = texture(tsp: copy | 0x2000);
     final size = tex.width * tex.height;
-    tex.cache = DcTextureCache(size, Int32List(1));
+    tex.cache = DcTextureCache(size, Uint32List(1));
     expect(tex.sampleBilinearFixed(0x8000, 0x8000), -1);
     tex.decodeAll();
     for (final (su, sv) in [

@@ -89,7 +89,7 @@ class GeCompute implements PspVramGuard {
   double gpuMs = 0;
 
   final _state = Uint8List(_pages);
-  final _dirty = Int32List(_pages);
+  final _dirty = Uint32List(_pages);
   final _dirtyMark = Uint8List(_pages);
   int _dirtyCount = 0;
 
@@ -307,16 +307,16 @@ class GeCompute implements PspVramGuard {
   int _batchPrims = 0, _batchTileWords = 0;
   bool _batchDepth = false;
   int _fbY0 = 0, _fbY1 = 0, _zY0 = 0, _zY1 = 0;
-  final _batchWrites = Int32List(_pages), _batchReads = Int32List(_pages);
+  final _batchWrites = Uint32List(_pages), _batchReads = Uint32List(_pages);
   int _batchGeneration = 1;
 
   final _head = Int32List(_tilesX * _tilesY)
     ..fillRange(0, _tilesX * _tilesY, -1);
   final _tail = Int32List(_tilesX * _tilesY);
-  final _tileCount = Int32List(_tilesX * _tilesY);
-  final _touched = Int32List(_tilesX * _tilesY);
+  final _tileCount = Uint32List(_tilesX * _tilesY);
+  final _touched = Uint32List(_tilesX * _tilesY);
   int _touchedCount = 0;
-  final _nodePrim = Int32List(_maxNodes), _nodeNext = Int32List(_maxNodes);
+  final _nodePrim = Uint32List(_maxNodes), _nodeNext = Int32List(_maxNodes);
   int _nodeCount = 0;
 
   void _clearBatch() {
@@ -477,7 +477,7 @@ class GeCompute implements PspVramGuard {
     return copy * 4 + (phys & 3);
   }
 
-  bool _meets(Int32List marks, int at, int bytes) {
+  bool _meets(Uint32List marks, int at, int bytes) {
     final first = at >> _pageShift, last = (at + bytes - 1) >> _pageShift;
     for (var p = first; p <= last; p++) {
       if (marks[p & (_pages - 1)] == _batchGeneration) return true;
@@ -485,7 +485,7 @@ class GeCompute implements PspVramGuard {
     return false;
   }
 
-  void _mark(Int32List marks, int at, int bytes) {
+  void _mark(Uint32List marks, int at, int bytes) {
     final first = at >> _pageShift, last = (at + bytes - 1) >> _pageShift;
     for (var p = first; p <= last; p++) {
       marks[p & (_pages - 1)] = _batchGeneration;
@@ -712,7 +712,7 @@ class GeCompute implements PspVramGuard {
     final clock = Stopwatch()..start();
     if (_dirtyCount != 0) {
       // upload the dirty pages as runs of consecutive pages
-      final pages = Int32List.sublistView(_dirty, 0, _dirtyCount)..sort();
+      final pages = Uint32List.sublistView(_dirty, 0, _dirtyCount)..sort();
       var i = 0;
       while (i < pages.length) {
         final first = pages[i];
