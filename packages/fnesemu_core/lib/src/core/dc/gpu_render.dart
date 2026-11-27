@@ -1056,7 +1056,7 @@ class DcGpuRender {
     if (texture.format == 4) return texture;
     final width = texture.width, height = texture.height;
     final levels = texture.mipMapped ? texture.maxLevel + 1 : 1;
-    final offsets = Int32List(levels);
+    final offsets = Uint32List(levels);
     var size = 0;
     for (var level = 0; level < levels; level++) {
       offsets[level] = size;
