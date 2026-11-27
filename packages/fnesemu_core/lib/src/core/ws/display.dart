@@ -27,10 +27,10 @@ class Display {
   var _back = Uint32List(width * height);
   var _front = Uint32List(width * height);
 
-  // pixel attributes of the line: color, or -1 for transparent
-  final _scr1 = Int32List(width);
-  final _scr2 = Int32List(width);
-  final _sprite = Int32List(width);
+  // pixel attributes of the line: RGBA color, or 0 for transparent
+  final _scr1 = Uint32List(width);
+  final _scr2 = Uint32List(width);
+  final _sprite = Uint32List(width);
   final _spriteHigh = Uint8List(width);
 
   void reset() {
@@ -138,7 +138,7 @@ class Display {
   }
 
   void _renderScreen(
-      Int32List out, int mapBase, int scrollX, int scrollY, int line) {
+      Uint32List out, int mapBase, int scrollX, int scrollY, int line) {
     final y = (line + scrollY).mask8;
     for (var x = 0; x < width; x++) {
       final sx = (x + scrollX).mask8;
@@ -150,7 +150,7 @@ class Display {
       final px = entry.bit14 ? 7 - sx.mask3 : sx.mask3;
       final py = entry.bit15 ? 7 - y.mask3 : y.mask3;
       final index = _pixel(tile, bank, px, py);
-      out[x] = _transparent(palette, index) ? -1 : _color(palette, index);
+      out[x] = _transparent(palette, index) ? 0 : _color(palette, index);
     }
   }
 
@@ -176,7 +176,7 @@ class Display {
       _renderScreen(
           _scr1, (io[0x07] & mapMask).shl11, io[0x10], io[0x11], line);
     } else {
-      _scr1.fillRange(0, width, -1);
+      _scr1.fillRange(0, width, 0);
     }
 
     if (ctrl.bit1) {
@@ -185,23 +185,23 @@ class Display {
       if (ctrl.bit5) {
         final outside = ctrl.bit4;
         for (var x = 0; x < width; x++) {
-          if (_inside(x, line, 0x08) == outside) _scr2[x] = -1;
+          if (_inside(x, line, 0x08) == outside) _scr2[x] = 0;
         }
       }
     } else {
-      _scr2.fillRange(0, width, -1);
+      _scr2.fillRange(0, width, 0);
     }
 
-    _sprite.fillRange(0, width, -1);
+    _sprite.fillRange(0, width, 0);
     if (ctrl.bit2) _renderSprites(line, ctrl.bit3);
 
     for (var x = 0; x < width; x++) {
       var c = back;
-      if (_scr1[x] != -1) c = _scr1[x];
+      if (_scr1[x] != 0) c = _scr1[x];
       final sprite = _sprite[x];
-      if (sprite != -1 && _spriteHigh[x] == 0) c = sprite;
-      if (_scr2[x] != -1) c = _scr2[x];
-      if (sprite != -1 && _spriteHigh[x] != 0) c = sprite;
+      if (sprite != 0 && _spriteHigh[x] == 0) c = sprite;
+      if (_scr2[x] != 0) c = _scr2[x];
+      if (sprite != 0 && _spriteHigh[x] != 0) c = sprite;
       _back[out + x] = c;
     }
   }
@@ -222,7 +222,7 @@ class Display {
       final py = attr.bit15 ? 7 - row : row;
       for (var i = 0; i < 8; i++) {
         final x = (sx + i).mask8;
-        if (x >= width || _sprite[x] != -1) continue;
+        if (x >= width || _sprite[x] != 0) continue;
         if (window && _inside(x, line, 0x0c) == outsideWindow) continue;
         final index = _pixel(tile, 0, attr.bit14 ? 7 - i : i, py);
         if (_transparent(palette, index)) continue;

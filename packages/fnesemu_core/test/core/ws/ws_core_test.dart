@@ -132,4 +132,31 @@ void main() {
     expect(ws.imageBuffer().width, flat.width);
   });
 
+  test('pure white pixels remain opaque over a dark background', () {
+    final ws = Ws(color: false)..setRom(_rom([0xeb, 0xfe]));
+    final bus = ws.bus;
+    bus.output8(0x14, 0x01); // LCD on
+    bus.output8(0x00, 0x03); // scr1 + scr2 on
+    bus.output8(0x01, 0x00); // back color = pool[0]
+    bus.output8(0x1c, 0x0f); // pool[0] = 15 (black), pool[1] = 0 (white)
+    bus.output8(0x20, 0x10); // palette 0: color 0 -> pool[0], color 1 -> pool[1]
+    bus.output8(0x28, 0x10); // palette 4 (transparent color 0): color 1 -> pool[1]
+    bus.output8(0x07, 0x32); // scr1 map at 0x1000, scr2 map at 0x1800
+    // Tile 1 at 0x2010: row 0 pixel 0 has color index 1 (white).
+    bus.ram[0x2010] = 0x80;
+    bus.ram[0x2011] = 0x00;
+    // scr1 (0,0) = tile 1, palette 0 (white at x=0, black at x=1)
+    bus.ram[0x1000] = 0x01;
+    bus.ram[0x1001] = 0x00;
+    // scr2 (0,0) = tile 1, palette 4 (white at x=0, transparent at x=1)
+    bus.ram[0x1800] = 0x01;
+    bus.ram[0x1801] = 4 << 1;
+
+    bus.display.renderLine(0);
+    bus.display.swap();
+    final buf = ws.imageBuffer().buffer;
+    expect(buf[0], 0xffffffff);
+    expect(buf[1], 0xff000000);
+  });
+
 }

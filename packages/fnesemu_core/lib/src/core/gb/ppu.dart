@@ -149,8 +149,7 @@ class Ppu {
         _back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
   }
 
-  ImageBuffer get imageBuffer => ImageBuffer(width, height, _front,
-      displayWidth_: 269); // keep 10:9 aspect ratio at 242 lines
+  ImageBuffer get imageBuffer => ImageBuffer(width, height, _front);
 
   void _updateStat() {
     final coincidence = ly == lyc;
