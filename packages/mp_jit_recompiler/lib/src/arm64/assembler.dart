@@ -1,7 +1,7 @@
 /// Minimal A64 encoder. X18 is reserved for the host platform.
 final class Arm64Label {
   int? at;
-  final List<(int, int?)> uses = [];
+  final List<(int, int, int)> uses = [];
 }
 
 final class Arm64Assembler {
@@ -14,33 +14,57 @@ final class Arm64Assembler {
   void emit(int word) => words.add(word & 0xffffffff);
   void bind(Arm64Label label) {
     label.at = words.length;
-    for (final (at, cc) in label.uses) {
+    for (final (at, base, bits) in label.uses) {
       final delta = words.length - at;
-      final bits = cc == null ? 26 : 19;
       if (delta < -(1 << (bits - 1)) || delta >= 1 << (bits - 1)) {
         throw StateError('ARM64 branch out of range');
       }
-      words[at] = cc == null
-          ? 0x14000000 | (delta & 0x3ffffff)
-          : 0x54000000 | ((delta & 0x7ffff) << 5) | cc;
+      words[at] = bits == 26
+          ? base | (delta & 0x3ffffff)
+          : base | ((delta & 0x7ffff) << 5);
     }
   }
 
-  void branch(Arm64Label label, [int? cc]) {
+  void _branch(Arm64Label label, int base, int bits) {
     if (label.at != null) {
       final delta = label.at! - words.length;
+      if (delta < -(1 << (bits - 1)) || delta >= 1 << (bits - 1)) {
+        throw StateError('ARM64 branch out of range');
+      }
       emit(
-        cc == null
-            ? 0x14000000 | (delta & 0x3ffffff)
-            : 0x54000000 | ((delta & 0x7ffff) << 5) | cc,
+        bits == 26
+            ? base | (delta & 0x3ffffff)
+            : base | ((delta & 0x7ffff) << 5),
       );
     } else {
-      label.uses.add((words.length, cc));
+      label.uses.add((words.length, base, bits));
       emit(0);
     }
   }
 
+  void branch(Arm64Label label, [int? cc]) => _branch(
+    label,
+    cc == null ? 0x14000000 : 0x54000000 | cc,
+    cc == null ? 26 : 19,
+  );
+
+  void cbz(int reg, Arm64Label label, {bool wide = false}) =>
+      _branch(label, (wide ? 0xb4000000 : 0x34000000) | reg, 19);
+
+  void cbnz(int reg, Arm64Label label, {bool wide = false}) =>
+      _branch(label, (wide ? 0xb5000000 : 0x35000000) | reg, 19);
+
   void constant(int dst, int value, {bool wide = false}) {
+    if (!wide) {
+      final v = value & 0xffffffff;
+      if ((v & 0xffff0000) == 0xffff0000) {
+        emit(0x12800000 | ((~v & 0xffff) << 5) | dst);
+        return;
+      }
+    } else if ((value & ~0xffff) == ~0xffff) {
+      emit(0x92800000 | ((~value & 0xffff) << 5) | dst);
+      return;
+    }
     emit((wide ? 0xd2800000 : 0x52800000) | ((value & 0xffff) << 5) | dst);
     for (var i = 1; i < (wide ? 4 : 2); i++) {
       final part = (value >>> (i * 16)) & 0xffff;
@@ -58,6 +82,18 @@ final class Arm64Assembler {
       );
   void cmp(int left, int right, {bool wide = false}) =>
       alu(0x6b000000, 31, left, right, wide: wide);
+  void cmpImmediate(
+    int src,
+    int amount, {
+    bool shifted = false,
+    bool wide = false,
+  }) => emit(
+    (wide ? 0xf1000000 : 0x71000000) |
+        (shifted ? 1 << 22 : 0) |
+        (amount << 10) |
+        (src << 5) |
+        31,
+  );
   void cset(int dst, int cc) => emit(0x1a9f07e0 | ((cc ^ 1) << 12) | dst);
   void select(int dst, int yes, int no, int cc, {bool wide = false}) => emit(
     (wide ? 0x9a800000 : 0x1a800000) |
@@ -72,13 +108,79 @@ final class Arm64Assembler {
     int amount, {
     bool sub = false,
     bool shifted = false,
+    bool wide = true,
   }) => emit(
-    (sub ? 0xd1000000 : 0x91000000) |
+    (sub ? 0x51000000 : 0x11000000) |
+        (wide ? 0x80000000 : 0) |
         (shifted ? 1 << 22 : 0) |
         (amount << 10) |
         (src << 5) |
         dst,
   );
+  void ubfx(int dst, int src, int lsb, int width, {bool wide = false}) => emit(
+    (wide ? 0xd3400000 : 0x53000000) |
+        (lsb << 16) |
+        ((lsb + width - 1) << 10) |
+        (src << 5) |
+        dst,
+  );
+  void lslImm(int dst, int src, int amount, {bool wide = false}) {
+    final bits = wide ? 64 : 32;
+    emit(
+      (wide ? 0xd3400000 : 0x53000000) |
+          ((bits - amount) << 16) |
+          ((bits - 1 - amount) << 10) |
+          (src << 5) |
+          dst,
+    );
+  }
+
+  void lsrImm(int dst, int src, int amount, {bool wide = false}) {
+    final bits = wide ? 64 : 32;
+    emit(
+      (wide ? 0xd3400000 : 0x53000000) |
+          (amount << 16) |
+          ((bits - 1) << 10) |
+          (src << 5) |
+          dst,
+    );
+  }
+
+  void asrImm(int dst, int src, int amount, {bool wide = false}) {
+    final bits = wide ? 64 : 32;
+    emit(
+      (wide ? 0x93400000 : 0x13000000) |
+          (amount << 16) |
+          ((bits - 1) << 10) |
+          (src << 5) |
+          dst,
+    );
+  }
+
+  void memoryIndexed(
+    bool load,
+    int reg,
+    int base,
+    int index, {
+    int size = 8,
+    bool scaled = false,
+  }) {
+    final code = switch (size) {
+      1 => 0x38206800,
+      2 => 0x78206800,
+      4 => 0xb8206800,
+      8 => 0xf8206800,
+      _ => throw ArgumentError.value(size),
+    };
+    emit(
+      code |
+          (load ? 1 << 22 : 0) |
+          (scaled ? 1 << 12 : 0) |
+          (index << 16) |
+          (base << 5) |
+          reg,
+    );
+  }
   void memory(bool load, int reg, int base, int offset, {int size = 8}) {
     if (offset < 0) throw ArgumentError.value(offset);
     if (offset % size != 0 || offset ~/ size >= 4096) {
@@ -154,6 +256,10 @@ final class Arm64Assembler {
         (base << 5) |
         q);
   }
+
+  void vmemoryIndexed(bool load, int q, int base, int index) => emit(
+    (load ? 0x3ce06800 : 0x3ca06800) | (index << 16) | (base << 5) | q,
+  );
 
   /// the 16-byte constants after the code, by their words
   final _pool = <String, int>{};
@@ -268,5 +374,5 @@ abstract final class V {
   static const tbl = 0x4e000000;
   // two registers
   static const cmeq0 = 0x4ea09800, cmlt0 = 0x4ea0a800, neg4s = 0x6ea0b800;
-  static const addv4s = 0x4eb1b800;
+  static const addv4s = 0x4eb1b800, umaxv4s = 0x6eb0a800;
 }
