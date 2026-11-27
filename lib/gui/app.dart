@@ -352,10 +352,13 @@ class MainPageState extends State<MainPage> {
             dialogTitle: 'Select a benchmark archive (.7z / .zip)'))
         ?.firstOrNull;
     if (file == null || !mounted) return;
-    final archive = await BenchArchive.open(file);
+    _benchmarkStatus.value = 'loading';
+    setState(() => _menuOpen = false);
     final List<BenchResult> results;
     final Map<String, Object?> host;
+    BenchArchive? archive;
     try {
+      archive = await BenchArchive.open(file);
       final scenes =
           BenchScene.parse(utf8.decode(await archive.read('bench.json')));
       host = {...await hostInfo(), 'gpu': _rendererName};
@@ -363,20 +366,16 @@ class MainPageState extends State<MainPage> {
           this, archive, (s) => _benchmarkStatus.value = s, host);
       await _stop();
       _disableKeyHandler();
-      setState(() => _menuOpen = false);
-      try {
-        results = await run.run(scenes);
-      } finally {
-        _benchmark = null;
-        _benchmarkStatus.value = null;
-        // the core of the last scene is loaded, outside of any game
-        _gameId = null;
-        _nextDisc = null;
-        _romName = '';
-        if (mounted) setState(() => _menuOpen = true);
-      }
+      results = await run.run(scenes);
     } finally {
-      await archive.close();
+      await archive?.close();
+      _benchmark = null;
+      _benchmarkStatus.value = null;
+      // the core of the last scene is loaded, outside of any game
+      _gameId = null;
+      _nextDisc = null;
+      _romName = '';
+      if (mounted) setState(() => _menuOpen = true);
     }
     if (!mounted) return;
     await showDialog<void>(
@@ -1299,54 +1298,57 @@ class MainPageState extends State<MainPage> {
                 ),
         ),
         // shown for a moment when the sram is saved
-        ValueListenableBuilder<bool>(
-          valueListenable: _sramSaved,
-          builder: (context, lit, _) => AnimatedOpacity(
-            opacity: lit ? 1 : 0,
-            duration: const Duration(milliseconds: 300),
-            child: _badge(
-                const Text('saved', style: TextStyle(color: Colors.white)),
-                key: const ValueKey('sram-saved')),
+        IgnorePointer(
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+          ValueListenableBuilder<bool>(
+            valueListenable: _sramSaved,
+            builder: (context, lit, _) => AnimatedOpacity(
+              opacity: lit ? 1 : 0,
+              duration: const Duration(milliseconds: 300),
+              child: _badge(
+                  const Text('saved', style: TextStyle(color: Colors.white)),
+                  key: const ValueKey('sram-saved')),
+            ),
           ),
-        ),
-        const SizedBox(width: 6),
-        ValueListenableBuilder<int>(
-          valueListenable: _cdromWaitDots,
-          builder: (context, dots, _) => dots == 0
-              ? const SizedBox.shrink()
-              : Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: _badge(
-                      Text('loading${'.' * dots}',
-                          style: const TextStyle(color: Colors.white)),
-                      key: const ValueKey('cdrom-loading')),
-                ),
-        ),
-        StreamBuilder<DebugState>(
-          stream: _controller.debugger.debugStream.distinct((a, b) =>
-              a.jitEnabled == b.jitEnabled && a.jitUsage == b.jitUsage),
-          initialData: _controller.debugger.state,
-          builder: (context, snapshot) => snapshot.data?.jitEnabled == true
-              ? Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: _badge(
-                      Text(
-                          snapshot.data?.jitUsage == null
-                              ? 'JIT'
-                              : 'JIT${(snapshot.data!.jitUsage! * 100).toStringAsFixed(0).padLeft(3)}%',
-                          style: const TextStyle(color: Colors.white)),
-                      key: const ValueKey('jit-indicator')),
-                )
-              : const SizedBox.shrink(),
-        ),
-        StreamBuilder<double>(
-          stream: _controller.fpsStream,
-          builder: (context, snapshot) => _badge(
-              Text(
-                  '${(snapshot.data ?? 0.0).toStringAsFixed(1).padLeft(4)} fps',
-                  style: const TextStyle(color: Colors.white)),
-              key: const ValueKey('fps-indicator')),
-        ),
+          const SizedBox(width: 6),
+          ValueListenableBuilder<int>(
+            valueListenable: _cdromWaitDots,
+            builder: (context, dots, _) => dots == 0
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: _badge(
+                        Text('loading${'.' * dots}',
+                            style: const TextStyle(color: Colors.white)),
+                        key: const ValueKey('cdrom-loading')),
+                  ),
+          ),
+          StreamBuilder<DebugState>(
+            stream: _controller.debugger.debugStream.distinct((a, b) =>
+                a.jitEnabled == b.jitEnabled && a.jitUsage == b.jitUsage),
+            initialData: _controller.debugger.state,
+            builder: (context, snapshot) => snapshot.data?.jitEnabled == true
+                ? Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: _badge(
+                        Text(
+                            snapshot.data?.jitUsage == null
+                                ? 'JIT'
+                                : 'JIT${(snapshot.data!.jitUsage! * 100).toStringAsFixed(0).padLeft(3)}%',
+                            style: const TextStyle(color: Colors.white)),
+                        key: const ValueKey('jit-indicator')),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          StreamBuilder<double>(
+            stream: _controller.fpsStream,
+            builder: (context, snapshot) => _badge(
+                Text(
+                    '${(snapshot.data ?? 0.0).toStringAsFixed(1).padLeft(4)} fps',
+                    style: const TextStyle(color: Colors.white)),
+                key: const ValueKey('fps-indicator')),
+          ),
+        ])),
       ]);
 
   Widget _fpsOverlay() => ValueListenableBuilder<double?>(
