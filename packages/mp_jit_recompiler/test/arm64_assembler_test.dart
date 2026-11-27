@@ -145,11 +145,86 @@ void main() {
     expect(contigWords, contains(0x6eb0a821));
     expect(contigWords.where((w) => (w & 0xfffffc00) == 0x5ac00800), isEmpty);
     // Contiguous mask uses UBFX + scaled LDR [x20, x4, lsl #3].
-    expect(contigWords, contains(0x530c7004));
+    expect(
+      contigWords.where((w) => (w & 0xfffffc1f) == 0x530c7004),
+      isNotEmpty,
+    );
     expect(contigWords, contains(0xf8647a85));
     // Non-contiguous mask keeps the explicit AND before LSR #12.
-    expect(nonContigWords, isNot(contains(0x530c7004)));
+    expect(
+      nonContigWords.where((w) => (w & 0xfffffc1f) == 0x530c7004),
+      isEmpty,
+    );
     expect(nonContigWords, contains(0x530c7c64)); // lsr w4, w3, #12
     expect(nonContigWords, contains(0xf8647a85));
+  });
+
+  test('Arm64Assembler encodes logical immediates and tbz/tbnz', () {
+    final a = Arm64Assembler();
+    final target = Arm64Label();
+    a.tbz(3, 7, target);
+    a.tbnz(4, 31, target);
+    a.tbnz(5, 63, target);
+    a.bind(target);
+
+    for (final (op, val, wide) in const [
+      (0x12000000, 0x1fffffff, false), // and w1, w2, #0x1fffffff
+      (0x12000000, 0x9fffffff, false), // and w1, w2, #0x9fffffff (wrapped)
+      (0x12000000, 0xfffffffc, false), // and w1, w2, #0xfffffffc
+      (0x32000000, 0x80000001, false), // orr w1, w2, #0x80000001
+      (0x52000000, 0x55555555, false), // eor w1, w2, #0x55555555
+      (0x72000000, 0x00ff00ff, false), // tst w2, #0xff00ff (rd=31)
+      (0x12000000, 0x00000000ffffffff, true), // and x1, x2, #0xffffffff
+      (0x12000000, -4, true), // and x1, x2, #0xfffffffffffffffc
+      (0x32000000, 0x8000000000000001, true), // orr x1, x2, #0x8000000000000001
+    ]) {
+      final enc = Arm64Assembler.encodeLogicalImm(val, wide: wide);
+      expect(enc, isNotNull, reason: 'val=$val wide=$wide');
+      a.logicalImmediate(op, op == 0x72000000 ? 31 : 1, 2, enc!, wide: wide);
+    }
+
+    // Non-representable patterns return null.
+    expect(Arm64Assembler.encodeLogicalImm(0), isNull);
+    expect(Arm64Assembler.encodeLogicalImm(0xffffffff), isNull);
+    expect(Arm64Assembler.encodeLogicalImm(0x12345678), isNull);
+    expect(Arm64Assembler.encodeLogicalImm(0, wide: true), isNull);
+    expect(Arm64Assembler.encodeLogicalImm(-1, wide: true), isNull);
+    expect(Arm64Assembler.encodeLogicalImm(0x12345678, wide: true), isNull);
+
+    expect(a.words.sublist(0, 3), [
+      0x36380063, // tbz w3, #7, +12
+      0x37f80044, // tbnz w4, #31, +8
+      0xb7f80025, // tbnz x5, #63, +4
+    ]);
+  });
+
+  test('Arm64Backend emits logical immediates, tbnz and fused select', () {
+    final b = IrBuilder(0);
+    final x = b.ctxLoad(0);
+    final y = b.ctxLoad(1);
+    final masked = b.and(x, b.c32(0xff));
+    final cond = b.ltU(masked, b.c32(10));
+    final chosen = b.select(cond, x, y);
+    b.ctxStore(2, chosen);
+    final bitTest = b.and(chosen, b.c32(1 << 31));
+    final block = b.finish(IrBranch(bitTest, 4, 8), cost: 5);
+
+    final bytes = Arm64Backend.compile(
+      block,
+      0,
+      _StubEnv(addrMask: 0x1fffffff),
+    );
+    final words = [
+      for (var i = 0; i < bytes.length; i += 4)
+        bytes[i] |
+            (bytes[i + 1] << 8) |
+            (bytes[i + 2] << 16) |
+            (bytes[i + 3] << 24),
+    ];
+
+    // No CSET emitted because ltU is fused into select (CSEL).
+    expect(words.where((w) => (w & 0xffff0fe0) == 0x1a9f07e0), isEmpty);
+    // Contains TBZ for bit 31 (branchOnCondition whenTrue: false -> tbz).
+    expect(words.where((w) => (w & 0xff000000) == 0x36000000), isNotEmpty);
   });
 }

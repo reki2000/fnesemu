@@ -21,7 +21,9 @@ final class Arm64Assembler {
       }
       words[at] = bits == 26
           ? base | (delta & 0x3ffffff)
-          : base | ((delta & 0x7ffff) << 5);
+          : bits == 19
+          ? base | ((delta & 0x7ffff) << 5)
+          : base | ((delta & 0x3fff) << 5);
     }
   }
 
@@ -34,7 +36,9 @@ final class Arm64Assembler {
       emit(
         bits == 26
             ? base | (delta & 0x3ffffff)
-            : base | ((delta & 0x7ffff) << 5),
+            : bits == 19
+            ? base | ((delta & 0x7ffff) << 5)
+            : base | ((delta & 0x3fff) << 5),
       );
     } else {
       label.uses.add((words.length, base, bits));
@@ -53,6 +57,87 @@ final class Arm64Assembler {
 
   void cbnz(int reg, Arm64Label label, {bool wide = false}) =>
       _branch(label, (wide ? 0xb5000000 : 0x35000000) | reg, 19);
+
+  void tbz(int reg, int bit, Arm64Label label) => _branch(
+    label,
+    0x36000000 | ((bit >>> 5) << 31) | ((bit & 31) << 19) | reg,
+    14,
+  );
+
+  void tbnz(int reg, int bit, Arm64Label label) => _branch(
+    label,
+    0x37000000 | ((bit >>> 5) << 31) | ((bit & 31) << 19) | reg,
+    14,
+  );
+
+  /// Encodes [value] as an A64 logical immediate `(N << 12) | (immr << 6) | imms`,
+  /// or returns null if [value] is not representable.
+  static int? encodeLogicalImm(int value, {bool wide = false}) {
+    var v = wide ? value : (value & 0xffffffff);
+    if (v == 0 || v == (wide ? -1 : 0xffffffff)) return null;
+    var size = wide ? 64 : 32;
+    while (size > 2) {
+      final half = size >>> 1;
+      final halfMask = (1 << half) - 1;
+      if ((v & halfMask) == ((v >>> half) & halfMask)) {
+        size = half;
+        v &= halfMask;
+      } else {
+        break;
+      }
+    }
+    int trailingZeros(int x) {
+      var n = 0;
+      while ((x & 1) == 0) {
+        x >>>= 1;
+        n++;
+      }
+      return n;
+    }
+
+    int popcount(int x) {
+      var n = 0;
+      while (x != 0) {
+        x &= x - 1;
+        n++;
+      }
+      return n;
+    }
+
+    final mask = size == 64 ? -1 : (1 << size) - 1;
+    final int ones;
+    final int rot;
+    if ((v & 1) == 0) {
+      final tz = trailingZeros(v);
+      final w = v >>> tz;
+      if ((w & (w + 1)) != 0) return null;
+      ones = popcount(w);
+      rot = (size - tz) & (size - 1);
+    } else {
+      final inv = (~v) & mask;
+      final tz = trailingZeros(inv);
+      final w = inv >>> tz;
+      if ((w & (w + 1)) != 0) return null;
+      final zeros = popcount(w);
+      ones = size - zeros;
+      rot = (size - (tz + zeros)) & (size - 1);
+    }
+    final n = size == 64 ? 1 : 0;
+    final imms = ((~(size * 2 - 1)) & 0x3f) | (ones - 1);
+    return (n << 12) | (rot << 6) | imms;
+  }
+
+  /// Logical immediate: [opcode] is `0x12000000` (AND), `0x32000000` (ORR),
+  /// `0x52000000` (EOR), or `0x72000000` (ANDS/TST).
+  void logicalImmediate(
+    int opcode,
+    int dst,
+    int src,
+    int encoded, {
+    bool wide = false,
+  }) => emit(
+    opcode | (wide ? 0x80000000 : 0) | (encoded << 10) | (src << 5) | dst,
+  );
 
   void constant(int dst, int value, {bool wide = false}) {
     if (!wide) {
