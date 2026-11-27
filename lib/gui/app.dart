@@ -1323,23 +1323,6 @@ class MainPageState extends State<MainPage> {
                         key: const ValueKey('cdrom-loading')),
                   ),
           ),
-          StreamBuilder<DebugState>(
-            stream: _controller.debugger.debugStream.distinct((a, b) =>
-                a.jitEnabled == b.jitEnabled && a.jitUsage == b.jitUsage),
-            initialData: _controller.debugger.state,
-            builder: (context, snapshot) => snapshot.data?.jitEnabled == true
-                ? Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: _badge(
-                        Text(
-                            snapshot.data?.jitUsage == null
-                                ? 'JIT'
-                                : 'JIT${(snapshot.data!.jitUsage! * 100).toStringAsFixed(0).padLeft(3)}%',
-                            style: const TextStyle(color: Colors.white)),
-                        key: const ValueKey('jit-indicator')),
-                  )
-                : const SizedBox.shrink(),
-          ),
           StreamBuilder<double>(
             stream: _controller.fpsStream,
             builder: (context, snapshot) => _badge(
