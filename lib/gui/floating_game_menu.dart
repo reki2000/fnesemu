@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Menu chrome overlays the game, so opening it never changes game geometry.
+/// Left-side menu panel overlaying the game, so opening it never changes game
+/// geometry.
 class FloatingGameMenu extends StatelessWidget {
   final bool expanded;
   final bool canResume;
@@ -70,62 +73,94 @@ class FloatingGameMenu extends StatelessWidget {
                     ),
                   ),
                 ),
-              Positioned(
-                top: 0,
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  bottom: false,
-                  minimum: const EdgeInsets.all(8),
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                            child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 720),
-                          child: Material(
-                            elevation: 6,
-                            color: Theme.of(context).colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Listener(
-                              // Consume even blank toolbar space instead of letting
-                              // the background resume gesture receive that tap.
-                              behavior: HitTestBehavior.opaque,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  IconButton(
-                                    key: const ValueKey('game-menu-toggle'),
-                                    tooltip: expanded
-                                        ? 'Close menu / resume'
-                                        : 'Menu',
-                                    onPressed: busy ? null : onToggle,
-                                    icon: const Icon(Icons.menu),
-                                  ),
-                                  if (expanded)
-                                    Expanded(
-                                      child:
-                                          SingleChildScrollView(child: toolbar),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        )),
-                        if (topRight != null) ...[
-                          const SizedBox(width: 8),
-                          topRight!,
-                        ],
-                      ],
+              if (!expanded)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: SafeArea(
+                    bottom: false,
+                    right: false,
+                    minimum: const EdgeInsets.all(8),
+                    child: Material(
+                      elevation: 6,
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      child: IconButton(
+                        key: const ValueKey('game-menu-toggle'),
+                        tooltip: 'Menu',
+                        onPressed: busy ? null : onToggle,
+                        icon: const Icon(Icons.menu),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              if (expanded)
+                Positioned.fill(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final panelWidth = math.min(
+                        240.0,
+                        constraints.maxWidth * 0.6,
+                      );
+                      return Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: panelWidth,
+                          height: constraints.maxHeight,
+                          child: Material(
+                            key: const ValueKey('game-menu-panel'),
+                            elevation: 8,
+                            color: Theme.of(context).colorScheme.surface,
+                            borderRadius: const BorderRadius.horizontal(
+                              right: Radius.circular(12),
+                            ),
+                            child: Listener(
+                              // Consume even blank panel space instead of letting
+                              // the background resume gesture receive that tap.
+                              behavior: HitTestBehavior.opaque,
+                              child: SafeArea(
+                                right: false,
+                                minimum: const EdgeInsets.all(8),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: IconButton(
+                                        key: const ValueKey('game-menu-toggle'),
+                                        tooltip: 'Close menu / resume',
+                                        onPressed: busy ? null : onToggle,
+                                        icon: const Icon(Icons.menu),
+                                      ),
+                                    ),
+                                    const Divider(height: 1),
+                                    Expanded(
+                                      child: SingleChildScrollView(
+                                        child: toolbar,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              if (topRight != null)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: SafeArea(
+                    bottom: false,
+                    left: false,
+                    minimum: const EdgeInsets.all(8),
+                    child: topRight!,
+                  ),
+                ),
             ],
           ),
         ),

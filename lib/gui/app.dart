@@ -1111,18 +1111,123 @@ class MainPageState extends State<MainPage> {
           subtitle: Text(_biosSummary(setup)),
           trailing: const Icon(Icons.file_open_outlined)));
 
+  Widget _menuPopupChild(IconData icon, String label) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+                child:
+                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+            const Icon(Icons.chevron_right, size: 18),
+          ],
+        ),
+      );
+
+  Widget _menuActionTile(IconData icon, String label, VoidCallback? onTap,
+          {Key? key}) =>
+      Tooltip(
+        message: label,
+        child: ListTile(
+          key: key,
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: Icon(icon, size: 20),
+          title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          enabled: onTap != null,
+          onTap: onTap,
+        ),
+      );
+
   Widget _menuToolbar() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_romName.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Text(
+                _romName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+            const Divider(height: 1),
+          ],
           IgnorePointer(
               ignoring: _menuBusy || _menuTransition || _progress.value != null,
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  _menuActionTile(
+                    Icons.play_arrow,
+                    'Resume',
+                    _hasGame ? () => _do(_resumeFromMenu) : null,
+                  ),
+                  PopupMenuButton<Object>(
+                    tooltip: "CD / ROM",
+                    onSelected: (action) =>
+                        _menuAction(() async => _discMenuAction(action)),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                          value: _DiscAction.eject,
+                          child: Text("Eject (open tray)")),
+                      const PopupMenuItem(
+                          value: _DiscAction.empty,
+                          child: Text("Empty (closed, no disc)")),
+                      const PopupMenuItem(
+                          value: _DiscAction.select,
+                          child: Text("Select directory...")),
+                      if (_storage.romDirectories.isNotEmpty)
+                        const PopupMenuDivider(),
+                      for (final directory in _storage.romDirectories)
+                        PopupMenuItem(
+                            value: directory.id, child: Text(directory.path)),
+                    ],
+                    child: _menuPopupChild(Icons.folder_open, 'CD / ROM'),
+                  ),
+                  PopupMenuButton<RecentGame>(
+                    tooltip: 'History',
+                    onSelected: (game) =>
+                        _menuAction(() => _launchHistory(game)),
+                    itemBuilder: (_) => [
+                      if (_storage.recentGames.isEmpty)
+                        const PopupMenuItem(
+                            enabled: false, child: Text('No history')),
+                      for (final game in _storage.recentGames)
+                        PopupMenuItem(
+                            value: game,
+                            enabled: _historyAvailable(game),
+                            child: Text(
+                                '${(CoreFactory.systemOrNull(game.core)?.name ?? game.core).toUpperCase()} ${game.name}')),
+                    ],
+                    child: _menuPopupChild(Icons.history, 'History'),
+                  ),
+                  const Divider(height: 1),
+                  _menuActionTile(
+                    Icons.save,
+                    'Save state',
+                    _canUseStates ? () => _showSaveStateDialog() : null,
+                    key: const ValueKey('save-state'),
+                  ),
+                  _menuActionTile(
+                    Icons.restore,
+                    'Load state',
+                    _canUseStates ? () => _showLoadStateDialog() : null,
+                    key: const ValueKey('load-state'),
+                  ),
+                  _menuActionTile(
+                    Icons.restart_alt,
+                    'Reset',
+                    () => _menuAction(() async => _reset()),
+                  ),
+                  const Divider(height: 1),
                   PopupMenuButton<Object>(
                     key: _coreSetupKey,
-                    icon: const Icon(Icons.settings),
                     tooltip: "Core setup",
                     onSelected: (item) => _menuAction(() async => switch (item) {
                           BiosSetup() => _selectBios(item),
@@ -1147,99 +1252,29 @@ class MainPageState extends State<MainPage> {
                               subtitle: Text('Run the states of a .7z / .zip'),
                               trailing: Icon(Icons.speed))),
                     ],
+                    child: _menuPopupChild(Icons.settings, 'Core setup'),
                   ),
-
-                  PopupMenuButton<Object>(
-                    icon: const Icon(Icons.folder_open),
-                    tooltip: "CD / ROM",
-                    onSelected: (action) =>
-                        _menuAction(() async => _discMenuAction(action)),
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                          value: _DiscAction.eject,
-                          child: Text("Eject (open tray)")),
-                      const PopupMenuItem(
-                          value: _DiscAction.empty,
-                          child: Text("Empty (closed, no disc)")),
-                      const PopupMenuItem(
-                          value: _DiscAction.select,
-                          child: Text("Select directory...")),
-                      if (_storage.romDirectories.isNotEmpty)
-                        const PopupMenuDivider(),
-                      for (final directory in _storage.romDirectories)
-                        PopupMenuItem(
-                            value: directory.id, child: Text(directory.path)),
-                    ],
-                  ),
-
-                  PopupMenuButton<RecentGame>(
-                    icon: const Icon(Icons.history),
-                    tooltip: 'History',
-                    onSelected: (game) =>
-                        _menuAction(() => _launchHistory(game)),
-                    itemBuilder: (_) => [
-                      if (_storage.recentGames.isEmpty)
-                        const PopupMenuItem(
-                            enabled: false, child: Text('No history')),
-                      for (final game in _storage.recentGames)
-                        PopupMenuItem(
-                            value: game,
-                            enabled: _historyAvailable(game),
-                            child: Text(
-                                '${(CoreFactory.systemOrNull(game.core)?.name ?? game.core).toUpperCase()} ${game.name}')),
-                    ],
-                  ),
-
-                  IconButton(
-                    tooltip: 'Resume',
-                    onPressed: _hasGame ? () => _do(_resumeFromMenu) : null,
-                    icon: const Icon(Icons.play_arrow),
-                  ),
-
-                  // reset button
-                  iconButton(Icons.restart_alt, "Reset",
-                      () => _menuAction(() async => _reset())),
-
-                  // state save / load buttons
-                  IconButton(
-                    key: const ValueKey('save-state'),
-                    tooltip: 'Save state',
-                    onPressed:
-                        _canUseStates ? () => _showSaveStateDialog() : null,
-                    icon: const Icon(Icons.save),
-                  ),
-                  IconButton(
-                    key: const ValueKey('load-state'),
-                    tooltip: 'Load state',
-                    onPressed:
-                        _canUseStates ? () => _showLoadStateDialog() : null,
-                    icon: const Icon(Icons.restore),
-                  ),
-
-                  // debug on/off button
                   _debugging
-                      ? iconButton(Icons.bug_report, "Disable Debug Options",
-                          () => _do(() => _debug(false)))
-                      : iconButton(
+                      ? _menuActionTile(
+                          Icons.bug_report,
+                          'Disable Debug Options',
+                          () => _do(() => _debug(false)),
+                        )
+                      : _menuActionTile(
                           Icons.bug_report_outlined,
-                          "Enable Debug Options",
-                          () => _do(() => _debug(true))),
-                  IconButton(
-                    tooltip: 'License',
-                    onPressed: () => _menuAction(() async {
+                          'Enable Debug Options',
+                          () => _do(() => _debug(true)),
+                        ),
+                  _menuActionTile(
+                    Icons.info_outline,
+                    'License',
+                    () => _menuAction(() async {
                       await Navigator.of(context).push(MaterialPageRoute<void>(
                           builder: (_) => const LicensePage()));
                     }),
-                    icon: const Icon(Icons.info_outline),
                   ),
                 ],
               )),
-          if (_romName.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child:
-                  Text(_romName, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
         ],
       );
 
