@@ -314,16 +314,110 @@ abstract final class Arm64Backend {
       return r >= 0 ? r : temp;
     }
 
+    int constValue(int value) {
+      final i = block.insts[value];
+      return wide(value) ? (i.imm & 0xffffffff) | (i.immHi << 32) : i.imm;
+    }
+
+    bool isConst(int value) => block.insts[value].op == IrOp.constant;
+
+    /// Emits `CMP left, #imm` when [right] is a constant that fits in an
+    /// A64 add/sub immediate (0..4095 or shifted 12-bit); returns whether
+    /// it was emitted.
+    bool emitCmpWithConst(int left, int right, {required bool isWide}) {
+      if (!isConst(right)) return false;
+      final u = isWide ? constValue(right) : (constValue(right) & 0xffffffff);
+      if (u == 0) {
+        a.cmp(left, 31, wide: isWide);
+        return true;
+      }
+      if (u > 0 && u <= 4095) {
+        a.cmpImmediate(left, u, wide: isWide);
+        return true;
+      }
+      if (u > 0 && (u & ~0xfff000) == 0) {
+        a.cmpImmediate(left, u >>> 12, shifted: true, wide: isWide);
+        return true;
+      }
+      return false;
+    }
+
+    /// Emits `ADD`/`SUB d, src, #imm` when [constIdx] is a constant that fits
+    /// in an A64 12-bit (or shifted 12-bit) immediate; returns whether emitted.
+    bool emitAddSubImm(
+      int d,
+      int src,
+      int constIdx, {
+      required bool sub,
+      required bool isWide,
+    }) {
+      if (!isConst(constIdx)) return false;
+      final raw = constValue(constIdx);
+      final c = isWide ? raw : raw.toSigned(32);
+      if (c >= 0 && c <= 4095) {
+        a.immediate(d, src, c, sub: sub, wide: isWide);
+        return true;
+      }
+      if (c < 0 && c >= -4095) {
+        a.immediate(d, src, -c, sub: !sub, wide: isWide);
+        return true;
+      }
+      if (c > 0 && (c & ~0xfff000) == 0) {
+        a.immediate(d, src, c >>> 12, sub: sub, shifted: true, wide: isWide);
+        return true;
+      }
+      if (c < 0 && ((-c) & ~0xfff000) == 0) {
+        a.immediate(
+          d,
+          src,
+          (-c) >>> 12,
+          sub: !sub,
+          shifted: true,
+          wide: isWide,
+        );
+        return true;
+      }
+      return false;
+    }
+
     void branchOnCondition(int v, Arm64Label dest, {required bool whenTrue}) {
       int cc;
       if (fused[v] >= 0) {
         final cmp = block.insts[v];
-        final left = source(cmp.a, 0), right = source(cmp.b, 1);
+        final isWide = wide(cmp.a);
         if (cmp.op == IrOp.and) {
           // ANDS zero-register, lhs, rhs is a TST that sets NZCV.
-          a.alu(0x6a000000, 31, left, right, wide: wide(cmp.a));
+          final left = source(cmp.a, 0), right = source(cmp.b, 1);
+          a.alu(0x6a000000, 31, left, right, wide: isWide);
+        } else if ((cmp.op == IrOp.eq || cmp.op == IrOp.ne) &&
+            isConst(cmp.b) &&
+            (isWide ? constValue(cmp.b) : (constValue(cmp.b) & 0xffffffff)) ==
+                0) {
+          final left = source(cmp.a, 0);
+          final jumpIfZero = (cmp.op == IrOp.eq) == whenTrue;
+          if (jumpIfZero) {
+            a.cbz(left, dest, wide: isWide);
+          } else {
+            a.cbnz(left, dest, wide: isWide);
+          }
+          return;
+        } else if ((cmp.op == IrOp.eq || cmp.op == IrOp.ne) &&
+            isConst(cmp.a) &&
+            (isWide ? constValue(cmp.a) : (constValue(cmp.a) & 0xffffffff)) ==
+                0) {
+          final right = source(cmp.b, 0);
+          final jumpIfZero = (cmp.op == IrOp.eq) == whenTrue;
+          if (jumpIfZero) {
+            a.cbz(right, dest, wide: isWide);
+          } else {
+            a.cbnz(right, dest, wide: isWide);
+          }
+          return;
         } else {
-          a.cmp(left, right, wide: wide(cmp.a));
+          final left = source(cmp.a, 0);
+          if (!emitCmpWithConst(left, cmp.b, isWide: isWide)) {
+            a.cmp(left, source(cmp.b, 1), wide: isWide);
+          }
         }
         cc = switch (cmp.op) {
           IrOp.eq => 0,
@@ -333,15 +427,27 @@ abstract final class Arm64Backend {
           _ => throw StateError('not a fused condition'),
         };
       } else {
-        a.cmp(source(v, 0), 31);
-        cc = 1;
+        final reg = source(v, 0);
+        if (whenTrue) {
+          a.cbnz(reg, dest);
+        } else {
+          a.cbz(reg, dest);
+        }
+        return;
       }
       a.branch(dest, whenTrue ? cc : cc ^ 1);
     }
+
     void budget(int delta) {
       a.memory(true, 0, 19, 4 * JitCtx.budget, size: 4);
-      a.constant(1, delta);
-      a.alu(0x0b000000, 0, 0, 1);
+      if (delta >= 0 && delta <= 4095) {
+        a.immediate(0, 0, delta, wide: false);
+      } else if (delta < 0 && delta >= -4095) {
+        a.immediate(0, 0, -delta, sub: true, wide: false);
+      } else {
+        a.constant(1, delta);
+        a.alu(0x0b000000, 0, 0, 1);
+      }
       a.memory(false, 0, 19, 4 * JitCtx.budget, size: 4);
     }
 
@@ -388,29 +494,87 @@ abstract final class Arm64Backend {
     link = (pc, tag) {
       final miss = stub(() => leave(JitReason.miss, pc, tag));
       a.memory(true, 0, 22, env.slotFor(pc, tag) * 8);
-      a.cmp(0, 31, wide: true);
-      a.branch(miss, 0);
+      a.cbz(0, miss, wide: true);
       a.emit(0xd61f0000);
     };
 
     final entryExit = stub(() => leave(JitReason.budget, block.pc, block.tag));
     a.memory(true, 0, 19, JitCtx.stop * 4, size: 4);
-    a.cmp(0, 31);
-    a.branch(entryExit, 1);
+    a.cbnz(0, entryExit);
     a.memory(true, 0, 19, JitCtx.budget * 4, size: 4);
     a.cmp(0, 31);
     a.branch(entryExit, 13); // LE
     if (block.guards.isNotEmpty) {
       final invalid = stub(() => leave(JitReason.invalid, block.pc, block.tag));
-      for (final g in block.guards) {
-        final address = env.guardAddr(g.addr);
-        if (address == null) continue;
-        a.constant(0, address, wide: true);
-        a.memory(true, 1, 0, 0, size: 4);
-        if (g.endian == IrEndian.big) a.reverse(1, 4);
-        a.constant(2, g.value);
+      // Guarded words sorted by host address; adjacent 4-word runs compare in
+      // 128-bit SIMD lanes and combine into V1, 2-word runs compare in 64 bits.
+      final guarded = <(int, int)>[
+        for (final g in block.guards)
+          if (env.guardAddr(g.addr) case final host?)
+            (
+              host,
+              g.endian == IrEndian.little
+                  ? g.value & 0xffffffff
+                  : ((g.value & 255) << 24) |
+                      ((g.value & 0xff00) << 8) |
+                      ((g.value >>> 8) & 0xff00) |
+                      ((g.value >>> 24) & 255),
+            ),
+      ]..sort((x, y) => x.$1.compareTo(y.$1));
+      int? base;
+      int offsetFor(int host, int align) {
+        if (base == null ||
+            host < base! ||
+            host - base! >= 4096 * align ||
+            (host - base!) % align != 0) {
+          base = host;
+          a.constant(0, host, wide: true);
+        }
+        return host - base!;
+      }
+
+      var groups = 0;
+      var k = 0;
+      while (k < guarded.length) {
+        final host = guarded[k].$1;
+        if (k + 3 < guarded.length &&
+            guarded[k + 1].$1 == host + 4 &&
+            guarded[k + 2].$1 == host + 8 &&
+            guarded[k + 3].$1 == host + 12) {
+          final off = offsetFor(host, 16);
+          final q = groups == 0 ? 1 : 0;
+          a.vmemory(true, q, 0, off);
+          a.vconstant(2, [for (var j = 0; j < 4; j++) guarded[k + j].$2]);
+          a.v3(V.eor, q, q, 2);
+          if (groups > 0) a.v3(V.orr, 1, 1, 0);
+          groups++;
+          k += 4;
+          continue;
+        }
+        if (k + 1 < guarded.length && guarded[k + 1].$1 == host + 4) {
+          final off = offsetFor(host, 8);
+          a.memory(true, 1, 0, off);
+          a.constant(
+            2,
+            guarded[k].$2 | (guarded[k + 1].$2 << 32),
+            wide: true,
+          );
+          a.cmp(1, 2, wide: true);
+          a.branch(invalid, 1);
+          k += 2;
+          continue;
+        }
+        final off = offsetFor(host, 4);
+        a.memory(true, 1, 0, off, size: 4);
+        a.constant(2, guarded[k].$2);
         a.cmp(1, 2);
         a.branch(invalid, 1);
+        k++;
+      }
+      if (groups > 0) {
+        a.v2(V.umaxv4s, 1, 1);
+        a.vumov(1, 1, 0);
+        a.cbnz(1, invalid);
       }
     }
     if (env.blockEntryFn != 0) {
@@ -419,18 +583,37 @@ abstract final class Arm64Backend {
     }
     budget(-block.cost);
 
-    // X0 retains the guest address, X5 is the mapped host address or null.
-    void lookup(bool write) {
-      a.constant(3, env.addrMask);
-      a.alu(0x0a000000, 3, 0, 3);
-      a.constant(4, env.pageShift);
-      a.alu(0x1ac02400, 4, 3, 4);
-      a.constant(5, 3);
-      a.alu(0x1ac02000, 4, 4, 5);
-      a.alu(0x0b000000, 4, write ? 21 : 20, 4, wide: true);
-      a.memory(true, 5, 4, 0);
-      a.constant(4, (1 << env.pageShift) - 1);
-      a.alu(0x0a000000, 3, 3, 4);
+    final pageMask = (1 << env.pageShift) - 1;
+    final addrMask = env.addrMask & 0xffffffff;
+    final contiguousMask =
+        addrMask != 0 && ((addrMask + 1) & addrMask) == 0;
+    final addrBits = contiguousMask ? addrMask.bitLength : 0;
+    final fullPageMask = (addrMask & pageMask) == pageMask;
+
+    // X0 retains the guest address, X5 is the mapped host address or null,
+    // and X3 is the offset in the page when [needOffset] is true.
+    void lookup(bool write, {bool needOffset = true}) {
+      if (contiguousMask && addrBits > env.pageShift && env.pageShift > 0) {
+        a.ubfx(4, 0, env.pageShift, addrBits - env.pageShift);
+        a.memoryIndexed(true, 5, write ? 21 : 20, 4, size: 8, scaled: true);
+        if (needOffset) a.ubfx(3, 0, 0, env.pageShift);
+      } else {
+        a.constant(3, addrMask);
+        a.alu(0x0a000000, 3, 0, 3);
+        if (env.pageShift > 0) {
+          a.lsrImm(4, 3, env.pageShift);
+        } else {
+          a.move(4, 3);
+        }
+        a.memoryIndexed(true, 5, write ? 21 : 20, 4, size: 8, scaled: true);
+        if (needOffset) {
+          if (env.pageShift > 0) {
+            a.ubfx(3, fullPageMask ? 0 : 3, 0, env.pageShift);
+          } else {
+            a.constant(3, 0);
+          }
+        }
+      }
     }
 
     // Like lookup, through the translation of i for an address outside the
@@ -438,7 +621,6 @@ abstract final class Arm64Backend {
     void translatedLookup(IrInst i, bool write, Arm64Label miss) {
       final id = i.translationTable;
       final t = env.translationTable(id);
-      final pageMask = (1 << env.pageShift) - 1;
       final done = Arm64Label(), direct = Arm64Label();
       final windowed = t.directEnd > t.directStart;
       if (windowed) {
@@ -448,35 +630,45 @@ abstract final class Arm64Backend {
         a.cmp(3, 4);
         a.branch(direct, 3);
       }
-      a.constant(4, env.pageShift);
-      a.alu(0x1ac02400, 4, 0, 4);
+      if (env.pageShift > 0) {
+        a.lsrImm(4, 0, env.pageShift);
+      } else {
+        a.move(4, 0);
+      }
       final hash = t.slotHash(i.translationKey) & (t.slots - 1);
       if (hash != 0) {
         a.constant(5, hash);
         a.alu(0x4a000000, 4, 4, 5);
       }
-      a.constant(5, t.slots - 1);
-      a.alu(0x0a000000, 4, 4, 5);
-      a.constant(5, 4);
-      a.alu(0x1ac02000, 4, 4, 5);
+      final slotBits = (t.slots - 1).bitLength;
+      if (slotBits > 0) {
+        a.ubfx(4, 4, 0, slotBits);
+      } else {
+        a.constant(4, 0);
+      }
+      a.lslImm(4, 4, 4);
       a.constant(5, env.translationAddress(id), wide: true);
       a.alu(0x0b000000, 4, 5, 4, wide: true);
       a.memory(true, 5, 4, 0, size: 4);
       a.constant(6, ~pageMask & 0xffffffff);
       a.alu(0x0a000000, 6, 0, 6);
-      a.constant(7, i.translationKey);
-      a.alu(0x2a000000, 6, 6, 7);
+      if (i.translationKey != 0) {
+        a.constant(7, i.translationKey);
+        a.alu(0x2a000000, 6, 6, 7);
+      }
       a.cmp(6, 5);
       a.branch(miss, 1);
       a.memory(true, 5, 4, 8);
-      a.constant(3, pageMask);
-      a.alu(0x0a000000, 3, 0, 3);
+      if (env.pageShift > 0) {
+        a.ubfx(3, 0, 0, env.pageShift);
+      } else {
+        a.constant(3, 0);
+      }
       if (windowed) {
         a.branch(done);
         a.bind(direct);
         lookup(write);
-        a.cmp(5, 31, wide: true);
-        a.branch(miss, 0);
+        a.cbz(5, miss, wide: true);
         a.bind(done);
       }
     }
@@ -521,8 +713,11 @@ abstract final class Arm64Backend {
       }
 
       void compare(int cc) {
-        final left = source(i.a, 0), right = source(i.b, 1);
-        a.cmp(left, right, wide: wide(i.a));
+        final isWide = wide(i.a);
+        final left = source(i.a, 0);
+        if (!emitCmpWithConst(left, i.b, isWide: isWide)) {
+          a.cmp(left, source(i.b, 1), wide: isWide);
+        }
         final d = target(v, 0);
         a.cset(d, cc);
         save(d, v);
@@ -682,10 +877,8 @@ abstract final class Arm64Backend {
                 });
           load(0, i.a);
           lookup(false);
-          a.cmp(5, 31, wide: true);
-          a.branch(slow, 0);
-          a.alu(0x0b000000, 5, 5, 3, wide: true);
-          a.vmemory(true, 0, 5, 0);
+          a.cbz(5, slow, wide: true);
+          a.vmemoryIndexed(true, 0, 5, 3);
           a.vmemory(false, 0, 31, slot);
           a.bind(done);
           if (i.exit < 0) forget();
@@ -700,8 +893,7 @@ abstract final class Arm64Backend {
                   for (var k = 0; k < 4; k++) {
                     a.memory(true, 0, 31, 0, size: 4);
                     if (k != 0) {
-                      a.constant(1, 4 * k);
-                      a.alu(0x0b000000, 0, 0, 1);
+                      a.immediate(0, 0, 4 * k, wide: false);
                     }
                     a.memory(true, 1, 31, slot + 4 * k, size: 4);
                     a.constant(2, 4);
@@ -711,10 +903,8 @@ abstract final class Arm64Backend {
                 });
           load(0, i.a);
           lookup(true);
-          a.cmp(5, 31, wide: true);
-          a.branch(slow, 0);
-          a.alu(0x0b000000, 5, 5, 3, wide: true);
-          a.vmemory(false, x, 5, 0);
+          a.cbz(5, slow, wide: true);
+          a.vmemoryIndexed(false, x, 5, 3);
           a.bind(done);
           if (i.exit < 0) forget();
         case IrOp.constant:
@@ -726,9 +916,24 @@ abstract final class Arm64Backend {
         case IrOp.ctxStore:
           a.memory(false, source(i.a, 0), 19, i.imm * 4, size: w ? 8 : 4);
         case IrOp.add:
-          binary(0x0b000000);
+          final d = target(v, 0);
+          if (isConst(i.b) &&
+              emitAddSubImm(d, source(i.a, 0), i.b, sub: false, isWide: w)) {
+            save(d, v);
+          } else if (isConst(i.a) &&
+              emitAddSubImm(d, source(i.b, 0), i.a, sub: false, isWide: w)) {
+            save(d, v);
+          } else {
+            binary(0x0b000000);
+          }
         case IrOp.sub:
-          binary(0x4b000000);
+          final d = target(v, 0);
+          if (isConst(i.b) &&
+              emitAddSubImm(d, source(i.a, 0), i.b, sub: true, isWide: w)) {
+            save(d, v);
+          } else {
+            binary(0x4b000000);
+          }
         case IrOp.and:
           if (fused[v] < 0) binary(0x0a000000);
         case IrOp.or:
@@ -755,12 +960,30 @@ abstract final class Arm64Backend {
           } else {
             save(2, v);
           }
-        case IrOp.shl:
-          binary(0x1ac02000);
-        case IrOp.shrU:
-          binary(0x1ac02400);
-        case IrOp.shrS:
-          binary(0x1ac02800);
+        case IrOp.shl || IrOp.shrU || IrOp.shrS:
+          if (isConst(i.b)) {
+            final shift = constValue(i.b) & (w ? 63 : 31);
+            final left = source(i.a, 0);
+            final d = target(v, 0);
+            if (shift == 0) {
+              if (d != left) a.move(d, left, wide: w);
+            } else if (i.op == IrOp.shl) {
+              a.lslImm(d, left, shift, wide: w);
+            } else if (i.op == IrOp.shrU) {
+              a.lsrImm(d, left, shift, wide: w);
+            } else {
+              a.asrImm(d, left, shift, wide: w);
+            }
+            save(d, v);
+          } else {
+            binary(
+              i.op == IrOp.shl
+                  ? 0x1ac02000
+                  : i.op == IrOp.shrU
+                  ? 0x1ac02400
+                  : 0x1ac02800,
+            );
+          }
         case IrOp.mulHiS || IrOp.mulHiU:
           load(0, i.a);
           load(1, i.b);
@@ -780,8 +1003,7 @@ abstract final class Arm64Backend {
               1,
               wide: true,
             );
-            a.constant(1, 32);
-            a.alu(0x1ac02400, 0, 0, 1, wide: true);
+            a.lsrImm(0, 0, 32, wide: true);
           }
           save(0, v);
         case IrOp.eq:
@@ -857,11 +1079,9 @@ abstract final class Arm64Backend {
             translatedLookup(i, false, slow);
           } else {
             lookup(false);
-            a.cmp(5, 31, wide: true);
-            a.branch(slow, 0);
+            a.cbz(5, slow, wide: true);
           }
-          a.alu(0x0b000000, 5, 5, 3, wide: true);
-          a.memory(true, 0, 5, 0, size: i.imm);
+          a.memoryIndexed(true, 0, 5, 3, size: i.imm);
           a.bind(done);
           finishLoad(i);
           save(0, v);
@@ -878,8 +1098,7 @@ abstract final class Arm64Backend {
                   void part(int offset) {
                     a.memory(true, 0, 31, 0, size: 4);
                     if (offset != 0) {
-                      a.constant(1, offset);
-                      a.alu(0x0b000000, 0, 0, 1);
+                      a.immediate(0, 0, offset, wide: false);
                     }
                     a.memory(true, 1, 31, 8 + offset, size: 4);
                     a.constant(2, i.imm == 8 ? 4 : i.imm);
@@ -895,13 +1114,11 @@ abstract final class Arm64Backend {
             translatedLookup(i, true, slow);
           } else {
             lookup(true);
-            a.cmp(5, 31, wide: true);
-            a.branch(slow, 0);
+            a.cbz(5, slow, wide: true);
           }
-          a.alu(0x0b000000, 5, 5, 3, wide: true);
           load(0, i.b);
           swap(0, i.imm, i.endian);
-          a.memory(false, 0, 5, 0, size: i.imm);
+          a.memoryIndexed(false, 0, 5, 3, size: i.imm);
           a.bind(done);
           if (i.exit < 0) forget();
         case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
@@ -977,9 +1194,8 @@ abstract final class Arm64Backend {
           branchOnCondition(i.a, dest, whenTrue: true);
         case IrOp.guardMapped:
           load(0, i.a);
-          lookup(i.imm != 0);
-          a.cmp(5, 31, wide: true);
-          a.branch(unmapped(block.exits[i.aux]), 0);
+          lookup(i.imm != 0, needOffset: false);
+          a.cbz(5, unmapped(block.exits[i.aux]), wide: true);
       }
     }
 
@@ -1001,25 +1217,31 @@ abstract final class Arm64Backend {
           a.jump(env.exitStub);
         });
         load(0, t.pc.index);
-        a.constant(1, DynTable.pcShift);
-        a.alu(0x1ac02400, 1, 0, 1);
-        a.constant(2, t.tag);
-        a.alu(0x4a000000, 1, 1, 2);
-        a.constant(2, DynTable.entries - 1);
-        a.alu(0x0a000000, 1, 1, 2);
-        a.constant(2, DynTable.entryBits);
-        a.alu(0x1ac02000, 1, 1, 2);
+        a.lsrImm(1, 0, DynTable.pcShift);
+        if (t.tag != 0) {
+          a.constant(2, t.tag);
+          a.alu(0x4a000000, 1, 1, 2);
+        }
+        a.ubfx(1, 1, 0, (DynTable.entries - 1).bitLength);
+        a.lslImm(1, 1, DynTable.entryBits);
         a.alu(0x0b000000, 1, 23, 1, wide: true);
         a.memory(true, 2, 1, 0, size: 4);
         a.cmp(0, 2);
         a.branch(miss, 1);
         a.memory(true, 2, 1, 4, size: 4);
-        a.constant(3, t.tag);
-        a.cmp(2, 3);
-        a.branch(miss, 1);
+        final tag = t.tag & 0xffffffff;
+        if (tag == 0) {
+          a.cbnz(2, miss);
+        } else if (tag <= 4095) {
+          a.cmpImmediate(2, tag);
+          a.branch(miss, 1);
+        } else {
+          a.constant(3, t.tag);
+          a.cmp(2, 3);
+          a.branch(miss, 1);
+        }
         a.memory(true, 2, 1, 8);
-        a.cmp(2, 31, wide: true);
-        a.branch(miss, 0);
+        a.cbz(2, miss, wide: true);
         a.emit(0xd61f0040);
       case IrExitTerm(:final exit):
         leave(
