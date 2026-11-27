@@ -53,4 +53,13 @@ void main() {
     expect(gb.read(0, 0x4010), 1);
   });
 
+  test('display dimensions match the 10:9 LCD', () {
+    final gb = Gb()..setRom(_rom([]));
+    final img = gb.imageBuffer();
+    expect(img.width, 160);
+    expect(img.height, 144);
+    expect(img.displayWidth, 160);
+    expect(img.displayHeight, isNull);
+  });
+
 }
