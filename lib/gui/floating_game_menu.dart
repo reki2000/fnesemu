@@ -119,7 +119,7 @@ class FloatingGameMenu extends StatelessWidget {
                         )),
                         if (topRight != null) ...[
                           const SizedBox(width: 8),
-                          IgnorePointer(child: topRight!),
+                          topRight!,
                         ],
                       ],
                     ),

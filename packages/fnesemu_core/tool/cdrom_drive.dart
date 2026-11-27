@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
+import 'package:fnesemu_core/src/bench_disc.dart';
 import 'package:fnesemu_core/src/cdrom_drive.dart';
 
 /// [CdromDrive] which starts reading [chunkSectors] sectors when the core asks
@@ -25,6 +26,36 @@ class SimpleCdromDrive implements CdromDrive, CdromSubcodeDrive {
   final _inflight = <int, Future<void>>{};
   final _subcodes = <int, CdromSubcode>{};
   final _subcodeInflight = <int, Future<void>>{};
+  final _accessedSectors = <int>{};
+  final _accessedSubcodes = <int>{};
+
+  Set<int> get accessedSectors => {..._accessedSectors};
+  Set<int> get accessedSubcodes => {..._accessedSubcodes};
+
+  void clearAccessed() {
+    _accessedSectors.clear();
+    _accessedSubcodes.clear();
+  }
+
+  /// Builds a sparse [BenchDisc] containing the TOC and every sector/subcode
+  /// accessed so far (plus any [extraSectors] / [extraSubcodes]).
+  BenchDisc snapshotAccessed(
+      {Set<int> extraSectors = const {}, Set<int> extraSubcodes = const {}}) {
+    final sectorLbas = {..._accessedSectors, ...extraSectors};
+    final subcodeLbas = {..._accessedSubcodes, ...extraSubcodes};
+    return BenchDisc(
+      _toc,
+      {
+        for (final lba in sectorLbas)
+          if (_sectors[lba] case final data?) lba: data,
+      },
+      subcodes: {
+        for (final lba in subcodeLbas)
+          if (_subcodes[lba] case final sub?) lba: sub,
+      },
+      hasSubcodes: _image is DiscSubcodeImage,
+    );
+  }
 
   bool get hasPendingReads =>
       _inflight.isNotEmpty || _subcodeInflight.isNotEmpty;
@@ -117,6 +148,8 @@ class SimpleCdromDrive implements CdromDrive, CdromSubcodeDrive {
     _inflight.clear();
     _subcodes.clear();
     _subcodeInflight.clear();
+    _accessedSectors.clear();
+    _accessedSubcodes.clear();
     _seekLba = 0;
     _seekRequested = false;
     _updateStatus();
@@ -127,13 +160,17 @@ class SimpleCdromDrive implements CdromDrive, CdromSubcodeDrive {
   void seek(int lba) {
     _seekLba = lba;
     _seekRequested = true;
-    if (_isReadable(lba)) _load(lba);
+    if (_isReadable(lba)) {
+      _accessedSectors.add(lba);
+      _load(lba);
+    }
     _updateStatus();
   }
 
   @override
   Uint8List? read(int lba) {
     if (!_isReadable(lba)) return Uint8List(0);
+    _accessedSectors.add(lba);
     final data = _sectors[lba];
     if (data == null) _load(lba);
     return data;
@@ -146,6 +183,7 @@ class SimpleCdromDrive implements CdromDrive, CdromSubcodeDrive {
       return const CdromSubcode(readable: false);
     }
     if (image is! DiscSubcodeImage) return const CdromSubcode();
+    _accessedSubcodes.add(lba);
     final data = _subcodes[lba];
     if (data != null || _subcodeInflight.containsKey(lba)) return data;
     final discId = _discId;

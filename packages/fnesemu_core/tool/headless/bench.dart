@@ -14,6 +14,7 @@ const benchUsage = """
 bench <core> <media...> [options]: times the frames after a warmup
   --warmup N         frames to run before timing (default: 0)
   --save-state FILE  save the core state after the warmup to FILE
+  --save-disc FILE   save a sparse disc image (TOC + accessed sectors) to FILE
   --load-state FILE  start from a state saved by --save-state; frames up to
                      its frame count as warmup already run
   --warmup-jit on|off
@@ -50,6 +51,7 @@ Future<void> bench(List<String> args) async {
     "--warmup",
     "--warmup-jit",
     "--save-state",
+    "--save-disc",
     "--load-state",
     "--measure",
     "--repetitions",
@@ -91,6 +93,9 @@ Future<void> bench(List<String> args) async {
   final core = s.core;
   if (warmupJit != null) core.jitSuspended = warmupJit == "off";
   final loadState = o["--load-state"], saveState = o["--save-state"];
+  final saveDisc = o["--save-disc"];
+  final initSectors = s.drive?.accessedSectors ?? const <int>{};
+  final initSubcodes = s.drive?.accessedSubcodes ?? const <int>{};
   if (loadState != null) {
     s.loadState(loadState);
     if (s.frame > warmup) {
@@ -142,6 +147,9 @@ Future<void> bench(List<String> args) async {
           core.jitSuspended = o["--jit"] == "off";
         }
         if (saveState != null && s.frame == warmup) s.saveState(saveState);
+        if (saveDisc != null && loadState == null && s.frame == warmup) {
+          s.drive?.clearAccessed();
+        }
         if (o.flag('--profile-compile') && compilationStats.isEmpty) {
           for (final diagnostics in core.jitDiagnostics) {
             compilationStats.add(diagnostics.enableCompilationStats());
@@ -283,6 +291,12 @@ Future<void> bench(List<String> args) async {
     }
     // releases the lock also when the core stops or a file cannot be written
     await releaseBenchmarkLock(lock);
+  }
+  if (saveDisc != null && s.drive != null) {
+    await s.drive!.settle();
+    final disc = s.drive!.snapshotAccessed(
+        extraSectors: initSectors, extraSubcodes: initSubcodes);
+    File(saveDisc).writeAsBytesSync(disc.encode());
   }
   if (hashes != null) File(o["--hashes"]!).writeAsStringSync("$hashes");
   if (outDir != null) {

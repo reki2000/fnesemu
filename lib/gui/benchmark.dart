@@ -1,7 +1,7 @@
 /// The benchmark archive: a zip or 7z file with `bench.json`, the saved
-/// states to time, and the ROMs and BIOS files they need. Discs are not in
-/// the archive; the app finds them among the ROM directories by the media
-/// identity of the state.
+/// states to time, and the ROMs, BIOS files and sparse disc images they need.
+/// When a scene's `disc` is not in the archive, the app falls back to finding
+/// it among the ROM directories by the media identity of the state.
 ///
 /// `bench.json` lists the scenes in the order they run:
 ///
@@ -12,7 +12,8 @@
 ///       "rom": "nes/a.nes",       // optional: the ROM in the archive
 ///       "bios": ["ps2/bios.bin"], // optional: the BIOS files in order,
 ///                                 // kept by the app when it has none
-///       "disc": "a.chd",          // optional: the name of the disc file
+///       "disc": "ps2/a.bdisc",    // optional: sparse disc in the archive, or
+///                                 // a disc file name to find in ROM folders
 ///       "warmup": 60,             // frames run before the measurement
 ///       "measure": 600,           // frames measured
 ///       "target": 60              // optional: the frame rate of the hardware

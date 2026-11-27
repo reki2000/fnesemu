@@ -4,6 +4,7 @@ library;
 export 'core_controller.dart';
 export 'core_factory.dart' show CoreFactory;
 export 'debugger.dart';
+export 'src/bench_disc.dart';
 export 'src/cdrom_drive.dart';
 export 'src/compute_sink.dart';
 export 'src/core.dart';

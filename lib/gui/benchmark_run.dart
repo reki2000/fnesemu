@@ -55,7 +55,11 @@ class _BenchmarkRun {
     await _registerBios(system, scene, bios);
     final drive = page._drive;
     if (scene.disc case final disc?) {
-      if (!await _loadDisc(system, bios, disc, media)) {
+      if (archive.names.contains(disc)) {
+        final benchDrive = BenchDisc.decode(await archive.read(disc)).openDrive();
+        await drive.insert();
+        await _controller.init(system.id, bios: bios, drive: benchDrive);
+      } else if (!await _loadDisc(system, bios, disc, media)) {
         return BenchResult(scene, error: 'disc not found');
       }
     } else {
