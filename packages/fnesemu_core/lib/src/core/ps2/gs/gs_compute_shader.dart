@@ -558,25 +558,37 @@ fn texel(t: Tex, psm: u32, from_snap: bool, l: Level, u: u32, v: u32) -> u32 {
 // only when linear is false
 fn taps(t: Tex, psm: u32, from_snap: bool, l: Level, u0: u32, v0: u32,
     u1: u32, v1: u32, linear: bool) -> vec4u {
+  if (is_indexed(psm)) {
+    let r0 = read_unit(psm, unit_index(psm, l.tbp, l.pages, u0, v0), from_snap);
+    let c0 = color(t, cluts[t.clut + ((t.clutoff + r0) & 511u)]);
+    if (!linear) { return vec4u(c0); }
+    let r1 = read_unit(psm, unit_index(psm, l.tbp, l.pages, u1, v0), from_snap);
+    let r2 = read_unit(psm, unit_index(psm, l.tbp, l.pages, u0, v1), from_snap);
+    let r3 = read_unit(psm, unit_index(psm, l.tbp, l.pages, u1, v1), from_snap);
+    if (r0 == r1 && r0 == r2 && r0 == r3) { return vec4u(c0); }
+    let c1 = color(t, cluts[t.clut + ((t.clutoff + r1) & 511u)]);
+    let c2 = color(t, cluts[t.clut + ((t.clutoff + r2) & 511u)]);
+    let c3 = color(t, cluts[t.clut + ((t.clutoff + r3) & 511u)]);
+    return vec4u(c0, c1, c2, c3);
+  }
   let c0 = texel(t, psm, from_snap, l, u0, v0);
   if (!linear) { return vec4u(c0); }
   return vec4u(c0, texel(t, psm, from_snap, l, u1, v0),
       texel(t, psm, from_snap, l, u0, v1), texel(t, psm, from_snap, l, u1, v1));
 }
 
-fn mix4(c00: u32, c10: u32, c01: u32, c11: u32, fu: f32, fv: f32,
-    shift: u32) -> u32 {
-  let a = f32((c00 >> shift) & 0xffu);
-  let b = f32((c10 >> shift) & 0xffu);
-  let c = f32((c01 >> shift) & 0xffu);
-  let d = f32((c11 >> shift) & 0xffu);
-  let m = (a * (1.0 - fu) + b * fu) * (1.0 - fv) + (c * (1.0 - fu) + d * fu) * fv;
-  return u32(round_up(m)) << shift;
+fn unpack_rgba(c: u32) -> vec4f {
+  return vec4f(f32(c & 0xffu), f32((c >> 8u) & 0xffu),
+      f32((c >> 16u) & 0xffu), f32(c >> 24u));
 }
 
 fn bilinear(c00: u32, c10: u32, c01: u32, c11: u32, fu: f32, fv: f32) -> u32 {
-  return mix4(c00, c10, c01, c11, fu, fv, 0u) | mix4(c00, c10, c01, c11, fu, fv, 8u) |
-      mix4(c00, c10, c01, c11, fu, fv, 16u) | mix4(c00, c10, c01, c11, fu, fv, 24u);
+  let u1 = 1.0 - fu;
+  let v1 = 1.0 - fv;
+  let top = unpack_rgba(c00) * u1 + unpack_rgba(c10) * fu;
+  let bot = unpack_rgba(c01) * u1 + unpack_rgba(c11) * fu;
+  let m = vec4u(floor(top * v1 + bot * fv + 0.5));
+  return m.x | (m.y << 8u) | (m.z << 16u) | (m.w << 24u);
 }
 
 fn level(state: u32, n: u32) -> Level {
@@ -1108,11 +1120,34 @@ fn line_pixels(i: u32, x: u32, y: u32, fval: ptr<function, u32>,
 // Sets the bit of each primitive in the bit set of each tile it meets, and
 // the bit of its word in the summary words before the bit set. The raster of
 // the batch clears them after it reads them.
+// Narrows the tile-column range [ilo, ihi] for one edge of a triangle over
+// tile row [ty0, ty1].
+fn narrow_edge(span: vec2u, x0: u32, minx: u32, maxx: u32, px: i32, py: i32,
+    dx: i32, dy: i32, m: i32, ty0: u32, ty1: u32) -> vec2u {
+  let ey = select(ty0, ty1, dx > 0);
+  let r = dx * (i32(ey) * 16 - py) - m;
+  if (dy == 0) {
+    return select(span, vec2u(1u, 0u), r < 0);
+  }
+  if (dy > 0) {
+    let x_hi = (px + floor_div(r, dy)) >> 4u;
+    if (x_hi < i32(minx) || x_hi < i32(x0)) { return vec2u(1u, 0u); }
+    return vec2u(span.x, min(span.y, u32(x_hi - i32(x0)) >> 3u));
+  }
+  let x_lo = (px - floor_div(r, -dy) + 15) >> 4u;
+  if (x_lo > i32(maxx)) { return vec2u(1u, 0u); }
+  if (x_lo > i32(x0)) {
+    return vec2u(max(span.x, u32(x_lo - i32(x0)) >> 3u), span.y);
+  }
+  return span;
+}
+
 @compute @workgroup_size(256)
 fn bin(@builtin(global_invocation_id) g: vec3u) {
   let k = g.x + g.y * 65535u * 256u;
   if (k >= P.a.y) { return; }
-  let o = (P.a.x + k) * SETUP_WORDS;
+  let prim = P.a.x + k;
+  let o = prim * SETUP_WORDS;
   let mn = setups[o];
   let mx = setups[o + 1u];
   let x0 = P.a.z;
@@ -1130,10 +1165,49 @@ fn bin(@builtin(global_invocation_id) g: vec3u) {
   let summary = (words + 31u) >> 5u;
   let word = k >> 5u;
   let bit = 1u << (k & 31u);
+  let stride = summary + words;
+  let sw = word >> 5u;
+  let sbit = 1u << (word & 31u);
+  if (i1 > i0 && j1 > j0 &&
+      (prims[prim * PRIM_WORDS] & 0xffu) == KIND_TRIANGLE) {
+    let ax = bitcast<i32>(setups[o + 2u]);
+    let ay = bitcast<i32>(setups[o + 3u]);
+    let bx = bitcast<i32>(setups[o + 4u]);
+    let by = bitcast<i32>(setups[o + 5u]);
+    let cx = bitcast<i32>(setups[o + 6u]);
+    let cy = bitcast<i32>(setups[o + 7u]);
+    let dx0 = bx - ax;
+    let dy0 = by - ay;
+    let dx1 = cx - bx;
+    let dy1 = cy - by;
+    let dx2 = ax - cx;
+    let dy2 = ay - cy;
+    let tl = setups[o + 9u];
+    let m0 = select(1, 0, (tl & 1u) != 0u);
+    let m1 = select(1, 0, (tl & 2u) != 0u);
+    let m2 = select(1, 0, (tl & 4u) != 0u);
+    for (var j = j0; j <= j1; j++) {
+      let ty = y0 + j * 8u;
+      let ty0 = max(ty, miny);
+      let ty1 = min(ty + 7u, maxy);
+      var span = vec2u(i0, i1);
+      span = narrow_edge(span, x0, minx, maxx, ax, ay, dx0, dy0, m0, ty0, ty1);
+      span = narrow_edge(span, x0, minx, maxx, bx, by, dx1, dy1, m1, ty0, ty1);
+      span = narrow_edge(span, x0, minx, maxx, cx, cy, dx2, dy2, m2, ty0, ty1);
+      let row = j * P.b.x;
+      for (var i = span.x; i <= span.y; i++) {
+        let at = (row + i) * stride;
+        atomicOr(&bins[at + sw], sbit);
+        atomicOr(&bins[at + summary + word], bit);
+      }
+    }
+    return;
+  }
   for (var j = j0; j <= j1; j++) {
+    let row = j * P.b.x;
     for (var i = i0; i <= i1; i++) {
-      let at = (j * P.b.x + i) * (summary + words);
-      atomicOr(&bins[at + (word >> 5u)], 1u << (word & 31u));
+      let at = (row + i) * stride;
+      atomicOr(&bins[at + sw], sbit);
       atomicOr(&bins[at + summary + word], bit);
     }
   }
