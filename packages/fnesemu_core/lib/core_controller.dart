@@ -245,6 +245,9 @@ class CoreController {
     }
     await stop();
     final wall = Stopwatch(), inCore = Stopwatch();
+    final fpsCounter =
+        FrameCounter(duration: const Duration(milliseconds: 500));
+    const yieldDelay = Duration(milliseconds: (frameYieldUs + 999) ~/ 1000);
     var frames = 0;
     _state.running = true;
     _stopRequested = false;
@@ -263,13 +266,20 @@ class CoreController {
           wait = _runFrame();
         }
         inCore.stop();
+        fpsCounter.count();
+        final fps = fpsCounter.fps(DateTime.now());
+        if (fps != null) {
+          _fps = fps;
+          debugger.sampleJitUsage();
+          _fpsStream.add(fps);
+        }
         if (measuring) {
           frames++;
           onProgress?.call(frames);
           if (wall.elapsed >= limit) break;
         }
-        // lets the UI show the picture
-        await Future.delayed(Duration.zero);
+        // yields the event loop as normal execution does without FPS pacing
+        await Future.delayed(yieldDelay);
       }
     } finally {
       wall.stop();
