@@ -62,8 +62,8 @@ void main() {
     expect(tester.getTopLeft(find.byKey(const ValueKey('game-menu-toggle'))),
         anchor);
     expect(tester.getRect(find.byKey(const ValueKey('game'))), geometry);
-    // Empty toolbar space must not act as a background resume gesture.
-    await tester.tapAt(const Offset(300, 70));
+    // Empty panel space must not act as a background resume gesture.
+    await tester.tapAt(const Offset(120, 300));
     await tester.pump();
     expect(resumes, 0);
     await tester.tapAt(const Offset(400, 300));

@@ -48,9 +48,9 @@ Future<void> _until(
 /// running in real time, and the scrolling toolbar can move between a
 /// layout and a tap, so a tap at the button's position could miss it.
 void _press(WidgetTester tester, String key) {
-  final button = tester.widget<IconButton>(find.byKey(ValueKey(key)));
-  expect(button.onPressed, isNotNull, reason: key);
-  button.onPressed!();
+  final tile = tester.widget<ListTile>(find.byKey(ValueKey(key)));
+  expect(tile.onTap, isNotNull, reason: key);
+  tile.onTap!();
 }
 
 Future<void> _untilFound(WidgetTester tester, Finder finder) =>
@@ -99,13 +99,13 @@ void main() {
     // without a game, the state buttons are disabled
     expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('save-state')))
-            .onPressed,
+            .widget<ListTile>(find.byKey(const ValueKey('save-state')))
+            .onTap,
         isNull);
     expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('load-state')))
-            .onPressed,
+            .widget<ListTile>(find.byKey(const ValueKey('load-state')))
+            .onTap,
         isNull);
 
     // boot the fixture ROM through the directory picker
@@ -144,8 +144,8 @@ void main() {
     await tester.pump();
     expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('save-state')))
-            .onPressed,
+            .widget<ListTile>(find.byKey(const ValueKey('save-state')))
+            .onTap,
         isNotNull);
     await tester.runAsync(() async => _press(tester, 'save-state'));
     await _untilFound(tester, find.byType(StateSlotDialog));
