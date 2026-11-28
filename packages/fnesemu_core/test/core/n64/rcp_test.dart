@@ -71,7 +71,24 @@ void main() {
     expect(b.ram.sublist(0x208, 0x210), [1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
-
-
-
+  test('RDP LOADBLOCK interprets uls and ult as integer texel coordinates', () {
+    final b = N64Bus()..reset();
+    final g = N64Graphics(b);
+    // 8x4 RGBA16 texture at RDRAM 0x1000: row y, col x holds ((y << 8) | x).
+    const base = 0x1000;
+    for (var y = 0; y < 4; y++) {
+      for (var x = 0; x < 8; x++) {
+        final at = base + (y * 8 + x) * 2;
+        b.ram[at] = y + 1;
+        b.ram[at + 1] = x + 1;
+      }
+    }
+    // SETTIMG: format=0 (RGBA), size=2 (16-bit), width=8 (encoded 7)
+    g.rdp(0xfd100007, base);
+    // SETTILE: tile 0, format=0, size=2, line=2, tmem=0
+    g.rdp(0xf5100400, 0x00000000);
+    // LOADBLOCK: tile 0, uls=2, ult=3, lrs=5 (4 texels starting at (2, 3))
+    g.rdp(0xf3002003, (0 << 24) | (5 << 12));
+    expect(g.tmem.sublist(0, 8), [4, 3, 4, 4, 4, 5, 4, 6]);
+  });
 }
