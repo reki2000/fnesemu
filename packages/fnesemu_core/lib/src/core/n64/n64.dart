@@ -224,13 +224,37 @@ class N64 extends Core {
   @override
   ExecResult runFrame(int scanlines) {
     var line = false;
+    graphics.settleIfReady();
+    if (graphics.hasPendingStream) {
+      if (graphics.waitsForCompute) {
+        _updateResult(false);
+        return _result..linesLeft = scanlines;
+      }
+      graphics.resumeStream();
+      if (graphics.waitsForCompute && graphics.hasPendingStream) {
+        _updateResult(false);
+        return _result..linesLeft = scanlines;
+      }
+    }
     while (scanlines > 0) {
+      if (graphics.waitsForCompute &&
+          (graphics.hasPendingStream ||
+              graphics.waitRequested ||
+              bus.scanline == scanlinesInFrame - 1)) {
+        _updateResult(line);
+        return _result..linesLeft = scanlines;
+      }
       line = _advance(false, compiled: true);
       if (cpu.stopReason != null) break;
       if (line) scanlines--;
+      if (graphics.waitsForCompute &&
+          (graphics.hasPendingStream || graphics.waitRequested)) {
+        _updateResult(line);
+        return _result..linesLeft = scanlines > 0 ? scanlines : 1;
+      }
     }
     _updateResult(line);
-    return _result;
+    return _result..linesLeft = 0;
   }
 
   @pragma('vm:prefer-inline')
@@ -251,6 +275,9 @@ class N64 extends Core {
     }
     bus.tick(cpu.clocks - before);
     var line = false;
+    if (bus.scanline == scanlinesInFrame - 1 && graphics.waitsForCompute) {
+      return false;
+    }
     if (cpu.clocks >= _nextLine) {
       _nextLine += clocksInScanline;
       bus.scanline++;
@@ -283,6 +310,9 @@ class N64 extends Core {
 
   @override
   set computeSink(ComputeSink? sink) => graphics.computeSink = sink;
+
+  @override
+  Future<void>? computeWait() => graphics.computeWait;
 
   static const _stateVersion = 4;
   int? _mediaHash;

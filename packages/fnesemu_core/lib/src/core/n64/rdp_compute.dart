@@ -111,7 +111,8 @@ class N64RdpCompute {
   static const _cacheColorFlag = 1 << 29, _readCachedColorFlag = 1 << 30;
 
   N64RdpCompute(ComputeSink sink, this.bus)
-      : _program = sink.program(
+      : _waits = sink.waits,
+        _program = sink.program(
             n64RdpComputeShader,
             ['drawBatch', 'drawTiles', 'drawAliasedBackground'],
             const [
@@ -131,6 +132,7 @@ class N64RdpCompute {
             maxDispatches: _maxBackgroundDispatches);
 
   final N64Bus bus;
+  final bool _waits;
   final ComputeProgram _program;
   final _rects = <N64RdpRect>[];
   Uint32List _input = Uint32List(0);
@@ -193,6 +195,14 @@ class N64RdpCompute {
   int _projectedTmemVersion = -1, _projectedTmemBase = 0;
   bool enabled = true;
   bool _destinationNeeded = false, _orderedColor = false;
+  bool _waitRequested = false;
+
+  bool get waits => _waits;
+  bool get hasPending => _pendingWords != 0;
+  Future<void>? get computeWait => _waits ? null : _program.fetching;
+  bool get waitsForCompute =>
+      !_waits && _pendingWords != 0 && _program.fetching != null;
+  bool get waitRequested => _waitRequested && waitsForCompute;
 
   bool overlaps(int at, int size) {
     if (at + size <= _start || at >= _end) return false;
@@ -221,10 +231,14 @@ class N64RdpCompute {
         rect.y + rect.height > maxExtent) {
       return -1;
     }
-    if (_pendingWords != 0) flush();
+    if (_pendingWords != 0) {
+      flush();
+      if (waitsForCompute) return -1;
+    }
     if ((_depth != null && depth != null && !identical(_depth, depth)) ||
         (_rects.isNotEmpty && !_sameTarget(_rects.first, rect))) {
       flush();
+      if (waitsForCompute) return -1;
     }
     // A workgroup writes words belonging to one rectangle.
     final words = rowWords * rect.height;
@@ -232,13 +246,14 @@ class N64RdpCompute {
     final reserved = groups * _workgroupWords;
     if (_rects.length == _maxDraws || _outputUsed + reserved > _outputWords) {
       flush();
+      if (waitsForCompute) return -1;
     }
     if (!enabled) return -1;
     // A standard draw reserves enough room for TMEM, offsets and registers.
     final needed = _inputUsed + _tmemWords + 2 * maxExtent + 40 + extraInputWords;
     if (needed > _inputWords) {
       flush();
-      if (!enabled) return -1;
+      if (!enabled || waitsForCompute) return -1;
     }
     _growInput(_inputUsed + _tmemWords + 2 * maxExtent + 40 + extraInputWords);
     final draw = _rects.length;
@@ -324,6 +339,7 @@ class N64RdpCompute {
   void clearDepth(Float64List depth) {
     if (_pendingWords != 0 || (_depth != null && !identical(_depth, depth))) {
       flush();
+      if (waitsForCompute) return;
     }
     _depth = depth;
     _depthClear = _rects.length + 1;
@@ -355,7 +371,10 @@ class N64RdpCompute {
           sourceWidth * bytes, minX, rowBytes, rowOffsets.keys,
           size, columns, rows, blend, combiner);
     }
-    if (needsFlush) flush();
+    if (needsFlush) {
+      flush();
+      if (waitsForCompute) return false;
+    }
     final words = (length + 3) ~/ 4;
     final p = _reserve(rect, 7, rect.width,
         blend: blend, combiner: combiner, extraInputWords: words);
@@ -384,6 +403,7 @@ class N64RdpCompute {
   bool _drawAliasedBackground(N64RdpRect rect, int source, int pitch, int minX,
       int rowBytes, Iterable<int> sourceRows, int size, List<int> columns,
       List<int> rows, bool blend, N64RdpCombiner? combiner) {
+    if (!_waits) return false;
     flush();
     invalidateColor();
     if (!enabled) return false;
@@ -662,7 +682,13 @@ class N64RdpCompute {
       return;
     }
     final pending = _pendingWords != 0;
-    if (pending && defer) return;
+    if (pending) {
+      if (defer) return;
+      if (!_waits && _program.fetching != null) {
+        _waitRequested = true;
+        return;
+      }
+    }
     final tileCount = pending ? _pendingTiles : _binTiles();
     final colorWords = _rects.first.pixelBytes == 2 ? 1 : 2;
     if (!pending) {
@@ -675,7 +701,7 @@ class N64RdpCompute {
           syncDepth();
         }
       }
-      _deferredDepthOutput = defer && tileCount != 0 && clearsPlane &&
+      _deferredDepthOutput = _waits && defer && tileCount != 0 && clearsPlane &&
           _allowResidentDepth && depth.length <= _depthCapacity &&
           _rects.first.stride < 4096 && _residentDepthEpoch < 0xffffffff &&
           _depthOutputWords != 0;
@@ -693,18 +719,20 @@ class N64RdpCompute {
       if (enabled) {
         if (!pending) {
           _runBatch(count, tileCount, endStream);
-          if (defer && words != 0) {
+          if ((defer || !_waits) && words != 0) {
             if (_deferredDepthOutput) {
               _pendingColorTiles = Uint8List(tileCount);
               _pendingColorCount = tileCount;
             } else {
               _program.prefetch(1, 0, words * 4);
             }
-            bus.watchRdram(_start, math.min(_end, bus.ram.length), flush,
-                settleRange: _deferredDepthOutput ? _readRdramRange : null);
-            _pendingTiles = tileCount;
-            _pendingWords = words;
-            return;
+            if (defer || _program.fetching != null) {
+              bus.watchRdram(_start, math.min(_end, bus.ram.length), flush,
+                  settleRange: _deferredDepthOutput ? _readRdramRange : null);
+              _pendingTiles = tileCount;
+              _pendingWords = words;
+              return;
+            }
           }
         }
         if (_pendingColorTiles != null) {
@@ -773,6 +801,7 @@ class N64RdpCompute {
       _depthClearedAtStart = false;
       _pendingColorTiles = null;
       _pendingColorCount = 0;
+      _waitRequested = false;
     }
   }
 
@@ -1062,5 +1091,11 @@ class N64RdpCompute {
     }
   }
 
-  void dispose() => _program.dispose();
+  void dispose() {
+    if (_pendingWords != 0) {
+      _pendingWords = 0;
+      bus.unwatchRdram();
+    }
+    _program.dispose();
+  }
 }

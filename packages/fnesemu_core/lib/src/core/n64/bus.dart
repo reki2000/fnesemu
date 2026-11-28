@@ -157,10 +157,17 @@ class N64Bus {
   // SP DMA addresses written last
   final _spNext = Uint32List(2);
   int audioCycles = 0;
+  bool taskPending = false;
   void Function()? onTask;
   void Function(int, int)? onDp;
   void Function(AudioBuffer)? onAudio;
   bool get interruptPending => (mi[2] & mi[3]) != 0;
+
+  void completeTask() {
+    taskPending = false;
+    spRegs[4] |= 0x203; // HALT, BROKE, SIG2: task complete.
+    if (spRegs[4].bit6) interrupt(1);
+  }
 
   List<List<int>> get _registerFiles =>
       [vi, pi, ai, ri, rdram, si, spRegs, dp, mi, _spNext];
@@ -223,6 +230,7 @@ class N64Bus {
     scanline = s.int64();
     spPc = s.int64();
     audioCycles = s.int64();
+    taskPending = false;
   }
 
   void interrupt(int mask) => mi[2] |= mask;
@@ -530,9 +538,9 @@ class N64Bus {
           }
           spRegs[4] = status;
           if (!status.bit0 && onTask != null) {
+            taskPending = false;
             onTask!();
-            spRegs[4] |= 0x203; // HALT, BROKE, SIG2: task complete.
-            if (spRegs[4].bit6) interrupt(1);
+            if (!taskPending) completeTask();
           }
           return;
         }
@@ -816,6 +824,7 @@ class N64Bus {
   ];
 
   void reset() {
+    taskPending = false;
     _flashActive = false;
     _flashMode = _flashPage = 0;
     _flashStatusHigh = _flashStatusLow = 0;

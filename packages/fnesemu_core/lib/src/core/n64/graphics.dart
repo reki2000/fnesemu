@@ -179,6 +179,19 @@ class N64Graphics {
   N64Graphics(this.bus);
 
   N64RdpCompute? _compute;
+  _PendingStream? _pendingStream;
+
+  Future<void>? get computeWait => _compute?.computeWait;
+  bool get waitsForCompute => _compute?.waitsForCompute ?? false;
+  bool get waitRequested => _compute?.waitRequested ?? false;
+  bool get hasPendingStream => _pendingStream != null;
+
+  void settleIfReady() {
+    final compute = _compute;
+    if (compute != null && compute.hasPending && !compute.waitsForCompute) {
+      _flushRectangles();
+    }
+  }
 
   void syncCompute({bool depth = false}) {
     _flushRectangles();
@@ -195,7 +208,7 @@ class N64Graphics {
     final compute = _compute;
     if (compute == null) return;
     compute.flush(defer: defer, endStream: endStream);
-    if (!endStream) compute.invalidateColor();
+    if (!endStream && !compute.waitsForCompute) compute.invalidateColor();
     if (!compute.enabled) computeSink = null;
   }
 
@@ -204,8 +217,7 @@ class N64Graphics {
     _compute?.syncDepth();
     _compute?.dispose();
     _compute = null;
-    // A draw can be followed by a RDRAM read in the same display list.
-    if (sink == null || !sink.waits || Endian.host != Endian.little) return;
+    if (sink == null || Endian.host != Endian.little) return;
     try {
       _compute = N64RdpCompute(sink, bus);
       if (_depthExposed) _compute!.exposeDepth();
@@ -346,6 +358,7 @@ class N64Graphics {
     f3dex2 = s.boolean();
     _s2dex = s.boolean();
     _half1 = s.int32();
+    _pendingStream = null;
     _compute?.invalidateDepth();
     _depths.clear();
     for (var n = s.int32(); n > 0; n--) {
@@ -363,6 +376,7 @@ class N64Graphics {
     model = identity();
     projection = identity();
     stack.clear();
+    _pendingStream = null;
     _compute?.invalidateDepth();
     _depths.clear();
     tmem.fillRange(0, tmem.length, 0);
@@ -457,9 +471,19 @@ class N64Graphics {
 
   void task(int address, int size, int ucodeData, int ucodeSize,
       {bool defer = false}) {
+    if (waitsForCompute) {
+      _pendingStream = _PendingStream.task(address, ucodeData, ucodeSize, defer);
+      bus.taskPending = true;
+      return;
+    }
     _selectMicrocode(ucodeData, ucodeSize);
+    if (waitsForCompute) {
+      _pendingStream = _PendingStream.task(address, ucodeData, ucodeSize, defer);
+      bus.taskPending = true;
+      return;
+    }
     tasks++;
-    displayList(address, defer: defer);
+    _startDisplayList(address, defer: defer, isTask: true);
   }
 
   void _selectMicrocode(int ucodeData, int ucodeSize) {
@@ -467,6 +491,7 @@ class N64Graphics {
         math.min(bus.ram.length, ucodeData + math.min(ucodeSize, 2048)).toInt();
     if (_compute?.overlaps(ucodeData, end - ucodeData) ?? false) {
       _flushRectangles();
+      if (waitsForCompute) return;
     }
     final text = String.fromCharCodes(bus.ram.sublist(ucodeData, end));
     final start = text.indexOf('RSP Gfx ucode');
@@ -483,74 +508,209 @@ class N64Graphics {
     extended = f3dex2 || name.contains('F3DEX') || name.contains('F3DLP');
   }
 
-  void displayList(int address, {bool defer = false}) {
+  void displayList(int address, {bool defer = false}) =>
+      _startDisplayList(address, defer: defer, isTask: false);
+
+  void _startDisplayList(int address,
+      {required bool defer, required bool isTask}) {
     final compute = _compute;
-    if (compute == null) return _displayList(address);
-    _runRdpStream(compute, defer, () => _displayList(address));
+    if (compute == null) {
+      _displayListLoop(address & 0x7fffff, <int>[], 0, defer, isTask);
+      return;
+    }
+    compute.beginStream();
+    _displayListLoop(address & 0x7fffff, <int>[], 0, defer, isTask);
   }
 
-  void _runRdpStream(N64RdpCompute compute, bool defer, void Function() run) {
-    compute.beginStream();
-    try {
-      run();
-    } finally {
+  void resumeStream() {
+    settleIfReady();
+    final pending = _pendingStream;
+    if (pending == null || waitsForCompute) return;
+    _pendingStream = null;
+    if (!pending.started) {
+      task(pending.address, 0, pending.ucodeData, pending.ucodeSize,
+          defer: pending.defer);
+      return;
+    }
+    if (pending.isCommands) {
+      _compute?.beginStream();
+      _commandsLoop(pending.pc, pending.end, pending.defer);
+    } else {
+      _compute?.beginStream();
+      _displayListLoop(pending.pc, pending.returns, pending.commands,
+          pending.defer, pending.isTask,
+          secondTri: pending.secondTri);
+    }
+  }
+
+  void _pauseDisplayList(
+      int pc, List<int> returns, int commands, bool defer, bool isTask,
+      {bool secondTri = false}) {
+    _pendingStream =
+        _PendingStream.displayList(pc, returns, commands, defer, isTask)
+          ..secondTri = secondTri;
+    if (isTask) bus.taskPending = true;
+    _compute?.endStream();
+  }
+
+  void _finishStream(bool defer, bool isTask) {
+    final compute = _compute;
+    if (compute != null) {
       try {
         _flushRectangles(defer: defer, endStream: true);
       } finally {
         compute.endStream();
       }
     }
+    if (isTask && bus.taskPending) bus.completeTask();
   }
 
-  void _displayList(int address) {
-    var pc = address & 0x7fffff;
-    final returns = <int>[];
-    for (var commands = 0; commands < 100000; commands++) {
-      final w0 = u(pc, 4), w1 = u(pc + 4, 4), op = w0.shr24;
-      pc += 8;
-      if (_s2dex && (op == 0x09 || op == 0x0a)) {
-        _background(resolve(w1), scaled: op == 0x09);
-        continue;
-      }
-      if (_s2dex && op == 0x0b) {
-        // Object render flags affect sprites; backgrounds use the RDP modes.
-        continue;
-      }
-      if (f3dex2) {
-        var handled = true;
+  void _displayListLoop(int pc, List<int> returns, int commands, bool defer,
+      bool isTask,
+      {bool secondTri = false}) {
+    var paused = false;
+    try {
+      for (; commands < 100000; commands++) {
+        final commandPc = pc;
+        final w0 = u(pc, 4), w1 = u(pc + 4, 4), op = w0.shr24;
+        if (waitsForCompute) {
+          paused = true;
+          _pauseDisplayList(commandPc, returns, commands, defer, isTask);
+          return;
+        }
+        pc += 8;
+        if (_s2dex && (op == 0x09 || op == 0x0a)) {
+          _background(resolve(w1), scaled: op == 0x09);
+          if (waitsForCompute) {
+            paused = true;
+            _pauseDisplayList(commandPc, returns, commands, defer, isTask);
+            return;
+          }
+          continue;
+        }
+        if (_s2dex && op == 0x0b) {
+          // Object render flags affect sprites; backgrounds use the RDP modes.
+          continue;
+        }
+        if (f3dex2) {
+          var handled = true;
+          switch (op) {
+            case 0x00 || 0x02 || 0x03 || 0x04 || 0x08:
+              break; // NOOP, MODIFYVTX, CULLDL, BRANCH_Z, LINE3D are not needed
+            case 0x01:
+              final n = w0.shr12.mask8, end = w0.shr1.mask7;
+              _loadVertices(resolve(w1), end - n, n);
+            case 0x05:
+              drawIndices(w0, 2);
+            case 0x06 || 0x07:
+              if (!secondTri) drawIndices(w0, 2);
+              if (waitsForCompute) {
+                paused = true;
+                _pauseDisplayList(commandPc, returns, commands, defer, isTask);
+                return;
+              }
+              secondTri = false;
+              drawIndices(w1, 2);
+              if (waitsForCompute) {
+                paused = true;
+                _pauseDisplayList(commandPc, returns, commands, defer, isTask,
+                    secondTri: true);
+                return;
+              }
+            case 0xd7:
+              activeTile = w0.shr8.mask3;
+              textureOn = w0.shr1.mask7 != 0;
+              textureS = w1.shr16.mask16 / 65536;
+              textureT = w1.mask16 / 65536;
+            case 0xd8:
+              for (var i = 0; i < w1 ~/ 64; i++) {
+                if (stack.isNotEmpty) model = stack.removeLast();
+              }
+            case 0xd9:
+              // w0 holds the inverted clear mask, w1 the bits to set
+              geometry2 = (geometry2 & w0.mask24) | w1;
+              geometry = (geometry2.bit0 ? 1 : 0) |
+                  (geometry2.bit9 ? 0x1000 : 0) |
+                  (geometry2.bit10 ? 0x2000 : 0) |
+                  (geometry2.bit17 ? 0x20000 : 0);
+            case 0xda:
+              final flags = w0.mask8 ^ 1, m = matrix(resolve(w1));
+              if (waitsForCompute) break;
+              if (flags.bit2) {
+                projection = flags.bit1 ? m : multiply(m, projection);
+              } else {
+                if (flags.bit0) {
+                  if (stack.length >= 32) {
+                    throw StateError('RSP matrix stack overflow');
+                  }
+                  stack.add(Float64List.fromList(model));
+                }
+                model = flags.bit1 ? m : multiply(m, model);
+              }
+            case 0xdb:
+              final index = w0.shr16.mask8, offset = w0.mask16;
+              if (index == 0x06) {
+                segments[(offset ~/ 4).mask4] = w1.mask24;
+              } else if (index == 0x02) {
+                numLights = w1 ~/ 24;
+              }
+            case 0xdc:
+              final index = w0.mask8, offset = w0.shr8.mask8 * 8;
+              final addr = resolve(w1);
+              if (index == 8) {
+                _viewport(addr);
+              } else if (index == 10) {
+                _light(lights[(offset ~/ 24 - 2).clamp(0, 7)], addr);
+              }
+            case 0xde:
+              if (w0.shr16.mask8 == 0) {
+                if (returns.length >= 64) {
+                  throw StateError('RSP display list stack overflow');
+                }
+                returns.add(pc);
+              }
+              pc = resolve(w1);
+            case 0xdf:
+              if (returns.isEmpty) return;
+              pc = returns.removeLast();
+            case 0xe1:
+              _half1 = w1;
+            case 0xdd:
+              _selectMicrocode(resolve(_half1), w0.mask16 + 1);
+            case 0xd6 || 0xe0:
+              // DMA_IO, SPNOOP. DMA_IO moves data
+              // between the DMEM of the microcode and RDRAM, which this HLE
+              // does not have.
+              break;
+            case 0xe2 || 0xe3:
+              // the field is addressed from the top bit: shift = 32 - ofs - len
+              final length = w0.mask8 + 1, shift = 32 - w0.shr8.mask8 - length;
+              final mask = (((1 << length) - 1) << shift).mask32;
+              if (op == 0xe2) {
+                otherLow = (otherLow & ~mask) | (w1 & mask);
+              } else {
+                otherHigh = (otherHigh & ~mask) | (w1 & mask);
+              }
+            default:
+              handled = false;
+          }
+          if (waitsForCompute) {
+            paused = true;
+            _pauseDisplayList(commandPc, returns, commands, defer, isTask);
+            return;
+          }
+          if (handled) continue;
+        }
         switch (op) {
-          case 0x00 || 0x02 || 0x03 || 0x04 || 0x08:
-            break; // NOOP, MODIFYVTX, CULLDL, BRANCH_Z, LINE3D are not needed
-          case 0x01:
-            final n = w0.shr12.mask8, end = w0.shr1.mask7;
-            _loadVertices(resolve(w1), end - n, n);
-          case 0x05:
-            drawIndices(w0, 2);
-          case 0x06 || 0x07:
-            drawIndices(w0, 2);
-            drawIndices(w1, 2);
-          case 0xd7:
-            activeTile = w0.shr8.mask3;
-            textureOn = w0.shr1.mask7 != 0;
-            textureS = w1.shr16.mask16 / 65536;
-            textureT = w1.mask16 / 65536;
-          case 0xd8:
-            for (var i = 0; i < w1 ~/ 64; i++) {
-              if (stack.isNotEmpty) model = stack.removeLast();
-            }
-          case 0xd9:
-            // w0 holds the inverted clear mask, w1 the bits to set
-            geometry2 = (geometry2 & w0.mask24) | w1;
-            geometry = (geometry2.bit0 ? 1 : 0) |
-                (geometry2.bit9 ? 0x1000 : 0) |
-                (geometry2.bit10 ? 0x2000 : 0) |
-                (geometry2.bit17 ? 0x20000 : 0);
-          case 0xda:
-            final flags = w0.mask8 ^ 1, m = matrix(resolve(w1));
-            if (flags.bit2) {
+          case 0:
+            break;
+          case 1:
+            final flags = w0.shr16.mask8, m = matrix(resolve(w1));
+            if (waitsForCompute) break;
+            if (flags.bit0) {
               projection = flags.bit1 ? m : multiply(m, projection);
             } else {
-              if (flags.bit0) {
+              if (flags.bit2) {
                 if (stack.length >= 32) {
                   throw StateError('RSP matrix stack overflow');
                 }
@@ -558,22 +718,20 @@ class N64Graphics {
               }
               model = flags.bit1 ? m : multiply(m, model);
             }
-          case 0xdb:
-            final index = w0.shr16.mask8, offset = w0.mask16;
-            if (index == 0x06) {
-              segments[(offset ~/ 4).mask4] = w1.mask24;
-            } else if (index == 0x02) {
-              numLights = w1 ~/ 24;
-            }
-          case 0xdc:
-            final index = w0.mask8, offset = w0.shr8.mask8 * 8;
-            final addr = resolve(w1);
-            if (index == 8) {
+          case 3:
+            final index = w0.shr16.mask8, addr = resolve(w1);
+            if (index == 0x80) {
               _viewport(addr);
-            } else if (index == 10) {
-              _light(lights[(offset ~/ 24 - 2).clamp(0, 7)], addr);
+            } else if (index >= 0x86 && index <= 0x94) {
+              _light(lights[(index - 0x86) ~/ 2], addr);
+            } else if (index != 0x82 && index != 0x84) {
+              throw UnsupportedError('RSP MOVEMEM $index');
             }
-          case 0xde:
+          case 4:
+            final count = extended ? w0.shr10.mask6 : w0.shr20.mask4 + 1;
+            final first = extended ? w0.shr17.mask7 : w0.shr16.mask4;
+            _loadVertices(resolve(w1), first, count);
+          case 6:
             if (w0.shr16.mask8 == 0) {
               if (returns.length >= 64) {
                 throw StateError('RSP display list stack overflow');
@@ -581,136 +739,94 @@ class N64Graphics {
               returns.add(pc);
             }
             pc = resolve(w1);
-          case 0xdf:
+          case 0xb8:
             if (returns.isEmpty) return;
             pc = returns.removeLast();
-          case 0xe1:
-            _half1 = w1;
-          case 0xdd:
-            _selectMicrocode(resolve(_half1), w0.mask16 + 1);
-          case 0xd6 || 0xe0:
-            // DMA_IO, SPNOOP. DMA_IO moves data
-            // between the DMEM of the microcode and RDRAM, which this HLE
-            // does not have.
+          case 0xbd:
+            if (stack.isNotEmpty) model = stack.removeLast();
+          case 0xbc:
+            final index = w0.mask8, offset = w0.shr8.mask16;
+            if (index == 6) {
+              segments[(offset ~/ 4).mask4] = w1.mask24;
+            } else if (index == 2) {
+              numLights = extended ? w1 ~/ 24 : ((w1 & 0x7fffffff) ~/ 32 - 1);
+            } else if (index == 10) {
+              final l = lights[(offset ~/ 32).clamp(0, 7)];
+              l.r = w1.shr24.mask8.toDouble();
+              l.g = w1.shr16.mask8.toDouble();
+              l.b = w1.shr8.mask8.toDouble();
+            } else if (![0, 4, 8, 14].contains(index)) {
+              throw UnsupportedError('RSP MOVEWORD $index');
+            }
+          case 0xbb:
+            activeTile = w0.shr8.mask3;
+            textureOn = w0.mask8 != 0;
+            textureS = w1.shr16.mask16 / 65536;
+            textureT = w1.mask16 / 65536;
+          case 0xb7:
+            geometry |= w1;
+          case 0xb6:
+            geometry &= ~w1;
+          case 0xba:
+            final shift = w0.shr8.mask8, length = w0.mask8;
+            final mask = ((1 << length) - 1).shl(shift);
+            otherHigh = (otherHigh & ~mask) | (w1 & mask);
+          case 0xb9:
+            final shift = w0.shr8.mask8, length = w0.mask8;
+            final mask = ((1 << length) - 1).shl(shift);
+            otherLow = (otherLow & ~mask) | (w1 & mask);
+          case 0xbf:
+            drawIndices(w1, extended ? 2 : 10);
+          case 0xb1:
+            if (!secondTri) drawIndices(w0, 2);
+            if (waitsForCompute) {
+              paused = true;
+              _pauseDisplayList(commandPc, returns, commands, defer, isTask);
+              return;
+            }
+            secondTri = false;
+            drawIndices(w1, 2);
+            if (waitsForCompute) {
+              paused = true;
+              _pauseDisplayList(commandPc, returns, commands, defer, isTask,
+                  secondTri: true);
+              return;
+            }
+          case 0xbe:
+            break; // CULLDL is an optional visibility optimization.
+          case 0xb4:
             break;
-          case 0xe2 || 0xe3:
-            // the field is addressed from the top bit: shift = 32 - ofs - len
-            final length = w0.mask8 + 1, shift = 32 - w0.shr8.mask8 - length;
-            final mask = (((1 << length) - 1) << shift).mask32;
-            if (op == 0xe2) {
-              otherLow = (otherLow & ~mask) | (w1 & mask);
-            } else {
-              otherHigh = (otherHigh & ~mask) | (w1 & mask);
+          case 0xb3:
+            break;
+          case 0xb2:
+            final index = (w0.mask16 ~/ 2).clamp(0, 79), v = vertices[index];
+            if (v != null && w0.shr16.mask8 == 0x10) {
+              vertices[index] = N64Vertex(v.clip, Rgba.fromWord(w1), v.s, v.t);
             }
+          case 0xe4:
+          case 0xe5:
+            final st = u(pc + 4, 4), delta = u(pc + 12, 4);
+            if (waitsForCompute) break;
+            pc += 16;
+            textureRect(w0, w1, st, delta, op == 0xe5);
           default:
-            handled = false;
+            if (op >= 0xe6) {
+              rdp(w0, w1);
+            } else {
+              throw UnsupportedError(
+                  'RSP GBI opcode 0x${op.hex} at 0x${(pc - 8).hex}: ${w0.hex} ${w1.hex}');
+            }
         }
-        if (handled) continue;
+        if (waitsForCompute) {
+          paused = true;
+          _pauseDisplayList(commandPc, returns, commands, defer, isTask);
+          return;
+        }
       }
-      switch (op) {
-        case 0:
-          break;
-        case 1:
-          final flags = w0.shr16.mask8, m = matrix(resolve(w1));
-          if (flags.bit0) {
-            projection = flags.bit1 ? m : multiply(m, projection);
-          } else {
-            if (flags.bit2) {
-              if (stack.length >= 32) {
-                throw StateError('RSP matrix stack overflow');
-              }
-              stack.add(Float64List.fromList(model));
-            }
-            model = flags.bit1 ? m : multiply(m, model);
-          }
-        case 3:
-          final index = w0.shr16.mask8, addr = resolve(w1);
-          if (index == 0x80) {
-            _viewport(addr);
-          } else if (index >= 0x86 && index <= 0x94) {
-            _light(lights[(index - 0x86) ~/ 2], addr);
-          } else if (index != 0x82 && index != 0x84) {
-            throw UnsupportedError('RSP MOVEMEM $index');
-          }
-        case 4:
-          final count = extended ? w0.shr10.mask6 : w0.shr20.mask4 + 1;
-          final first = extended ? w0.shr17.mask7 : w0.shr16.mask4;
-          _loadVertices(resolve(w1), first, count);
-        case 6:
-          if (w0.shr16.mask8 == 0) {
-            if (returns.length >= 64) {
-              throw StateError('RSP display list stack overflow');
-            }
-            returns.add(pc);
-          }
-          pc = resolve(w1);
-        case 0xb8:
-          if (returns.isEmpty) return;
-          pc = returns.removeLast();
-        case 0xbd:
-          if (stack.isNotEmpty) model = stack.removeLast();
-        case 0xbc:
-          final index = w0.mask8, offset = w0.shr8.mask16;
-          if (index == 6) {
-            segments[(offset ~/ 4).mask4] = w1.mask24;
-          } else if (index == 2) {
-            numLights = extended ? w1 ~/ 24 : ((w1 & 0x7fffffff) ~/ 32 - 1);
-          } else if (index == 10) {
-            final l = lights[(offset ~/ 32).clamp(0, 7)];
-            l.r = w1.shr24.mask8.toDouble();
-            l.g = w1.shr16.mask8.toDouble();
-            l.b = w1.shr8.mask8.toDouble();
-          } else if (![0, 4, 8, 14].contains(index)) {
-            throw UnsupportedError('RSP MOVEWORD $index');
-          }
-        case 0xbb:
-          activeTile = w0.shr8.mask3;
-          textureOn = w0.mask8 != 0;
-          textureS = w1.shr16.mask16 / 65536;
-          textureT = w1.mask16 / 65536;
-        case 0xb7:
-          geometry |= w1;
-        case 0xb6:
-          geometry &= ~w1;
-        case 0xba:
-          final shift = w0.shr8.mask8, length = w0.mask8;
-          final mask = ((1 << length) - 1).shl(shift);
-          otherHigh = (otherHigh & ~mask) | (w1 & mask);
-        case 0xb9:
-          final shift = w0.shr8.mask8, length = w0.mask8;
-          final mask = ((1 << length) - 1).shl(shift);
-          otherLow = (otherLow & ~mask) | (w1 & mask);
-        case 0xbf:
-          drawIndices(w1, extended ? 2 : 10);
-        case 0xb1:
-          drawIndices(w0, 2);
-          drawIndices(w1, 2);
-        case 0xbe:
-          break; // CULLDL is an optional visibility optimization.
-        case 0xb4:
-          break;
-        case 0xb3:
-          break;
-        case 0xb2:
-          final index = (w0.mask16 ~/ 2).clamp(0, 79), v = vertices[index];
-          if (v != null && w0.shr16.mask8 == 0x10) {
-            vertices[index] = N64Vertex(v.clip, Rgba.fromWord(w1), v.s, v.t);
-          }
-        case 0xe4:
-        case 0xe5:
-          final st = u(pc + 4, 4), delta = u(pc + 12, 4);
-          pc += 16;
-          textureRect(w0, w1, st, delta, op == 0xe5);
-        default:
-          if (op >= 0xe6) {
-            rdp(w0, w1);
-          } else {
-            throw UnsupportedError(
-                'RSP GBI opcode 0x${op.hex} at 0x${(pc - 8).hex}: ${w0.hex} ${w1.hex}');
-          }
-      }
+      throw StateError('RSP display list exceeded command budget');
+    } finally {
+      if (!paused) _finishStream(defer, isTask);
     }
-    throw StateError('RSP display list exceeded command budget');
   }
 
   // S2DEX backgrounds sample a DRAM image directly, bypassing the small TMEM
@@ -767,6 +883,7 @@ class N64Graphics {
         }
       }
       _flushRectangles();
+      if (waitsForCompute) return;
     }
     final cache = size == 2;
     if (cache) _backgroundCache();
@@ -981,6 +1098,7 @@ class N64Graphics {
         return;
       }
       _flushRectangles();
+      if (waitsForCompute) return;
       if (depthWrite) {
         _compute?.invalidateDepth();
       } else if (depthTest) {
@@ -1729,7 +1847,10 @@ class N64Graphics {
             s, t, ds, dt, flip)) {
       return;
     }
-    if (compute != null) _flushRectangles();
+    if (compute != null) {
+      _flushRectangles();
+      if (waitsForCompute) return;
+    }
     for (var y = math.max(scTop, top.ceil());
         y < math.min(scBottom, bottom.ceil());
         y++) {
@@ -1898,7 +2019,10 @@ class N64Graphics {
             if (!compute.recordingStream) _flushRectangles();
             break;
           }
-          if (compute != null) _flushRectangles();
+          if (compute != null) {
+            _flushRectangles();
+            if (waitsForCompute) break;
+          }
           rect.writeFill(bus, fillColor);
         } else {
           final compute = _compute;
@@ -1918,6 +2042,7 @@ class N64Graphics {
             }
           }
           _flushRectangles();
+          if (waitsForCompute) break;
           // The inputs are constant, so the combined colour is the same for
           // every pixel of the rectangle.
           final color = _combine(_whiteColor, _whiteColor);
@@ -2009,14 +2134,71 @@ class N64Graphics {
 
   void commands(int start, int end, {bool defer = false}) {
     if (bus.dp[3].bit0) throw UnsupportedError('RDP XBUS command source');
-    final compute = _compute;
-    if (compute == null) return _commands(start, end);
-    _runRdpStream(compute, defer, () => _commands(start, end));
+    if (waitsForCompute) {
+      _pendingStream = _PendingStream.commands(start, end, defer);
+      return;
+    }
+    _compute?.beginStream();
+    _commandsLoop(start, end, defer);
   }
 
-  void _commands(int start, int end) {
-    for (var at = start; at < end; at += 8) {
-      rdp(u(at, 4) | 0xc0000000, u(at + 4, 4));
+  void _commandsLoop(int at, int end, bool defer) {
+    var paused = false;
+    try {
+      for (; at < end; at += 8) {
+        final w0 = u(at, 4), w1 = u(at + 4, 4);
+        if (waitsForCompute) {
+          paused = true;
+          _pendingStream = _PendingStream.commands(at, end, defer);
+          _compute?.endStream();
+          return;
+        }
+        rdp(w0 | 0xc0000000, w1);
+        if (waitsForCompute) {
+          paused = true;
+          _pendingStream = _PendingStream.commands(at, end, defer);
+          _compute?.endStream();
+          return;
+        }
+      }
+    } finally {
+      if (!paused) _finishStream(defer, false);
     }
   }
+}
+
+class _PendingStream {
+  _PendingStream.task(this.address, this.ucodeData, this.ucodeSize, this.defer)
+      : isTask = true,
+        isCommands = false,
+        started = false,
+        pc = 0,
+        end = 0,
+        commands = 0,
+        returns = <int>[];
+
+  _PendingStream.displayList(
+      this.pc, this.returns, this.commands, this.defer, this.isTask)
+      : isCommands = false,
+        started = true,
+        address = 0,
+        ucodeData = 0,
+        ucodeSize = 0,
+        end = 0;
+
+  _PendingStream.commands(this.pc, this.end, this.defer)
+      : isTask = false,
+        isCommands = true,
+        started = true,
+        address = 0,
+        ucodeData = 0,
+        ucodeSize = 0,
+        commands = 0,
+        returns = const [];
+
+  final bool isTask, isCommands, defer;
+  final int address, ucodeData, ucodeSize, end;
+  bool started, secondTri = false;
+  int pc, commands;
+  final List<int> returns;
 }
