@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// Stamp-map coordinate conversion into the VDP's column-major cell format.
 class CdGraphics {
@@ -12,6 +13,10 @@ class CdGraphics {
   int _word(int address) =>
       ram[address & 0x3ffff].shl8 | ram[(address + 1) & 0x3ffff];
   void reset() => _remainingCycles = 0;
+
+  void saveState(StateWriter w) => w.int64(_remainingCycles);
+
+  void loadState(StateReader s) => _remainingCycles = s.int64();
 
   void start(int priority) {
     if (busy) return;

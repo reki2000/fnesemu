@@ -392,6 +392,33 @@ void main() {
         expect(rt.contains(0x100, 0), isFalse);
       });
 
+      test('a retained version comes back when its guards match', () {
+        if (factory == null) return;
+        final rt = env.rt;
+        IrBlock block(int word, int cost) => (IrBuilder(0x100)
+              ..guard(0x1010, word))
+            .finish(const IrJump(0x200), cost: cost);
+        rt.install(block(0, 3));
+        rt.invalidate(0x100, 0, retain: true);
+        env.ram[0x10] = 1;
+        expect(rt.restore(0x100, 0), isFalse);
+        rt.install(block(1, 5));
+        rt.invalidate(0x100, 0, retain: true);
+        env.ram[0x10] = 0;
+        expect(rt.restore(0x100, 0), isTrue);
+        expect(rt.contains(0x100, 0), isTrue);
+        run(0x100, budget: 10);
+        expect(rt.ctx[JitCtx.exitReason], JitReason.miss);
+        expect(rt.ctx[JitCtx.budget], 7);
+        // an invalidation without retain keeps no version
+        rt.invalidate(0x100, 0);
+        expect(rt.restore(0x100, 0), isFalse);
+        rt.install(block(0, 3));
+        rt.invalidate(0x100, 0, retain: true);
+        rt.clear();
+        expect(rt.restore(0x100, 0), isFalse);
+      });
+
       test('a missing link is filled by a later install', () {
         if (factory == null) return;
         final b1 = IrBuilder(0x100);
@@ -490,6 +517,33 @@ void main() {
         run(0x1010);
         expect(env.ctx[JitCtx.exitReason], JitReason.invalid);
         expect(env.ctx[8], 0);
+      });
+
+      test('a changed word among adjacent guards invalidates the block', () {
+        if (factory == null) return;
+        // ten words, guarded out of order, which the x64 backend compares
+        // four at a time where they are adjacent
+        final view = ByteData.sublistView(env.ram);
+        int value(int w) => 0x01020304 * (w + 1);
+        for (var w = 0; w < 10; w++) {
+          view.setUint32(0x20 + 4 * w, value(w), Endian.little);
+        }
+        final b = IrBuilder(0x1020);
+        for (final w in const [3, 0, 1, 2, 9, 4, 6, 5, 7, 8]) {
+          b.guard(0x1020 + 4 * w, value(w));
+        }
+        b.ctxStore(8, b.c32(7));
+        env.rt.install(b
+            .finish(const IrExitTerm(IrExit(JitReason.user, 0x1048)), cost: 1));
+        for (var w = 0; w < 10; w++) {
+          run(0x1020);
+          expect(env.ctx[JitCtx.exitReason], JitReason.user);
+          env.ram[0x20 + 4 * w + (w & 3)] ^= 0x80;
+          run(0x1020);
+          expect(env.ctx[JitCtx.exitReason], JitReason.invalid,
+              reason: 'word $w');
+          env.ram[0x20 + 4 * w + (w & 3)] ^= 0x80;
+        }
       });
 
       for (final write in [false, true]) {

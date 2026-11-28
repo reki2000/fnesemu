@@ -6,8 +6,9 @@ import 'options.dart';
 import 'session.dart';
 
 const serveUsage = """
-serve <core> <media...> [--port P]: waits for HTTP GET requests on 127.0.0.1:P
-  (0 picks a port; the answers are JSON and the frame counter starts at 0)
+serve <core> <media...> [--port P] [--load-state FILE]: waits for HTTP GET
+  requests on 127.0.0.1:P (0 picks a port; the answers are JSON and the frame
+  counter starts at 0, or at the frame of the state given by --load-state)
   /run?frames=N[&every=E&dir=D]  runs N frames; with every, saves D/frame_NNNNN.png
                                  at the frames that are multiples of E
   /press?seq=S                   adds the presses of the input sequence S, read with
@@ -16,16 +17,19 @@ serve <core> <media...> [--port P]: waits for HTTP GET requests on 127.0.0.1:P
   /shot?path=P                   saves the current screen as a png
   /audio?path=P                  saves the audio since the previous /audio as a wav
   /state                         the frame, the program counter and the core dump
+  /save?path=P                   saves the core state, for --load-state
   /buttons                       the button names
   /quit                          stops the server""";
 
 Future<void> serve(List<String> args) async {
   final o = Options.parse(args,
-      valued: {...mediaValued, "--port"},
+      valued: {...mediaValued, "--port", "--load-state"},
       flags: mediaFlags,
       aliases: mediaAliases);
   final (name, files) = coreAndFiles(o);
   final s = await Session.open(name, files, o);
+  final loadState = o["--load-state"];
+  if (loadState != null) s.loadState(loadState);
   final core = s.core;
   var audioFrom = 0;
 
@@ -80,6 +84,9 @@ Future<void> serve(List<String> args) async {
           "pc": core.programCounter(0),
           "dump": core.dump()
         };
+      case "/save":
+        s.saveState(q["path"]!);
+        return {"frame": s.frame, "path": q["path"]};
       case "/buttons":
         return {"buttons": s.buttons};
       case "/quit":

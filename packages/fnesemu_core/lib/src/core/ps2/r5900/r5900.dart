@@ -48,7 +48,17 @@ class R5900 {
   /// the COP0 condition line, which the DMAC drives
   bool Function()? cpCond0;
   final Int64List gpr;
-  int hi = 0, lo = 0, hi1 = 0, lo1 = 0;
+
+  /// HI, LO, HI1 and LO1, in storage that compiled code may share
+  final Int64List _multiply;
+  int get hi => _multiply[0];
+  set hi(int value) => _multiply[0] = value;
+  int get lo => _multiply[1];
+  set lo(int value) => _multiply[1] = value;
+  int get hi1 => _multiply[2];
+  set hi1(int value) => _multiply[2] = value;
+  int get lo1 => _multiply[3];
+  set lo1(int value) => _multiply[3] = value;
   int sa = 0;
   int pc = resetVector;
   int nextPc = resetVector + 4;
@@ -56,8 +66,13 @@ class R5900 {
 
   /// COP1 registers: 32 single precision images, the accumulator and FCR31
   final Uint32List fpr;
-  int facc = 0;
-  int fcr31 = 0;
+
+  /// the COP1 accumulator and FCR31, in storage that compiled code may share
+  final Uint32List _fpuControl;
+  int get facc => _fpuControl[0];
+  set facc(int value) => _fpuControl[0] = value;
+  int get fcr31 => _fpuControl[1];
+  set fcr31(int value) => _fpuControl[1] = value;
 
   /// elapsed clocks
   int clocks = 0;
@@ -71,10 +86,17 @@ class R5900 {
 
   /// [gpr] gives the register storage, such as a view shared with compiled
   /// code; it must hold 64 words. [fpr] does the same for the COP1 register
-  /// images and must hold 32 words.
-  R5900(this.bus, {Int64List? gpr, Uint32List? fpr})
+  /// images and must hold 32 words, [multiply] for HI, LO, HI1 and LO1 (4
+  /// words), and [fpuControl] for the COP1 accumulator and FCR31 (2 words).
+  R5900(this.bus,
+      {Int64List? gpr,
+      Uint32List? fpr,
+      Int64List? multiply,
+      Uint32List? fpuControl})
       : gpr = gpr ?? Int64List(64),
-        fpr = fpr ?? Uint32List(32) {
+        fpr = fpr ?? Uint32List(32),
+        _multiply = multiply ?? Int64List(4),
+        _fpuControl = fpuControl ?? Uint32List(2) {
     bus.tlb = tlb;
     reset();
   }
@@ -247,6 +269,13 @@ class R5900 {
     if (until != 0 && spent >= until) cop0[cop0Cause] |= ipTimer;
     pc = address;
     nextPc = (address + 4) & 0xffffffff;
+  }
+
+  /// Accounts [spent] instructions of a loop that the core skips. The
+  /// caller keeps them short of Count reaching Compare.
+  void idle(int spent) {
+    clocks += spent;
+    cop0[cop0Count] += spent;
   }
 
   /// Sets or clears a Cause.IP bit that follows an external interrupt line.

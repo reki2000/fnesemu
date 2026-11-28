@@ -29,6 +29,40 @@ class N64Bus {
   N64Bus({Uint8List? ram}) : ram = ram ?? Uint8List(0x800000);
   final sp = Uint8List(0x2000);
   late final ramData = ByteData.sublistView(ram);
+
+  int _watchedStart = 0, _watchedEnd = 0;
+  void Function()? _settleRdram;
+  void Function(int, int)? _settleRdramRange;
+  void Function(int, int)? onRdramWatch;
+  void Function()? onRdramUnwatch;
+
+  void watchRdram(int start, int end, void Function() settle,
+      {void Function(int, int)? settleRange}) {
+    _watchedStart = start;
+    _watchedEnd = end;
+    _settleRdram = settle;
+    _settleRdramRange = settleRange;
+    if (start < end) onRdramWatch?.call(start, end);
+  }
+
+  void unwatchRdram() {
+    _settleRdram = null;
+    _settleRdramRange = null;
+    _watchedStart = _watchedEnd = 0;
+    onRdramUnwatch?.call();
+  }
+
+  @pragma('vm:prefer-inline')
+  void touchRdram(int start, int size) {
+    if (start < _watchedEnd && start + size > _watchedStart) {
+      final settle = _settleRdramRange;
+      if (settle != null) {
+        settle(start, size);
+      } else {
+        _settleRdram?.call();
+      }
+    }
+  }
   late final spData = ByteData.sublistView(sp);
   final pif = Uint8List(64);
   Uint8List rom = Uint8List(0);
@@ -247,7 +281,10 @@ class N64Bus {
   int registerIndex(int a) => a.mask16 ~/ 4;
   int read8(int address) {
     final a = physical(address);
-    if (a < ram.length) return ram[a];
+    if (a < ram.length) {
+      touchRdram(a, 1);
+      return ram[a];
+    }
     if (a >= 0x04000000 && a < 0x04002000) return sp[a - 0x04000000];
     if (a >= 0x1fc007c0 && a < 0x1fc00800) return pif[a - 0x1fc007c0];
     if (a >= 0x10000000 && a - 0x10000000 < rom.length) {
@@ -293,6 +330,7 @@ class N64Bus {
     if (a >= 0x80000000 && a < 0xc0000000) {
       final physicalAddress = a & 0x1fffffff;
       if (physicalAddress + 4 <= ram.length) {
+        touchRdram(physicalAddress, 4);
         return ramData.getUint32(physicalAddress);
       }
     }
@@ -302,6 +340,7 @@ class N64Bus {
   int read(int address, int size) {
     final a = physical(address);
     if (a + size <= ram.length) {
+      touchRdram(a, size);
       if (size == 4) return ramData.getUint32(a);
       if (size == 2) return ramData.getUint16(a);
       if (size == 1) return ram[a];
@@ -334,6 +373,7 @@ class N64Bus {
     if (a >= 0x80000000 && a < 0xc0000000) {
       final p = a & 0x1fffffff;
       if (p + 8 <= ram.length) {
+        touchRdram(p, 8);
         return ramData.getUint32(p) << 32 | ramData.getUint32(p + 4);
       }
     }
@@ -347,6 +387,7 @@ class N64Bus {
     if (a >= 0x80000000 && a < 0xc0000000) {
       final p = a & 0x1fffffff;
       if (p + 8 <= ram.length) {
+        touchRdram(p, 8);
         ramData.setUint32(p, value >>> 32);
         ramData.setUint32(p + 4, value & 0xffffffff);
         return;
@@ -358,6 +399,7 @@ class N64Bus {
 
   int ramRead(int address, int size) {
     final a = address & 0x7fffff;
+    touchRdram(a, size);
     if (size == 4) return ramData.getUint32(a);
     if (size == 2) return ramData.getUint16(a);
     if (size == 1) return ram[a];
@@ -366,6 +408,7 @@ class N64Bus {
 
   void ramWrite(int address, int value, int size) {
     final a = address & 0x7fffff;
+    touchRdram(a, size);
     if (size == 4) {
       ramData.setUint32(a, value);
       return;
@@ -384,6 +427,7 @@ class N64Bus {
   void write8(int address, int value) {
     final a = physical(address, write: true);
     if (a < ram.length) {
+      touchRdram(a, 1);
       ram[a] = value;
       return;
     }
@@ -524,6 +568,7 @@ class N64Bus {
         if (regs == si && (index == 1 || index == 4)) {
           final dram = si[0] & 0x7fffff;
           if (dram + 64 > ram.length) throw StateError('SI DMA outside RDRAM');
+          touchRdram(dram, 64);
           if (index == 4) {
             pif.setRange(0, 64, ram, dram);
             _pifCommands();
@@ -555,6 +600,7 @@ class N64Bus {
     var mem = _spNext[0] & 0x1ff8, dram = _spNext[1] & 0x7ffff8;
     final bank = mem & 0x1000;
     for (var row = 0; row < count; row++) {
+      touchRdram(dram, length);
       for (var i = 0; i < length; i++) {
         final target = bank | (mem + i).mask12;
         if (dram + i >= ram.length) throw StateError('SP DMA outside RDRAM');
@@ -577,6 +623,7 @@ class N64Bus {
     final length = value.mask24 + 1, dram = pi[0] & 0x7ffffe;
     final cart = pi[1] & 0x1ffffffe;
     if (dram + length > ram.length) throw StateError('PI DMA outside RDRAM');
+    touchRdram(dram, length);
     if (cart >= 0x10000000 &&
         intoRam &&
         cart - 0x10000000 + length <= rom.length) {
@@ -841,6 +888,11 @@ class N64Bus {
     final origin = vi[1].mask24;
     final size = mode == 2 ? 2 : 4;
     final ram = this.ram, expand = _expand5, limit = ram.length - size;
+    final lastSourceY = interlaced
+        ? ((height - 1) * vi[13].mask12 + (vi[13] >> 16 & 0xfff)) ~/ 1024
+        : height - 1;
+    final sourceWidth = width < stride ? width : stride;
+    touchRdram(origin, (lastSourceY * stride + sourceWidth) * size);
     // x is visible while it is inside the stride and the pixel is in RDRAM.
     for (var y = 0; y < height; y++) {
       final sourceY = interlaced

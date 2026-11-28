@@ -99,6 +99,7 @@ class Tlb {
     active = false;
     asid = 0;
     userIdentity = true;
+    ucabIdentity = false;
     _flush();
   }
 
@@ -121,6 +122,14 @@ class Tlb {
   /// TLB while this holds.
   bool userIdentity = true;
 
+  /// Whether some entry maps user addresses from 0x30000000 to below
+  /// 0x40000000, the uncached accelerated view of main memory, and every
+  /// such entry maps them to the address less 0x30000000. Compiled code
+  /// then accesses those addresses as main memory without the TLB. It
+  /// also does so for addresses in that range that no entry maps, where
+  /// the interpreter would take a TLB miss.
+  bool ucabIdentity = false;
+
   void _updateIdentity() {
     userIdentity = entries.every((e) {
       if (e.vpn2 >= 0x30000000) return true;
@@ -132,6 +141,18 @@ class Tlb {
       }
       return true;
     });
+    var ucab = false;
+    ucabIdentity = entries.every((e) {
+      if (e.vpn2 < 0x30000000 || e.vpn2 >= 0x40000000) return true;
+      final pageSize = (e.mask >> 1) + 0x1000;
+      for (final (lo, offset) in [(e.lo0, 0), (e.lo1, pageSize)]) {
+        if (lo & 2 == 0) continue;
+        final phys = ((lo >> 6) << 12) & 0xffffffff;
+        if (phys != e.vpn2 + offset - 0x30000000) return false;
+        ucab = true;
+      }
+      return true;
+    }) && ucab;
   }
 
   /// the index of the entry that matches [entryHi], or -1

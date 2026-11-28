@@ -54,8 +54,8 @@ int _loSpecial(int sub, int col,
 Vu _vu(List<(int, int)> program, {int index = 1}) {
   final vu = Vu(index);
   for (var p = 0; p < program.length; p++) {
-    vu.micro[p * 2] = program[p].$1; // lower
-    vu.micro[p * 2 + 1] = program[p].$2; // upper
+    vu.writeMicro(p * 2, program[p].$1); // lower
+    vu.writeMicro(p * 2 + 1, program[p].$2); // upper
   }
   return vu;
 }
@@ -542,6 +542,17 @@ void main() {
     vu.start(0);
     expect(_getVf(vu, 2), [1, 2, 3, 4]);
     expect(_getVf(vu, 3), [2, 3, 4, 1]);
+  });
+
+  aggCase('MR32 onto its source rotates the lanes it read', () {
+    final vu = _vu([
+      (_loSpecial(0xc, 1, dest: _xyzw, it: 1, fs: 1), _upperNop), // MR32
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [1, 2, 3, 4]);
+    vu.start(0);
+    expect(_getVf(vu, 1), [2, 3, 4, 1]);
   });
 
   aggCase('MTIR, MFIR and the flag instructions', () {

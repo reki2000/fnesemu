@@ -117,6 +117,10 @@ abstract class JitRuntime {
   /// compiling; an estimate from the compile time of this executor.
   int get compileThreshold => 1;
 
+  /// Whether blocks may use v128 values and the vector operations of the
+  /// IR ([irIsVector]).
+  bool get vectors => false;
+
   /// Validate before compiling or publishing links to a block. Every
   /// executor supports the complete IR on every platform.
   void checkBlock(IrBlock block) {
@@ -347,8 +351,17 @@ abstract class JitRuntime {
   /// The reference executor returns zero because it retains IR instead of code.
   int installBlock(IrBlock block);
 
-  /// removes the block (pc, tag); blocks linked to it miss afterwards
-  void invalidate(int pc, int tag);
+  /// removes the block (pc, tag); blocks linked to it miss afterwards.
+  /// With [retain], a runtime may keep its code as an older version for
+  /// [restore].
+  void invalidate(int pc, int tag, {bool retain = false});
+
+  /// Reinstalls a retained version of (pc, tag) whose code guards match the
+  /// memory again, and returns whether there was one. A guest that copies
+  /// several routines in turn to the same addresses then reuses their code
+  /// instead of translating it each time. The block still checks its guards
+  /// when it is entered.
+  bool restore(int pc, int tag) => false;
 
   /// removes every block
   void clear();

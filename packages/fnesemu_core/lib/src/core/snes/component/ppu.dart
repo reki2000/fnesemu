@@ -64,6 +64,21 @@ class Ppu {
   // computed on first use in a line. windowLineReady has a bit per layer.
   final windowLine = List.generate(6, (_) => Uint8List(widthHires));
   int windowLineReady = 0;
+  // The layer slots of the main and the sub screen for one line, in
+  // priority order, and the CGRAM index base and palette step of each BG.
+  final screenSlots = Int32List(32);
+  // Rows of -1 to reset the OBJ colors and the BG samples of a line with a
+  // copy, which is faster than fillRange.
+  final noObjLine = Int16List(widthNormal)..fillRange(0, widthNormal, -1);
+  final notFetchedLine = Int32List(widthHires)..fillRange(0, widthHires, -1);
+  // Four plane bits spread into four bytes, in left-to-right pixel order.
+  // For example, 0b1010 becomes [1, 0, 1, 0], packed as 0x00010001.
+  final expandPlane = Uint32List.fromList([
+    for (var bits = 0; bits < 16; bits++)
+      (bits >> 3 & 1) | (bits >> 2 & 1) << 8 | (bits >> 1 & 1) << 16 | (bits & 1) << 24
+  ]);
+  final bgPaletteBase = Int32List(4);
+  final bgPaletteStep = Int32List(4);
   final bgRowLow = Uint32List(4);
   final bgRowHigh = Uint32List(4);
 

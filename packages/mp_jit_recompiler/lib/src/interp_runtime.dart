@@ -4,15 +4,23 @@ import 'dart:typed_data';
 import 'ir.dart';
 import 'runtime.dart';
 
+part 'interp_vector.dart';
 part 'interp_wide.dart';
 
 /// The reference implementation of [JitRuntime], which interprets the IR.
 /// The native backends must behave the same.
 final class IrInterpreterRuntime extends JitRuntime {
   @override
+  bool get vectors => true;
+
+  @override
   final Uint32List ctx;
   final _helpers = <JitHelper>[];
   final _blocks = <(int, int), IrBlock>{};
+
+  /// older versions of blocks by key, newest last
+  final _retired = <(int, int), List<IrBlock>>{};
+  static const _retiredVersions = 4;
   bool _disposed = false;
 
   /// The block map clears itself at this many blocks, as the Wasm runtime's does, so a long-lived interpreter cannot grow it without bound; a cleared block is simply retranslated on demand.
@@ -47,16 +55,40 @@ final class IrInterpreterRuntime extends JitRuntime {
   }
 
   @override
-  void invalidate(int pc, int tag) {
-    if (_blocks.remove((pc, tag)) != null) {
-      compilationStats?.recordInvalidation(pc, tag);
+  void invalidate(int pc, int tag, {bool retain = false}) {
+    final block = _blocks.remove((pc, tag));
+    if (block == null) return;
+    if (retain && block.guards.isNotEmpty) {
+      final versions = _retired[(pc, tag)] ??= [];
+      if (versions.length == _retiredVersions) versions.removeAt(0);
+      versions.add(block);
     }
+    compilationStats?.recordInvalidation(pc, tag);
+  }
+
+  @override
+  bool restore(int pc, int tag) {
+    final versions = _retired[(pc, tag)];
+    if (versions == null || _blocks.containsKey((pc, tag))) return false;
+    for (var i = versions.length - 1; i >= 0; i--) {
+      final block = versions[i];
+      if (block.guards
+          .any((g) => mappedWord(g.addr, endian: g.endian) != g.value)) {
+        continue;
+      }
+      versions.removeAt(i);
+      _blocks[(pc, tag)] = block;
+      compilationStats?.restores++;
+      return true;
+    }
+    return false;
   }
 
   @override
   void clear() {
     compilationStats?.recordCacheClear(_blocks.length);
     _blocks.clear();
+    _retired.clear();
   }
 
   @override
@@ -192,7 +224,9 @@ final class IrInterpreterRuntime extends JitRuntime {
   ) {
     for (final (word, v) in e.stores) {
       final bits = value(v);
-      if (block.insts[v.index].type == IrType.i64) {
+      if (block.insts[v.index].type == IrType.v128) {
+        ctx.setRange(word, word + 4, bits as Uint32List);
+      } else if (block.insts[v.index].type == IrType.i64) {
         final wide = _Wide._bits(bits);
         ctx[word] = _Wide._word(wide);
         ctx[word + 1] = _Wide._word(wide >> 32);
@@ -262,6 +296,11 @@ final class IrInterpreterRuntime extends JitRuntime {
         final e = block.exits[inst.exit];
         return _leave(block, e, (v) => values[v.index]);
       }
+      if (inst.type == IrType.v128 || irIsVector(inst.op) ||
+          inst.op == IrOp.ctxStore && insts[inst.a].type == IrType.v128) {
+        values[i] = _vector(inst, values);
+        continue;
+      }
       if (wide &&
           (inst.type == IrType.i64 ||
               (inst.a >= 0 && insts[inst.a].type == IrType.i64))) {
@@ -322,6 +361,23 @@ final class IrInterpreterRuntime extends JitRuntime {
           throw StateError('wide conversion in an i32 block'),
         IrOp.exitIf => a(),
         IrOp.guardMapped => _unmapped(inst, a()) ? 1 : 0,
+        IrOp.vSplat ||
+        IrOp.vExtract ||
+        IrOp.vInsert ||
+        IrOp.vShuffle ||
+        IrOp.vBlend ||
+        IrOp.vuAdd ||
+        IrOp.vuSub ||
+        IrOp.vuMul ||
+        IrOp.vuMadd ||
+        IrOp.vuMsub ||
+        IrOp.vuMac ||
+        IrOp.vuItof ||
+        IrOp.vuFtoi ||
+        IrOp.vuMax ||
+        IrOp.vuMin ||
+        IrOp.vuClip =>
+          throw StateError('vector operation outside the vector path'),
       };
       values[i] = v.toUnsigned(32);
       if ((inst.op == IrOp.exitIf || inst.op == IrOp.guardMapped) && v != 0) {

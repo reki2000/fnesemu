@@ -1,10 +1,9 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import '../../render_frame.dart';
 import '../../state.dart';
 import '../../util/uint32list.dart';
-import '../../util/uint8list.dart';
+import 'dc_compute.dart';
 import 'fault.dart';
 import 'gpu_fog.dart';
 import 'gpu_math.dart';
@@ -13,7 +12,7 @@ import 'gpu_palette.dart';
 import 'gpu_texture.dart';
 import 'vram_pages.dart';
 
-part 'gpu_frame.dart';
+part 'gpu_render_record.dart';
 
 /// Functional CORE display-list reader; raster precision and physical timing are pending.
 /// Data structures and register fields follow System Architecture §§3.7.7–3.7.9, 8.4.2.
@@ -21,7 +20,13 @@ class DcGpuRender {
   DcGpuRender(this.memory, this.palette, {required this.onNormal})
       : _vramWords = ByteData.sublistView(memory),
         _vramHalves = Uint16List.view(
-            memory.buffer, memory.offsetInBytes, memory.length ~/ 2);
+            memory.buffer, memory.offsetInBytes, memory.length ~/ 2) {
+    created?.call(this);
+  }
+
+  /// Called with each new renderer, so that a tool can attach [compute] to
+  /// the renderers that tests make.
+  static void Function(DcGpuRender render)? created;
   final Uint8List memory;
   final ByteData _vramWords;
   final Uint16List _vramHalves;
@@ -31,23 +36,34 @@ class DcGpuRender {
   final void Function(int) onNormal;
   int Function()? displayReadControl;
 
-  /// Receives a [RenderFrame] of every render when it starts. With
-  /// [frameReference], the frame also gets the colors of this renderer.
-  RenderFrameSink? frameSink;
-  bool frameReference = false;
-  RenderFrame? _capturing;
+  /// The compute program that shades the tiles, while one is attached.
+  DcCompute? compute;
 
-  /// Draws the renders in place of this renderer. The render ends after
-  /// the deadline of its tiles, and the drawn pixels are written to VRAM
-  /// when the host returns them through [RenderFrame.onDrawn]. Renders
-  /// through the strip buffer or the scaler stay with this renderer.
-  RenderFrameSink? hostSink;
-  bool _hostRender = false;
-  // The RGBA texels of a texture cache for the frames, with the count of
-  // changes of the cache they were made at.
-  final _frameTexels = Expando<(int, Uint8List)>();
-  // Pixels that come back after a reset or a state load are dropped.
-  int _hostGeneration = 0;
+  /// Whether the tiles of a render on [compute] wait for their writes to
+  /// VRAM until something can observe them. Tests that read VRAM directly
+  /// turn it off.
+  bool deferTiles = true;
+  // The program of the render in progress, and its next region entry, or
+  // -1 before the lists are recorded.
+  DcCompute? _computing;
+  int _computeIndex = 0;
+  // The frame that the lists are recorded into, while they are.
+  DcComputeFrame? _recording;
+  // Whether the tiles of the render in progress on a program are deferred.
+  bool _deferring = false;
+  // The tiles of a render on a program that wait for their writes to VRAM,
+  // as region entry | x << 16 | y << 24, and their program. They are written
+  // before anything can observe them: a read or a write of their bytes, the
+  // scanout of their lines, the next render or a saved state. So the GPU
+  // shades a render while the CPU runs on, and the bytes that the CPU, the
+  // DMA and the display see do not change.
+  final _deferred = <int>[];
+  DcCompute? _deferredCompute;
+  // The registers that [_writeTile] reads, as they were at the render of the
+  // deferred tiles, and whether the tiles are being written.
+  final _deferredRegisters = Uint32List(7);
+  bool _flushing = false;
+
   int _stripLines = 0, _stripProduced = -1, _stripConsumed = -1;
   int _stripScaleRow = -1;
   bool _scaleSourceEnded = false, _stripDrainPending = false;
@@ -86,7 +102,6 @@ class DcGpuRender {
   final _registers = <int, int>{};
   // [_registers] below 0x800 by word, for reads during rendering.
   final _registerWords = Uint32List(0x200);
-  final _float = ByteData(4);
   final _colors = Uint32List(1024);
   final _secondary = Uint32List(1024);
   final _secondaryValid = Uint8List(1024);
@@ -110,6 +125,17 @@ class DcGpuRender {
   // tile of a render samples that, and the others follow the sample.
   int _tileCount = 0, _hiddenFragments = 0, _shownFragments = 0;
   final _savedDepth = Float64List(1024);
+  // The vertices of the strip in [_drawMaterial] and the three of a triangle.
+  final _stripVertices = List<_Vertex?>.filled(8, null);
+  final _stripCorners = List<_Vertex>.filled(3, const _Vertex(0, 0, 0, 0));
+  // The tile buffers kept over the depth pass of an opaque modifier.
+  final _keptColors = Uint32List(1024), _keptSecondary = Uint32List(1024);
+  final _keptDepth = Float64List(1024);
+  final _keptValid = Uint8List(1024);
+  // The sorted fragment range and layer of each pixel in [_sortModified].
+  final _layerStart = Int32List(1024), _layerEnd = Int32List(1024);
+  final _layerDepth = Float64List(1024);
+  final _layerActive = Uint8List(1024);
   final _candidates = List<_Fragment?>.filled(1024, null);
 
   /// Whether a [_candidates] entry may be set; when false all are null.
@@ -225,9 +251,6 @@ class DcGpuRender {
 
   void loadState(StateReader reader) {
     reader.section('dc.gpu.render');
-    // A render that the host was drawing is drawn again by this renderer.
-    _hostRender = false;
-    _hostGeneration++;
     final v = reader.ints();
     if ((v.length != 8 &&
             v.length != 9 &&
@@ -403,14 +426,21 @@ class DcGpuRender {
     _lastOrder.setAll(0, lastOrder);
     _candidates.setAll(0, candidates);
     _candidatesSet = candidates.any((fragment) => fragment != null);
+    // A render in progress records its lists again from the current entry.
+    _dropTiles();
+    _computing = compute;
+    _computeIndex = -1;
     _scalerTiles
       ..clear()
       ..addAll(scalerTiles);
   }
 
   void reset({bool registers = true}) {
-    _hostRender = false;
-    _hostGeneration++;
+    if (registers) {
+      _dropTiles();
+    } else {
+      settleTiles();
+    }
     _scaleSourceEnded = _stripDrainPending = false;
     _stripLines = 0;
     _stripScaleRow = -1;
@@ -432,6 +462,8 @@ class DcGpuRender {
     }
     _remaining = _sortMode = _primitiveOrder = 0;
     _x = _y = -1;
+    _computing = null;
+    _deferring = false;
   }
 
   int read(int offset) {
@@ -453,6 +485,8 @@ class DcGpuRender {
       if (busy) {
         throw const DcUnsupported('CORE restart requires a pipeline reset');
       }
+      // The next render may read the output of the last as a texture.
+      settleTiles();
       final scale = read(0xf4), factor = scale & 0xffff;
       if (factor == 0) {
         throw const DcUnsupported('CORE zero vertical scale factor');
@@ -481,27 +515,6 @@ class DcGpuRender {
         _remaining = 2;
         return;
       }
-      final sink = frameSink;
-      if (sink != null) {
-        final frame = _buildFrame();
-        if (frameReference) {
-          frame.reference = Uint32List(frame.width * frame.height);
-          _capturing = frame;
-        }
-        sink.submit(frame);
-      }
-      final host = hostSink;
-      var hostTiles = 0;
-      if (host != null && stripLines == 0 && scale == 1024) {
-        final frame = _buildFrame();
-        final output = _frameOutput();
-        final generation = _hostGeneration;
-        frame.onDrawn = (rgba) {
-          if (generation == _hostGeneration) _writeFrame(output, frame, rgba);
-        };
-        host.submit(frame);
-        hostTiles = output.regions;
-      }
       _region = read(0x2c);
       _tileCount = _hiddenFragments = _shownFragments = 0;
       _stripLines = stripLines;
@@ -514,11 +527,10 @@ class DcGpuRender {
       _x = _y = -1;
       _remaining =
           2; // Functional tile deadline only; not a hardware render latency.
-      if (hostTiles != 0) {
-        // The same deadline as the tiles of this renderer.
-        _hostRender = true;
-        _remaining = hostTiles * 2;
-      }
+      // The lists are recorded when the first tile is due, so that writes
+      // before it take effect as without a program.
+      _computing = compute;
+      _computeIndex = -1;
       return;
     }
     if (busy || (_stripWatching && const [0x4c, 0x60, 0x64].contains(offset))) {
@@ -554,28 +566,35 @@ class DcGpuRender {
     if (address < 0 || address + 4 > memory.length || address & 3 != 0) {
       throw const DcUnsupported('CORE display-list read outside retail VRAM');
     }
-    return memory.getUint32LE(address);
+    final m = memory;
+    return m[address] |
+        (m[address + 1] << 8) |
+        (m[address + 2] << 16) |
+        (m[address + 3] << 24);
   }
 
   double _value(int bits) {
-    _float.setUint32(0, bits, Endian.little);
-    final result = _float.getFloat32(0, Endian.little);
-    if (!result.isFinite) throw const DcUnsupported('CORE nonfinite parameter');
-    return result;
+    // The mantissa times a power of two is exact for every finite single,
+    // so this equals the single read as a double.
+    final exponent = (bits >> 23) & 0xff;
+    if (exponent == 0xff) {
+      throw const DcUnsupported('CORE nonfinite parameter');
+    }
+    final mantissa = bits & 0x7fffff;
+    final magnitude = exponent == 0
+        ? mantissa * _powersOfTwo[1]
+        : (mantissa | 0x800000) * _powersOfTwo[exponent];
+    return bits & 0x80000000 != 0 ? -magnitude : magnitude;
   }
+
+  /// 2^(e - 150) at index e, the scale of a single's 24-bit mantissa.
+  static final _powersOfTwo = Float64List.fromList(
+      [for (var e = 0; e < 256; e++) math.pow(2.0, e - 150).toDouble()]);
 
   double _number(int address) => _value(_word(address));
 
   void tickMasterClocks(int clocks) {
     if (!busy || _stripWaiting) return;
-    if (_hostRender) {
-      _remaining -= clocks;
-      if (_remaining > 0) return;
-      _hostRender = false;
-      _remaining = 0;
-      onNormal(7);
-      return;
-    }
     _remaining -= clocks;
     while (_remaining <= 0) {
       try {
@@ -588,7 +607,6 @@ class DcGpuRender {
           if (_scaleSourceEnded) {
             _scaleSourceEnded = false;
             _remaining = 0;
-            _capturing = null;
             onNormal(7);
             return;
           }
@@ -611,7 +629,6 @@ class DcGpuRender {
           _scaleSourceEnded = _stripDrainPending = false;
           _stripScaleRow = -1;
           _remaining = 0;
-          _capturing = null;
           onNormal(7); // Video/ISP/TSP completion after committed output.
           return;
         }
@@ -657,13 +674,63 @@ class DcGpuRender {
       }
     }
     final type2 = read(0x7c) & 0x200000 != 0;
-    final backgroundShadow =
-        control & 0x40000000 == 0 && read(0x8c) & 0x08000000 != 0;
-    _shadowMask.setRange(0, 1024, _zeroBytes);
     final drawsBackground = control & 0x40000000 == 0;
     if (!drawsBackground && (x != _x || y != _y)) {
       throw const DcUnsupported('CORE retained tile is not the preceding tile');
     }
+    var computing = _computing;
+    // A program detached before the lists were recorded leaves the render
+    // to the CPU.
+    if (computing != null &&
+        _computeIndex < 0 &&
+        !identical(computing, compute)) {
+      computing = _computing = null;
+    }
+    var writes = control & 0x10000000 == 0;
+    if (computing != null) {
+      if (_computeIndex < 0) {
+        _recordRender(computing);
+        _deferRender(computing);
+      }
+      final index = _computeIndex++;
+      if (_deferring) {
+        computing.check(index);
+        if (writes) _deferTile(index | x << 16 | y << 24);
+        writes = false;
+      } else {
+        computing.entry(index, _colors);
+      }
+    } else {
+      _shadeTile(control, x, y, type2);
+    }
+    if (writes) _writeTile(x * 32, y * 32);
+    _x = x;
+    _y = y;
+    _region += type2 ? 24 : 20;
+    if (_stripLines != 0 &&
+        read(0xf4) & 0xffff != 1024 &&
+        control & 0x80000000 == 0 &&
+        ((_word(_region) >> 8) & 63) > y) {
+      _stripDrainPending = true;
+      if (_flushVerticalScale(finalSource: false)) _stripDrainPending = false;
+    }
+    if (_stripLines != 0 &&
+        read(0xf4) & 0xffff == 1024 &&
+        (control & 0x80000000 != 0 ||
+            ((_word(_region) >> 8) & 63) * 32 ~/ _stripLines >
+                y * 32 ~/ _stripLines)) {
+      _stripProduced = y * 32 ~/ _stripLines;
+    }
+    return control & 0x80000000 != 0;
+  }
+
+  /// Shades the tile of the region entry with [control] into the tile
+  /// buffers.
+  void _shadeTile(int control, int x, int y, bool type2) {
+    final backgroundShadow =
+        control & 0x40000000 == 0 && read(0x8c) & 0x08000000 != 0;
+    _shadowMask.setRange(0, 1024, _zeroBytes);
+    final drawsBackground = control & 0x40000000 == 0;
     final opaque = _word(_region + 4);
     final opaqueModifier = _nonEmptyModifier(_word(_region + 8));
     final translucent = _word(_region + 12),
@@ -673,10 +740,10 @@ class DcGpuRender {
       if (drawsBackground) _background(x * 32, y * 32);
       // Resolve visible surface depths first, then shade the same tile with its area mask.
       // This replay is a functional implementation, not the hardware ISP/TSP scheduling.
-      final colors = Uint32List.fromList(_colors),
-          depths = Float64List.fromList(_depth);
-      final secondary = Uint32List.fromList(_secondary);
-      final valid = Uint8List.fromList(_secondaryValid);
+      final colors = _keptColors..setAll(0, _colors),
+          depths = _keptDepth..setAll(0, _depth);
+      final secondary = _keptSecondary..setAll(0, _secondary);
+      final valid = _keptValid..setAll(0, _secondaryValid);
       Uint8List mask;
       Uint8List? backgroundMask;
       try {
@@ -725,25 +792,6 @@ class DcGpuRender {
                 : null);
       }
     }
-    if (control & 0x10000000 == 0) _writeTile(x * 32, y * 32);
-    _x = x;
-    _y = y;
-    _region += type2 ? 24 : 20;
-    if (_stripLines != 0 &&
-        read(0xf4) & 0xffff != 1024 &&
-        control & 0x80000000 == 0 &&
-        ((_word(_region) >> 8) & 63) > y) {
-      _stripDrainPending = true;
-      if (_flushVerticalScale(finalSource: false)) _stripDrainPending = false;
-    }
-    if (_stripLines != 0 &&
-        read(0xf4) & 0xffff == 1024 &&
-        (control & 0x80000000 != 0 ||
-            ((_word(_region) >> 8) & 63) * 32 ~/ _stripLines >
-                y * 32 ~/ _stripLines)) {
-      _stripProduced = y * 32 ~/ _stripLines;
-    }
-    return control & 0x80000000 != 0;
   }
 
   /// [depthOnly] resolves the opaque list depths without shading it.
@@ -892,7 +940,7 @@ class DcGpuRender {
     final sorted = _fragmentSorted, depth = _fragmentDepth;
     final order = _fragmentOrder;
     // The sorted fragments of pixel i run from start[i] to end[i].
-    final start = Int32List(1024), end = Int32List(1024);
+    final start = _layerStart, end = _layerEnd;
     var next = 0;
     for (var i = 0; i < 1024; i++) {
       final first = start[i] = next;
@@ -909,7 +957,7 @@ class DcGpuRender {
       }
       end[i] = next;
     }
-    final surfaces = Float64List(1024), active = Uint8List(1024);
+    final surfaces = _layerDepth, active = _layerActive;
     final sampleOffset = read(0x80) & 1 != 0 ? 0.5 : 0.0;
     for (;;) {
       var any = false;
@@ -985,6 +1033,10 @@ class DcGpuRender {
 
   DcGpuTexture _cachedTexture(int tcw, int tsp) {
     final control = read(0xe4);
+    final recording = _recording;
+    if (recording != null) {
+      return recording.view(memory, palette, tcw, tsp, control);
+    }
     if (_viewsClock != _pages.clock ||
         _viewsPalette != palette.version ||
         _viewsControl != control) {
@@ -1004,7 +1056,7 @@ class DcGpuRender {
     if (texture.format == 4) return texture;
     final width = texture.width, height = texture.height;
     final levels = texture.mipMapped ? texture.maxLevel + 1 : 1;
-    final offsets = Int32List(levels);
+    final offsets = Uint32List(levels);
     var size = 0;
     for (var level = 0; level < levels; level++) {
       offsets[level] = size;
@@ -1167,32 +1219,44 @@ class DcGpuRender {
     if (_sortMode == 2 && texture?.trilinear == true) {
       throw const DcUnsupported('CORE trilinear punch-through is prohibited');
     }
-    List<_Vertex> vertices(int first, int count) => [
-          for (var i = 0; i < count; i++)
-            _vertex(parameter + header * 4 + (first + i) * stride * 4, isp,
-                attributeOffset: slot * attributes * 4,
-                ignoreShading: sourceSecondary)
-        ];
-    if (kind == 4) {
-      _triangle(vertices(0, 3), isp, tsp, texture, x, y);
-    } else if (kind == 5) {
-      final first = vertices(0, 3),
-          fourth = parameter + header * 4 + 3 * stride * 4;
+    final first = parameter + header * 4, step = stride * 4;
+    final attributeOffset = slot * attributes * 4;
+    if (kind == 4 || kind == 5) {
+      final corners = [
+        _vertex(first, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary),
+        _vertex(first + step, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary),
+        _vertex(first + 2 * step, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary)
+      ];
+      if (kind == 4) {
+        _triangle(corners, isp, tsp, texture, x, y);
+        return;
+      }
+      final fourth = first + 3 * step;
       // Only X/Y of D are defined; both materials derive their attributes from ABC.
       final d = _Vertex(_number(fourth), _number(fourth + 4), 0, 0);
-      _quad([...first, d], isp, tsp, texture, x, y);
-    } else {
-      final mask = (pointer >> 25) & 63;
-      for (var triangle = 0; triangle < 6; triangle++) {
-        if (mask & (1 << (5 - triangle)) == 0) continue;
-        final strip = vertices(triangle, 3);
-        if (triangle.isOdd) {
-          final first = strip[0];
-          strip[0] = strip[1];
-          strip[1] = first;
-        }
-        _triangle(strip, isp, tsp, texture, x, y);
+      _quad([...corners, d], isp, tsp, texture, x, y);
+      return;
+    }
+    // Each vertex of the strip is read once, when a triangle first needs it.
+    final strip = _stripVertices..fillRange(0, 8, null);
+    final mask = (pointer >> 25) & 63;
+    for (var triangle = 0; triangle < 6; triangle++) {
+      if (mask & (1 << (5 - triangle)) == 0) continue;
+      final corners = _stripCorners;
+      for (var i = 0; i < 3; i++) {
+        final k = triangle + i;
+        corners[i] = strip[k] ??= _vertex(first + k * step, isp,
+            attributeOffset: attributeOffset, ignoreShading: sourceSecondary);
       }
+      if (triangle.isOdd) {
+        final a = corners[0];
+        corners[0] = corners[1];
+        corners[1] = a;
+      }
+      _triangle(corners, isp, tsp, texture, x, y);
     }
   }
 
@@ -1277,13 +1341,16 @@ class DcGpuRender {
     final header = twoVolumes ? 5 : 3;
     final stride = 3 + skip * (twoVolumes ? 2 : 1);
     _shadowObject = shadow;
-    _secondaryValid.setRange(0, 1024, _zeroBytes);
-    for (var i = 0; i < 1024; i++) {
-      _depth[i] = depth;
+    final recording = _recording;
+    if (recording == null) {
+      _secondaryValid.setRange(0, 1024, _zeroBytes);
+      for (var i = 0; i < 1024; i++) {
+        _depth[i] = depth;
+      }
+      // Primary pixels not initialized by the background are provisionally transparent black.
+      // The physical initial contents when only the secondary buffer is written are unknown.
+      _colors.setRange(0, 1024, _zeroWords);
     }
-    // Primary pixels not initialized by the background are provisionally transparent black.
-    // The physical initial contents when only the secondary buffer is written are unknown.
-    _colors.setRange(0, 1024, _zeroWords);
 
     void material(int slot) {
       final tsp = _word(parameter + 4 + slot * 8);
@@ -1303,6 +1370,11 @@ class DcGpuRender {
         color = fog.apply(color, depth, 0, tsp, hasOffset: false);
         if (shadow && !twoVolumes) {
           shaded = fog.apply(shaded, depth, 0, tsp, hasOffset: false);
+        }
+        if (recording != null) {
+          recording.flatBackground(color, shaded, tsp,
+              area: twoVolumes ? slot : -1, shadow: shadow);
+          return;
         }
         if (!shadow && tsp & 0x01000000 == 0) {
           for (var i = 0; i < 1024; i++) {
@@ -1368,6 +1440,16 @@ class DcGpuRender {
   static int _tileCeiling(double value) =>
       value < 0 ? 0 : (value >= 31 ? 32 : value.ceil() + 1);
 
+  /// The sum of `w * z` over the three vertices, in vertex order.
+  static double _dot(
+          double w0, double w1, double w2, double z0, double z1, double z2) =>
+      0.0 + w0 * z0 + w1 * z1 + w2 * z2;
+
+  /// The sum of `w * z * q` over the three vertices, in vertex order.
+  static double _dotOf(double w0, double w1, double w2, double z0, double z1,
+          double z2, double q0, double q1, double q2) =>
+      0.0 + w0 * z0 * q0 + w1 * z1 * q1 + w2 * z2 * q2;
+
   @pragma('vm:unsafe:no-bounds-checks')
   void _triangle(List<_Vertex> vertices, int isp, int tsp,
       DcGpuTexture? texture, int originX, int originY,
@@ -1391,51 +1473,44 @@ class DcGpuRender {
     }
     final sa = plane?[0] ?? a, sb = plane?[1] ?? b, sc = plane?[2] ?? c;
     final shadeArea = plane == null ? area : _edge(sa, sb, sc.x, sc.y);
-    List<double>? mipNumerators;
+    Float64List? mipNumerators;
     if (texture?.mipMapped == true) {
-      final values = [sa, sb, sc];
-      final dx = [
-        (sb.y - sc.y) / shadeArea,
-        (sc.y - sa.y) / shadeArea,
-        (sa.y - sb.y) / shadeArea
-      ];
-      final dy = [
-        (sc.x - sb.x) / shadeArea,
-        (sa.x - sc.x) / shadeArea,
-        (sb.x - sa.x) / shadeArea
-      ];
-      final origin = [
-        _edge(sb, sc, 0, 0) / shadeArea,
-        _edge(sc, sa, 0, 0) / shadeArea,
-        _edge(sa, sb, 0, 0) / shadeArea
-      ];
-      double dot(List<double> weights, int component) {
-        var result = 0.0;
-        for (var i = 0; i < 3; i++) {
-          final vertex = values[i];
-          result += weights[i] *
-              vertex.z *
-              (component == 0
-                  ? vertex.u
-                  : component == 1
-                      ? vertex.v
-                      : 1);
-        }
-        return result;
-      }
-
+      final dx0 = (sb.y - sc.y) / shadeArea,
+          dx1 = (sc.y - sa.y) / shadeArea,
+          dx2 = (sa.y - sb.y) / shadeArea;
+      final dy0 = (sc.x - sb.x) / shadeArea,
+          dy1 = (sa.x - sc.x) / shadeArea,
+          dy2 = (sb.x - sa.x) / shadeArea;
+      final o0 = _edge(sb, sc, 0, 0) / shadeArea,
+          o1 = _edge(sc, sa, 0, 0) / shadeArea,
+          o2 = _edge(sa, sb, 0, 0) / shadeArea;
+      final za = sa.z, zb = sb.z, zc = sc.z;
+      final ua = sa.u, ub = sb.u, uc = sc.u;
+      final va = sa.v, vb = sb.v, vc = sc.v;
       final reference = plane?[0] ?? vertices[0];
       final precise = isp & 0x100000 != 0;
-      final rz = precise ? reference.z : dot(origin, 2);
-      final ru = precise ? reference.u * reference.z : dot(origin, 0);
-      final rv = precise ? reference.v * reference.z : dot(origin, 1);
+      final rz = precise ? reference.z : _dot(o0, o1, o2, za, zb, zc);
+      final ru = precise
+          ? reference.u * reference.z
+          : _dotOf(o0, o1, o2, za, zb, zc, ua, ub, uc);
+      final rv = precise
+          ? reference.v * reference.z
+          : _dotOf(o0, o1, o2, za, zb, zc, va, vb, vc);
+      final dxz = _dot(dx0, dx1, dx2, za, zb, zc),
+          dyz = _dot(dy0, dy1, dy2, za, zb, zc);
       // Dcalc=0 uses constants at the screen origin; Dcalc=1 uses the original first vertex.
-      mipNumerators = [
-        dot(dx, 0) * rz - dot(dx, 2) * ru,
-        dot(dx, 1) * rz - dot(dx, 2) * rv,
-        dot(dy, 0) * rz - dot(dy, 2) * ru,
-        dot(dy, 1) * rz - dot(dy, 2) * rv
-      ];
+      mipNumerators = Float64List(4)
+        ..[0] = _dotOf(dx0, dx1, dx2, za, zb, zc, ua, ub, uc) * rz - dxz * ru
+        ..[1] = _dotOf(dx0, dx1, dx2, za, zb, zc, va, vb, vc) * rz - dxz * rv
+        ..[2] = _dotOf(dy0, dy1, dy2, za, zb, zc, ua, ub, uc) * rz - dyz * ru
+        ..[3] = _dotOf(dy0, dy1, dy2, za, zb, zc, va, vb, vc) * rz - dyz * rv;
+    }
+    final recording = _recording;
+    if (recording != null) {
+      _recordTriangle(recording, a, b, c, sa, sb, sc, shadeArea, isp, tsp,
+          texture, mipNumerators, order, plane != null, backgroundDepth,
+          originX, originY);
+      return;
     }
     final control = read(0x80);
     final offset = control & 1 != 0 ? 0.5 : 0.0;
@@ -2702,7 +2777,7 @@ class DcGpuRender {
       _Vertex sb,
       _Vertex sc,
       int opaqueAlpha,
-      List<double>? mipNumerators,
+      Float64List? mipNumerators,
       bool pointRows,
       int tsp,
       bool fogOffset,
@@ -3411,30 +3486,143 @@ class DcGpuRender {
     return true;
   }
 
+  /// Defers the tiles of the render that was just recorded on [compute],
+  /// unless they go through the strip buffer or the scaler.
+  void _deferRender(DcCompute compute) {
+    _deferring =
+        deferTiles && _stripLines == 0 && read(0xf4) & 0xffff == 1024;
+    if (!_deferring) return;
+    _deferredCompute = compute;
+    const offsets = [0x48, 0x4c, 0x60, 0x64, 0x68, 0x6c, 0xf4];
+    for (var i = 0; i < offsets.length; i++) {
+      _deferredRegisters[i] = read(offsets[i]);
+    }
+  }
+
+  void _deferTile(int tile) {
+    if (_deferred.isEmpty) _watchTiles();
+    _deferred.add(tile);
+  }
+
+  /// Watches the bytes that the deferred tiles may write, so that a writer
+  /// of them writes the tiles first.
+  void _watchTiles() {
+    final start = _deferredRegisters[2], stride = _deferredRegisters[1] * 8;
+    final first = start & 0x7fffff;
+    // Up to 2048 pixels of 4 bytes after the start of the last row.
+    final end = first + (_deferredRegisters[5] >> 16) * stride + 2048 * 4;
+    _pages.onWatched = flushTiles;
+    if (start & 0x1000000 == 0) {
+      _pages.watch(first, end, 0, 0);
+    } else {
+      final low = (first >> 1) & 0x3ffffc, high = (end >> 1) + 4;
+      _pages.watch(low, high, low + 0x400000, high + 0x400000);
+    }
+  }
+
+  bool _waitRequested = false;
+
+  /// Whether a CPU/DMA access or scanout hit deferred tiles whose GPU
+  /// results had not arrived yet.
+  bool get waitRequested => _waitRequested;
+
+  /// Writes the deferred tiles to VRAM. On a sink that cannot wait, tiles
+  /// whose results have not come stay deferred and are written at a later
+  /// call, after the bytes that wanted them; the core stops for the results
+  /// after the end of the render ([computeWait]), so this happens only when
+  /// a reader comes within the batch of devices that ends the render.
+  void flushTiles() {
+    if (_deferred.isEmpty) return;
+    final compute = _deferredCompute!;
+    if (compute.fetching != null) {
+      _waitRequested = true;
+      _watchTiles();
+      return;
+    }
+    _waitRequested = false;
+    _pages.unwatch();
+    _flushing = true;
+    try {
+      for (final tile in _deferred) {
+        compute.entry(tile & 0xffff, _colors);
+        _writeTile(((tile >> 16) & 63) * 32, (tile >> 24) * 32);
+      }
+    } finally {
+      _flushing = false;
+      _deferred.clear();
+    }
+  }
+
+  /// Writes the deferred tiles, or drops them when their results have not
+  /// come, as the next render or a new program reuses the buffers.
+  void settleTiles() {
+    if (computeWait != null) {
+      _dropTiles();
+    } else {
+      flushTiles();
+    }
+  }
+
+  /// The results of the GPU that the deferred tiles wait for, while they
+  /// are not on the host; null on a sink that waits by itself.
+  Future<void>? get computeWait =>
+      _deferred.isEmpty ? null : _deferredCompute!.fetching;
+
+  /// Whether the core should stop for [computeWait] before it runs on: the
+  /// render has ended, so the next CPU steps may read its tiles.
+  bool get waitsForCompute => !busy && computeWait != null;
+
+  void _dropTiles() {
+    _waitRequested = false;
+    _deferred.clear();
+    _pages.unwatch();
+  }
+
+  /// Writes the deferred tiles first if they may write any of the VRAM
+  /// bytes [start, end), which are about to be read.
+  void touch(int start, int end) {
+    if (_deferred.isNotEmpty && _pages.watches(start, end)) flushTiles();
+  }
+
+  /// Whether tiles wait for their writes to VRAM.
+  bool get deferred => _deferred.isNotEmpty;
+
+  /// A register that [_writeTile] reads, as it was at the render of the
+  /// deferred tiles while they are written.
+  int _tileRegister(int offset) => _flushing
+      ? _deferredRegisters[switch (offset) {
+          0x48 => 0,
+          0x4c => 1,
+          0x60 => 2,
+          0x64 => 3,
+          0x68 => 4,
+          0x6c => 5,
+          _ => 6,
+        }]
+      : read(offset);
+
   void _writeTile(int originX, int originY,
       {int? scaledFirst, int? scaledEnd}) {
-    if (_capturing != null && scaledFirst == null) {
-      _frameReference(originX, originY);
-    }
-    if (scaledFirst == null && read(0xf4) & 0xffff != 1024) {
+    if (scaledFirst == null && _tileRegister(0xf4) & 0xffff != 1024) {
       _scalerTiles[(originY ~/ 32) * 64 + originX ~/ 32] =
           Uint32List.fromList(_colors);
       return;
     }
-    final xClip = read(0x68);
+    final xClip = _tileRegister(0x68);
     final yClip = scaledFirst == null
-        ? read(0x6c)
+        ? _tileRegister(0x6c)
         : scaledFirst | ((scaledEnd! - 1) << 16);
-    final mode = read(0x48) & 7, kval = (read(0x48) >> 8) & 255;
-    final threshold = (read(0x48) >> 16) & 255;
-    final dither = mode <= 3 && read(0x48) & 8 != 0;
+    final pack = _tileRegister(0x48);
+    final mode = pack & 7, kval = (pack >> 8) & 255;
+    final threshold = (pack >> 16) & 255;
+    final dither = mode <= 3 && pack & 8 != 0;
     final bytes = mode <= 3
         ? 2
         : mode == 4
             ? 3
             : 4;
-    final stride = read(0x4c) * 8;
-    final halfWidth = read(0xf4) & 0x10000 != 0;
+    final stride = _tileRegister(0x4c) * 8;
+    final halfWidth = _tileRegister(0xf4) & 0x10000 != 0;
     if (stride == 0) throw const DcUnsupported('CORE zero framebuffer stride');
     final ranks = dither
         ? const [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
@@ -3444,8 +3632,8 @@ class DcGpuRender {
     for (var y = 0; y < 32; y++) {
       final py = originY + y;
       if (py < (yClip & 1023) || py > (yClip >> 16)) continue;
-      final start =
-          read(_stripLines != 0 && (py ~/ _stripLines).isOdd ? 0x64 : 0x60);
+      final start = _tileRegister(
+          _stripLines != 0 && (py ~/ _stripLines).isOdd ? 0x64 : 0x60);
       final memoryRow = _stripLines == 0 ? py : py % _stripLines;
       final rowAddress = (start & 0x7fffff) + memoryRow * stride;
       final interleaved = start & 0x1000000 != 0;

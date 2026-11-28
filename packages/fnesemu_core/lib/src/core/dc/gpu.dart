@@ -80,7 +80,27 @@ class DcGpu {
         displayHeight: dimensions[3] < 0 ? null : dimensions[3]);
   }
 
+  int _vblankEpoch = 0, _deferredEpoch = -1;
+  bool _scanSkipped = false;
+
+  /// Whether the core must stop for [render.computeWait] before continuing:
+  /// either a CPU/DMA reader touched the deferred tiles, strip-buffer mode
+  /// is active, or a full frame has passed since the render completed so the
+  /// next frame must flush the tiles before scanning out or rendering again.
+  bool get waitsForCompute {
+    if (!render.deferred || render.computeWait == null) {
+      _deferredEpoch = -1;
+      return false;
+    }
+    if (render.waitRequested) return true;
+    if (_stripLines != 0) return !render.busy;
+    if (render.busy) return false;
+    if (_deferredEpoch < 0) _deferredEpoch = _vblankEpoch;
+    return _vblankEpoch - _deferredEpoch >= 2;
+  }
+
   void saveState(StateWriter writer) {
+    render.flushTiles();
     writer.section('dc.gpu');
     writer.bytes(vram);
     writer.bytes(_linearModes);
@@ -267,6 +287,14 @@ class DcGpu {
   ImageBuffer get presentedImage => _presented;
 
   void _finishField(bool field2) {
+    if (_scanSkipped) {
+      _scanSkipped = false;
+      _scanning = null;
+      _activeSof1 = _sof1;
+      _activeSof2 = _sof2;
+      _vblankEpoch++;
+      return;
+    }
     final scanning = _scanning;
     final field =
         scanning == null ? ImageBuffer.empty() : _completeScan(scanning);
@@ -299,6 +327,7 @@ class DcGpu {
     }
     _activeSof1 = _sof1;
     _activeSof2 = _sof2;
+    _vblankEpoch++;
   }
 
   static const vramSize = 0x800000;
@@ -331,6 +360,12 @@ class DcGpu {
 
   Uint8List readMemory(int address, int size, {bool peek = false}) {
     if (!peek) validateTransfer(size);
+    if (render.deferred) {
+      for (var i = 0; i < size; i++) {
+        final offset = vramOffset(address + i)!;
+        render.touch(offset, offset + 1);
+      }
+    }
     return Uint8List.fromList(
         [for (var i = 0; i < size; i++) vram[vramOffset(address + i)!]]);
   }
@@ -554,6 +589,17 @@ class DcGpu {
     _fillScanRows(frame, row);
     if (_scanFilled <= row) _scanFilled = row + 1;
     final stripLines = _stripLines;
+    if (_scanSkipped) return;
+    if (stripLines == 0 &&
+        render.deferred &&
+        render.computeWait != null &&
+        _deferredEpoch >= 0 &&
+        _vblankEpoch == _deferredEpoch + 1) {
+      // Async GPU render is still in flight; keep the previously presented
+      // image for this field so the GPU overlaps with this frame's CPU work.
+      _scanSkipped = true;
+      return;
+    }
     final start = stripLines == 0
         ? (second ? _activeSof2 : _activeSof1) + sourceRow * stride
         : render.read((sourceRow ~/ stripLines).isOdd ? 0x64 : 0x60) +
@@ -565,6 +611,14 @@ class DcGpu {
         delta < 0 ||
         sourceRow >= sourceHeight;
     final blankStart = spg.hblank & 1023, blankEnd = (spg.hblank >> 16) & 1023;
+    if (!blank && render.deferred) {
+      if (stripLines == 0) {
+        final first = start & (vramSize - 1);
+        render.touch(first, first + sourceWidth * bytesPerPixel);
+      } else {
+        render.flushTiles();
+      }
+    }
     if (!blank && stripLines != 0 && !render.stripReady(sourceRow)) {
       render.stripHazard();
       onError?.call(1 << 1);

@@ -1,0 +1,22 @@
+name: mp_media_decoder_example
+description: "Tries mp_media_decoder: plays an H.264 stream or an ATRAC3plus file."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mp_audio_stream: ^0.3.0
+  mp_media_decoder:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

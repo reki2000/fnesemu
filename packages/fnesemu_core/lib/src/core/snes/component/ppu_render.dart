@@ -224,17 +224,6 @@ extension PpuRenderer on Ppu {
     return (mapX, mapY);
   }
 
-  // Spread four plane bits into four bytes, in left-to-right pixel order.
-  // For example, 0b1010 becomes [1, 0, 1, 0], packed as 0x00010001.
-  // Each byte will hold one pixel's color after the planes are ORed together.
-  static final _expandPlane = List<int>.generate(
-      16,
-      (bits) =>
-          bits.shr3.mask1 |
-          bits.shr2.mask1.shl8 |
-          bits.shr1.mask1.shl16 |
-          bits.mask1.shl24);
-
   /// Fills the packed _BgSamples of BG [bgIdx] for the whole line [y], with
   /// the same result as _bgPixel for each column. The tilemap entry and the
   /// decoded row change only every 8 columns. Not for offset-per-tile or
@@ -249,11 +238,12 @@ extension PpuRenderer on Ppu {
     final yInCell = sy % tileSizePx;
     final wordsPerTile = bpp * 4;
 
+    final hofs = bg.hofs, mapMask = mapPxW - 1, expandPlane = this.expandPlane;
     var group = -1; // 8-column group of the decoded row
     var low = 0, high = 0, attr = 0;
     var hFlip = false;
     for (var x = 0; x < width; x++) {
-      final sx = (x + bg.hofs) & (mapPxW - 1);
+      final sx = (x + hofs) & mapMask;
       if (sx.shr3 != group) {
         group = sx.shr3;
         final entry = _tilemapEntryRaw(bgIdx, sx, sy);
@@ -272,8 +262,8 @@ extension PpuRenderer on Ppu {
         for (var plane = 0; plane < bpp; plane += 2) {
           final addr = (rowAddress + plane * 8).mask16;
           final a = vram[addr], b = vram[(addr + 1).mask16];
-          low |= (_expandPlane[a.shr4] | _expandPlane[b.shr4].shl1) << plane;
-          high |= (_expandPlane[a.mask4] | _expandPlane[b.mask4].shl1) << plane;
+          low |= (expandPlane[a.shr4] | expandPlane[b.shr4].shl1) << plane;
+          high |= (expandPlane[a.mask4] | expandPlane[b.mask4].shl1) << plane;
         }
       }
       final col8 = hFlip ? 7 - sx.mask3 : sx.mask3;
@@ -320,8 +310,8 @@ extension PpuRenderer on Ppu {
       for (var plane = 0; plane < bpp; plane += 2) {
         final addr = (rowAddress + plane * 8).mask16;
         final a = vram[addr], b = vram[(addr + 1).mask16];
-        low |= (_expandPlane[a.shr4] | _expandPlane[b.shr4].shl1) << plane;
-        high |= (_expandPlane[a.mask4] | _expandPlane[b.mask4].shl1) << plane;
+        low |= (expandPlane[a.shr4] | expandPlane[b.shr4].shl1) << plane;
+        high |= (expandPlane[a.mask4] | expandPlane[b.mask4].shl1) << plane;
       }
       bgRowKey[bgIdx] = key;
       bgRowLow[bgIdx] = low;
@@ -458,7 +448,14 @@ extension PpuRenderer on Ppu {
       return;
     }
     final l1 = w1Left, r1 = w1Right, l2 = w2Left, r2 = w2Right;
-    for (var x = 0; x < width; x++) {
+    // the area changes only at the window edges: fill the runs between them
+    var x = 0;
+    while (x < width) {
+      var next = width;
+      if (l1 > x && l1 < next) next = l1;
+      if (r1 + 1 > x && r1 + 1 < next) next = r1 + 1;
+      if (l2 > x && l2 < next) next = l2;
+      if (r2 + 1 > x && r2 + 1 < next) next = r2 + 1;
       final a = en1 && ((x >= l1 && x <= r1) != inv1);
       final b = en2 && ((x >= l2 && x <= r2) != inv2);
       final inside = !en2
@@ -471,7 +468,8 @@ extension PpuRenderer on Ppu {
                   2 => a != b,
                   _ => a == b,
                 };
-      line[x] = inside ? 1 : 0;
+      line.fillRange(x, next, inside ? 1 : 0);
+      x = next;
     }
   }
 
@@ -481,51 +479,79 @@ extension PpuRenderer on Ppu {
   bool _layerMasked(int layer, int x, int windowApplyMask) =>
       windowApplyMask.bit(layer) && _insideWindow(layer, x);
 
-  /// Composites one screen (main or sub) at column x, returning _ScreenPixel's
-  /// packed int format. Its OBJ palette is meaningful only for an OBJ source.
-  /// bgX is the BG-side column (0..width-1, hires-aware); objX is the
-  /// OBJ-side column (always 0..255 - sprites stay 256px-wide and are
-  /// stretched 2x when width==512, matching real hardware).
-  int _compositePixel(
-    int bgX,
-    int objX,
-    int y,
-    int screenEnable,
-    int windowApplyMask,
-    List<_Layer> order,
-    List<int> bpp,
-    List<int> objColor,
-    List<int> objPalette,
-    List<int> objPriority,
-  ) {
+  // A screen slot: the layer (0-3 BG1-4, 4 OBJ) in bits 0-2, the priority
+  // it matches in bits 4-5 and whether the screen's window hides the layer
+  // in bit 7.
+  static const _slotWindowed = 0x80;
+
+  /// Writes the slots of the layers that [screenEnable] shows, in the
+  /// priority [order], from [start] in screenSlots, and returns the end.
+  /// [windowApplyMask] is the screen's TMW or TSW; the window lines of the
+  /// windowed layers are filled here.
+  int _fillSlots(List<_Layer> order, List<int> bpp, int screenEnable,
+      int windowApplyMask, int start) {
+    var end = start;
     for (var i = 0; i < order.length; i++) {
-      final layer = order[i];
-      if (layer.$1) {
-        if (!screenEnable.bit4) continue;
-        if (objColor[objX] != -1 &&
-            objPriority[objX] == layer.$3 &&
-            !_layerMasked(4, bgX, windowApplyMask)) {
-          return _ScreenPixel.pack(128 + objPalette[objX] * 16 + objColor[objX],
-              _ScreenPixel.objSource, objPalette[objX]);
+      final (isObj, bgIdx, hi) = order[i];
+      final layer = isObj ? 4 : bgIdx;
+      if (!screenEnable.bit(layer) || (!isObj && bpp[bgIdx] == 0)) continue;
+      var slot = layer | hi << 4;
+      if (windowApplyMask.bit(layer)) {
+        _windowLineOf(layer);
+        slot |= _slotWindowed;
+      }
+      screenSlots[end++] = slot;
+    }
+    return end;
+  }
+
+  /// The window area of [layer] for the current line, see _insideWindow.
+  Uint8List _windowLineOf(int layer) {
+    final line = windowLine[layer];
+    if (windowLineReady & (1 << layer) == 0) {
+      _fillWindowLine(layer, line);
+      windowLineReady |= 1 << layer;
+    }
+    return line;
+  }
+
+  /// Composites one screen at column x from its slots [start] to [end] of
+  /// screenSlots, returning _ScreenPixel's packed int format. Its OBJ
+  /// palette is meaningful only for an OBJ source. bgX is the BG-side
+  /// column (0..width-1, hires-aware); objX is the OBJ-side column (always
+  /// 0..255 - sprites stay 256px-wide and are stretched 2x when
+  /// width==512, matching real hardware).
+  @pragma('vm:prefer-inline')
+  int _composite(Int32List slots, int start, int end, int bgX, int objX,
+      int y, List<int> bpp) {
+    for (var i = start; i < end; i++) {
+      final slot = slots[i];
+      final layer = slot & 7;
+      if (slot & _slotWindowed != 0 && windowLine[layer][bgX] != 0) continue;
+      final hi = slot.shr4.mask2;
+      if (layer == 4) {
+        final color = objLineColor[objX];
+        if (color != -1 && objLinePriority[objX] == hi) {
+          final palette = objLinePalette[objX];
+          return _ScreenPixel.pack(
+              128 + palette * 16 + color, _ScreenPixel.objSource, palette);
         }
       } else {
-        final bgIdx = layer.$2;
-        if (bpp[bgIdx] == 0 || !screenEnable.bit(bgIdx)) continue;
-        if (_layerMasked(bgIdx, bgX, windowApplyMask)) continue;
-        final pixels = bgLinePixels[bgIdx];
+        final pixels = bgLinePixels[layer];
         var sample = pixels[bgX];
         if (sample == _BgSample.notFetched) {
-          final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
+          final mx = (mosaicEnable.bit(layer) && mosaicSize > 0)
               ? (bgX ~/ (mosaicSize + 1)) * (mosaicSize + 1)
               : bgX;
-          sample = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
+          sample = _bgPixel(layer, bpp[layer], mx, y);
           pixels[bgX] = sample;
         }
         if (sample != _BgSample.transparent &&
-            _BgSample.priority(sample) == layer.$3) {
-          final cgramIndex = _bgPaletteIndex(bgMode, bgIdx, bpp[bgIdx],
-              _BgSample.palette(sample), _BgSample.colorIndex(sample));
-          return _ScreenPixel.pack(cgramIndex, bgIdx, 0);
+            _BgSample.priority(sample) == hi) {
+          final cgramIndex = bgPaletteBase[layer] +
+              _BgSample.palette(sample) * bgPaletteStep[layer] +
+              _BgSample.colorIndex(sample);
+          return _ScreenPixel.pack(cgramIndex, layer, 0);
         }
       }
     }
@@ -534,71 +560,15 @@ extension PpuRenderer on Ppu {
 
   /// clamped RGB channel add/subtract for color math, 5-bit channels.
   /// halving applies to both addition and subtraction.
+  @pragma('vm:prefer-inline')
   int _mathChannel(int a, int b, bool subtract, bool half) {
-    int r = subtract ? (a - b).max(0) : a + b;
+    var r = subtract ? a - b : a + b;
+    if (r < 0) r = 0;
     if (half) r >>= 1;
-    return r.clamp(0, 31);
+    return r > 31 ? 31 : r;
   }
 
-  int _colorMath(
-    int mainIdx,
-    int sourceKind,
-    int objPalette,
-    int x,
-    int subR,
-    int subG,
-    int subB,
-    bool subIsBackdrop,
-  ) {
-    final subtract = cgadsub.bit7;
-
-    // does this main-screen source permit color math? (CGADSUB bits5-0)
-    bool allowed;
-    switch (sourceKind) {
-      case _ScreenPixel.backdropSource:
-        allowed = cgadsub.bit5; // backdrop
-        break;
-      case _ScreenPixel.objSource:
-        allowed = cgadsub.bit4 && objPalette >= 4; // OBJ, palette 4-7 only
-        break;
-      default:
-        allowed = cgadsub.bit(sourceKind); // BG1-4
-    }
-
-    final ccBits = cgwsel.shr6.mask2;
-    final mmBits = cgwsel.shr4.mask2;
-    final insideColorWindow = _insideWindow(5, x);
-    final clipToBlack = switch (ccBits) {
-      1 => !insideColorWindow,
-      2 => insideColorWindow,
-      3 => true,
-      _ => false,
-    };
-    // CGWSEL bits5-4 select where math is *allowed*: 0=always,
-    // 1=inside the color window, 2=outside, 3=never
-    final mathEnabled = switch (mmBits) {
-      0 => true,
-      1 => insideColorWindow,
-      2 => !insideColorWindow,
-      _ => false,
-    };
-    // no halving when the main pixel is clipped to black or when the sub
-    // screen shows its backdrop (the fixed color)
-    final half = cgadsub.bit6 && !clipToBlack && !subIsBackdrop;
-
-    final base = clipToBlack
-        ? 0
-        : cgram[mainIdx.mask8 * 2] | cgram[mainIdx.mask8 * 2 + 1].shl8;
-    var r = base.mask5, g = base.shr5.mask5, b = base.shr10.mask5;
-
-    if (!allowed || !mathEnabled) return _rgb555(r, g, b);
-
-    r = _mathChannel(r, subR, subtract, half);
-    g = _mathChannel(g, subG, subtract, half);
-    b = _mathChannel(b, subB, subtract, half);
-    return _rgb555(r, g, b);
-  }
-
+  @pragma('vm:prefer-inline')
   int _rgb555(int r5, int g5, int b5) {
     final r = (r5.shl3) | (r5.shr2);
     final g = (g5.shl3) | (g5.shr2);
@@ -652,9 +622,11 @@ extension PpuRenderer on Ppu {
       return;
     }
 
-    final objColor = objLineColor..fillRange(0, Ppu.widthNormal, -1);
-    final objPalette = objLinePalette..fillRange(0, Ppu.widthNormal, 0);
-    final objPriority = objLinePriority..fillRange(0, Ppu.widthNormal, 0);
+    // the palette and the priority of a column are read only where a
+    // sprite set its color
+    final objColor = objLineColor..setRange(0, Ppu.widthNormal, noObjLine);
+    final objPalette = objLinePalette;
+    final objPriority = objLinePriority;
     if (mainScreenEnable.bit4 || subScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }
@@ -672,39 +644,87 @@ extension PpuRenderer on Ppu {
           !(mosaicEnable.bit(i) && mosaicSize > 0)) {
         _fillBgLine(i, bpp[i], bgY, pixels);
       } else {
-        pixels.fillRange(0, width, _BgSample.notFetched);
+        pixels.setRange(0, width, notFetchedLine);
       }
     }
     final order = _priorityOrder(bgMode, bg3Priority);
     final subscreenMode = cgwsel.bit1;
     final hires = width == Ppu.widthHires;
 
+    for (var i = 0; i < 4; i++) {
+      final depth = bpp[i];
+      bgPaletteBase[i] = depth != 8 && bgMode == 0 ? i * 32 : 0;
+      bgPaletteStep[i] = depth == 8 ? 0 : (bgMode == 0 || depth == 2 ? 4 : 16);
+    }
+    final slots = screenSlots;
+    final mainEnd = _fillSlots(order, bpp, mainScreenEnable, tmw, 0);
+    final subEnd = subscreenMode
+        ? _fillSlots(order, bpp, subScreenEnable, tsw, mainEnd)
+        : mainEnd;
+
+    // color math settings of the line (CGWSEL, CGADSUB)
+    final cgad = cgadsub;
+    final subtract = cgad.bit7;
+    final ccBits = cgwsel.shr6.mask2;
+    final mmBits = cgwsel.shr4.mask2;
+    final colorWindow = ccBits == 1 || ccBits == 2 || mmBits == 1 || mmBits == 2
+        ? _windowLineOf(5)
+        : null;
+
     for (int x = 0; x < width; x++) {
       final objX = hires ? x ~/ 2 : x;
-      final main = _compositePixel(x, objX, bgY, mainScreenEnable, tmw, order,
-          bpp, objColor, objPalette, objPriority);
+      final main = _composite(slots, 0, mainEnd, x, objX, bgY, bpp);
       final mainIdx = _ScreenPixel.cgramIndex(main);
       final mainKind = _ScreenPixel.source(main);
-      final mainObjPal = _ScreenPixel.objPalette(main);
 
       int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
       bool subIsBackdrop = false;
       if (subscreenMode) {
-        final sub = _compositePixel(x, objX, bgY, subScreenEnable, tsw, order,
-            bpp, objColor, objPalette, objPriority);
+        final sub = _composite(slots, mainEnd, subEnd, x, objX, bgY, bpp);
         // the sub screen's backdrop is the fixed color, not CGRAM[0]
-        final subIdx = _ScreenPixel.cgramIndex(sub);
         subIsBackdrop = _ScreenPixel.source(sub) == _ScreenPixel.backdropSource;
         if (!subIsBackdrop) {
-          final c = cgram[subIdx.mask8 * 2] | cgram[subIdx.mask8 * 2 + 1].shl8;
+          final subIdx = _ScreenPixel.cgramIndex(sub);
+          final c = cgram[subIdx * 2] | cgram[subIdx * 2 + 1].shl8;
           subR = c.mask5;
           subG = c.shr5.mask5;
           subB = c.shr10.mask5;
         }
       }
 
-      buffer[row + x] = _colorMath(
-          mainIdx, mainKind, mainObjPal, x, subR, subG, subB, subIsBackdrop);
+      // does this main-screen source permit color math? (CGADSUB bits5-0;
+      // OBJ only with palettes 4-7)
+      final allowed = cgad.bit(mainKind) &&
+          (mainKind != _ScreenPixel.objSource ||
+              _ScreenPixel.objPalette(main) >= 4);
+      final insideColorWindow = colorWindow != null && colorWindow[x] != 0;
+      final clipToBlack = switch (ccBits) {
+        1 => !insideColorWindow,
+        2 => insideColorWindow,
+        3 => true,
+        _ => false,
+      };
+      // CGWSEL bits5-4 select where math is *allowed*: 0=always,
+      // 1=inside the color window, 2=outside, 3=never
+      final mathEnabled = switch (mmBits) {
+        0 => true,
+        1 => insideColorWindow,
+        2 => !insideColorWindow,
+        _ => false,
+      };
+      final base = clipToBlack
+          ? 0
+          : cgram[mainIdx * 2] | cgram[mainIdx * 2 + 1].shl8;
+      var r = base.mask5, g = base.shr5.mask5, b = base.shr10.mask5;
+      if (allowed && mathEnabled) {
+        // no halving when the main pixel is clipped to black or when the
+        // sub screen shows its backdrop (the fixed color)
+        final half = cgad.bit6 && !clipToBlack && !subIsBackdrop;
+        r = _mathChannel(r, subR, subtract, half);
+        g = _mathChannel(g, subG, subtract, half);
+        b = _mathChannel(b, subB, subtract, half);
+      }
+      buffer[row + x] = _rgb555(r, g, b);
     }
     _applyBrightness(row, width);
   }
@@ -742,9 +762,11 @@ extension PpuRenderer on Ppu {
   void _renderMode7Scanline(int row, int y, int bgY) {
     final backdrop = _rgba(0);
 
-    final objColor = objLineColor..fillRange(0, Ppu.widthNormal, -1);
-    final objPalette = objLinePalette..fillRange(0, Ppu.widthNormal, 0);
-    final objPriority = objLinePriority..fillRange(0, Ppu.widthNormal, 0);
+    // the palette and the priority of a column are read only where a
+    // sprite set its color
+    final objColor = objLineColor..setRange(0, Ppu.widthNormal, noObjLine);
+    final objPalette = objLinePalette;
+    final objPriority = objLinePriority;
     if (mainScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }

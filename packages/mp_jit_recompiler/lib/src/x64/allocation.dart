@@ -48,7 +48,7 @@ final class X64Allocation {
     }
     // When the comparison is emitted at the branch/exit, its operands must
     // remain live until then, even across helpers and later register writes.
-    final fusion = irFusedCompareConsumers(block);
+    final fusion = irFusedCompareConsumers(block, selects: true);
     for (var i = 0; i < n; i++) {
       if (fusion[i] < 0) continue;
       use(block.insts[i].a, fusion[i]);
@@ -64,6 +64,7 @@ final class X64Allocation {
       for (final v in active) occupied |= 1 << registers[v];
       final end = lastUse[i];
       if (end <= i ||
+          block.insts[i].type == IrType.v128 ||
           block.insts[i].op == IrOp.constant ||
           !irHasResult(block.insts[i].op) ||
           calls[end] != calls[i + 1]) {

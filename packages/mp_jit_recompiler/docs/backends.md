@@ -13,7 +13,10 @@
 
 - Immediate arithmetic and shifts are used, and constants are rematerialized.
 - Block-local values are assigned to seven general-purpose registers (R8-R11, RBP, RSI, RDI) with a linear scan. Both widths use the same allocator and eight-byte spill slots. Values spanning possible helper calls remain in stack slots, and side exits retain values at their branch point. No register state is shared across block boundaries.
-- The frame reserves 4,096 value slots, which bounds the block length.
+- The frame reserves 4,096 scalar value slots and 1,024 v128 value slots, which bound the block length. Scalar and v128 values are numbered separately. A v128 slot is 64 bytes: the images, two decoded binary64 halves and the flags.
+- Vector operations use SSE2 in XMM0-XMM5, which are caller-saved on every x64 ABI. XMM8-XMM15 keep copies of the slots that later uses read, and the slots are still written for stubs and exits. A stub that calls the host reloads the copies before it rejoins the block, and the trampoline saves XMM8-XMM15 on Win64, where they are callee-saved. Their constants are in a pool after the code and are addressed relative to RIP. Decoding converts an image with CVTPS2PD and takes an out-of-line integer path when a lane has exponent 255.
+- Guards are sorted by host address, and four adjacent words are compared with one SSE2 comparison.
+- The trampoline probes its stack frame only on Windows.
 
 ## ARM64
 
@@ -22,6 +25,7 @@ The ARM64 backend supports the complete integer IR, both memory byte orders, cal
 - X19-X23 hold the context, read and write page tables, link slots and dynamic table. The trampoline saves the callee-saved registers it uses and LR, keeps SP aligned to 16 bytes and probes its stack frame in 4KiB steps. X18 stays reserved for the platform.
 - SSA values use eight-byte stack slots and constants are materialized at use sites. The backend does not yet allocate SSA values to host registers.
 - Floating-point add, subtract and multiply use the caller-saved V0/V1 registers. Binary32 operands widen to binary64 before evaluation and narrow afterward to match the reference executor.
+- Vector operations use Advanced SIMD with the temporaries V0-V7. V16-V31 keep copies of the bits and of the decoded binary64 halves of v128 values until a host call, and the slots are still written for stubs and exits. V8-V15 stay unused, as the ABI keeps their low halves across calls. The constants are in a pool after the code and are loaded with LDR (literal). Decoding shifts the magnitude of an image into a binary64 and multiplies it by 2^896, which is exact for every exponent, so it needs no out-of-line path.
 
 ### Checks
 
@@ -38,6 +42,7 @@ QEMU validates instruction encodings and Linux ARM64 execution semantics. It doe
 - `dispose` returns a runtime's allocations, and a finalizer returns those of a runtime dropped without `dispose`. Allocations beyond the free capacity throw. Dispose runtimes explicitly, since finalization timing is not guaranteed.
 - The code cache clears at 4,096 installed blocks and recompiles on demand. It does not reclaim guest allocations.
 - i64 values use Wasm i64 locals. Big-endian accesses and guards reverse bytes around little-endian linear-memory operations. Floating-point operations reinterpret the bit patterns as f32 and f64.
+- v128 values use Wasm v128 locals, and their decoded halves use two more locals. The runtime validates a small SIMD module at startup, and `vectors` is false when the engine rejects it.
 
 ## Code publication
 

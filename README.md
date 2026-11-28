@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS/PS2/DC Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS/PS2/DC/PSP Emulator Built with Flutter
 
 This project is experimental.
 
@@ -17,6 +17,13 @@ This project is experimental.
 
 - Set the BIOS of each system from the 'Core setup' menu (the gear icon).
 - The files are saved on your browser's IndexDB and used each time the system starts
+
+## Benchmark
+
+- 'Benchmark...' in the 'Core setup' menu runs the saved states of a benchmark archive, a `.7z` or `.zip` file, one after another at full speed, and shows the frame rate of each.
+- The archive holds `bench.json`, the states, and the ROMs and BIOS files they need. `lib/gui/benchmark.dart` describes `bench.json`.
+- Discs are not in the archive. The app looks for the disc of a state in the ROM directories it has opened, by the media identity in the state, and remembers where it found it.
+- 'Copy' puts the results on the clipboard as lines of JSON, with the device name, the OS, the CPU and its clocks, and the renderer.
 
 
 ## Joypad-Keyboard assignment
@@ -36,6 +43,7 @@ This project is experimental.
 | SMS | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Pause |  |
 | GG | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Start |  |
 | DC | up / down / left / right | Y | X | A | B |  |  |  | L | R |  |  |  |  |  | Start |  |
+| PSP | up / down / left / right | ^ | # | x | o |  |  |  | L | R |  |  |  |  | Home | Start | Select |
 | WS | X1 / X3 / X4 / X2 | Y1 | Y4 | Y3 | Y2 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 | WS (vertical) | Y2 / Y4 / Y1 / Y3 | X2 | X1 | X4 | X3 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 
@@ -130,10 +138,11 @@ An end-to-end case runs a core headless (`packages/fnesemu_core/tool/core_headle
 packages/fnesemu_core/test/e2e/<core>/
   e2e.toml             the cases of the core
   <dir>/setup.py       fetches (or builds) the media and their upstream data into <dir>/.build/
-  <dir>/expected/      the expected data kept in the repository
+  <dir>/expected/      the SHA-256 of each expected output (kept in the repository) and the outputs (local only)
 ```
 
-- A check compares a frame with an image under `expected/` (the current behavior) or with a reference image that the project of the media publishes (under `.build/`).
+- A check compares a frame with the expected output under `expected/` (the current behavior) or with a reference image that the project of the media publishes (under `.build/`).
+- The repository keeps only the SHA-256 of each expected screenshot and TTY output (`<file>.sha256`), not the output itself, so it does not redistribute the pictures and texts of the test media. A check compares the SHA-256 of the output exactly. `run --update` also writes the output next to its hash; Git ignores it, and a local copy only adds the size of a difference to a failure.
 - A PS1 test EXE that prints its results is checked by its TTY output (`tty`, compared with `expected/`); `tty_fail` is the pattern of the lines with which the test reports a failure, which count like a failing upstream reference.
 - A case whose media reports a failure records the reason in `known_failure`. Its output must still match `expected/`, so a change of behavior is detected.
 - Media that have no prebuilt release are built in a Docker image (`packages/fnesemu_core/test/docker/Dockerfile`) when the tools are not installed.
@@ -143,7 +152,7 @@ make test-e2e-setup                              # fetch or build the media (pyt
 make test-e2e                                    # all cases
 python3 scripts/e2e.py run nes -j 4              # one core, 4 cases in parallel
 python3 scripts/e2e.py run gb/dmg-acid2          # one case
-python3 scripts/e2e.py run nes --update          # record the outputs as expected/ after checking them
+python3 scripts/e2e.py run nes --update          # record the outputs and their SHA-256 as expected/ after checking them
 python3 scripts/e2e.py list                      # the cases
 python3 scripts/e2e.py lint                      # paths stay in the tree, expected/ stays small
 ```

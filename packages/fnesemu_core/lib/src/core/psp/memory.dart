@@ -1,0 +1,158 @@
+import 'dart:typed_data';
+
+/// Owns the video memory while the GPU draws into it: a CPU read of a
+/// [gpuNewer] page, and a CPU write to a page that is not [cpuDirty], go to
+/// [access] before they take place.
+abstract interface class PspVramGuard {
+  /// the states of a 4 KiB page in [PspMemory.vramPages]
+  static const synced = 0, gpuNewer = 1, cpuDirty = 2;
+
+  /// Called before an access at [offset] of the video memory.
+  void access(int offset, bool write);
+}
+
+/// The physical memory map of the handheld: a 16 KiB scratchpad, 2 MiB of
+/// video memory and 32 MiB of main memory. Every virtual mirror of the map
+/// (the direct space, the cached mirror at 0x40000000, the uncached one at
+/// 0x60000000 and the kernel segments above them) masks down to the same
+/// physical addresses, so translation is a single mask. Unmapped accesses
+/// read as zero and drop writes, which keeps stray kernel probes from
+/// stopping execution.
+class PspMemory {
+  static const scratchAt = 0x00010000;
+  static const scratchSize = 0x4000;
+  static const vramAt = 0x04000000;
+  static const vramSize = 0x200000;
+  static const vramMirrors = 0x800000;
+  static const ramAt = 0x08000000;
+  static const ramSize = 0x2000000;
+  static const ramEnd = ramAt + ramSize;
+
+  final Uint8List scratch, vram, ram;
+  late final ByteData _scratchData = ByteData.sublistView(scratch);
+  late final ByteData _vramData = ByteData.sublistView(vram);
+  late final ByteData _ramData = ByteData.sublistView(ram);
+
+  /// The owner of the video memory while the GPU has it, and the states of
+  /// its pages; null while the CPU has it.
+  PspVramGuard? guard;
+  Uint8List? vramPages;
+
+  PspMemory({Uint8List? scratch, Uint8List? vram, Uint8List? ram})
+      : scratch = scratch ?? Uint8List(scratchSize),
+        vram = vram ?? Uint8List(vramSize),
+        ram = ram ?? Uint8List(ramSize);
+
+  void clear() {
+    scratch.fillRange(0, scratch.length, 0);
+    vram.fillRange(0, vram.length, 0);
+    ram.fillRange(0, ram.length, 0);
+  }
+
+  /// The physical address behind a virtual one: all mirrors of this
+  /// machine's fixed map differ only in the top three bits.
+  static int physical(int addr) => addr & 0x1fffffff;
+
+  (ByteData, int) _region(int phys, [bool write = false]) {
+    if (phys >= ramAt && phys < ramEnd) return (_ramData, phys - ramAt);
+    // Video memory repeats every 2 MiB up to 0x04800000; games read the
+    // depth buffer as a texture through such a mirror. Some mirrors may
+    // present the depth buffer in another layout on the hardware, which
+    // is not verified here, so all of them read the memory as stored.
+    if (phys >= vramAt && phys < vramAt + vramMirrors) {
+      final at = (phys - vramAt) & (vramSize - 1);
+      final pages = vramPages;
+      if (pages != null) {
+        final state = pages[at >> 12];
+        if (write
+            ? state != PspVramGuard.cpuDirty
+            : state == PspVramGuard.gpuNewer) {
+          guard!.access(at, write);
+        }
+      }
+      return (_vramData, at);
+    }
+    if (phys >= scratchAt && phys < scratchAt + scratchSize) {
+      return (_scratchData, phys - scratchAt);
+    }
+    return (_ramData, -1);
+  }
+
+  int read8(int addr) {
+    final (data, at) = _region(physical(addr));
+    return at < 0 ? 0 : data.getUint8(at);
+  }
+
+  int read16(int addr) {
+    final (data, at) = _region(physical(addr));
+    if (at < 0 || at + 1 >= data.lengthInBytes) return 0;
+    return data.getUint16(at, Endian.little);
+  }
+
+  int read32(int addr) {
+    final (data, at) = _region(physical(addr));
+    if (at < 0 || at + 3 >= data.lengthInBytes) return 0;
+    return data.getUint32(at, Endian.little);
+  }
+
+  void write8(int addr, int value) {
+    final (data, at) = _region(physical(addr), true);
+    if (at >= 0) data.setUint8(at, value & 0xff);
+  }
+
+  void write16(int addr, int value) {
+    final (data, at) = _region(physical(addr), true);
+    if (at >= 0 && at + 1 < data.lengthInBytes) {
+      data.setUint16(at, value & 0xffff, Endian.little);
+    }
+  }
+
+  void write32(int addr, int value) {
+    final (data, at) = _region(physical(addr), true);
+    if (at >= 0 && at + 3 < data.lengthInBytes) {
+      data.setUint32(at, value, Endian.little);
+    }
+  }
+
+  /// A byte view of a region for bulk transfers; [phys] must be the start
+  /// of the region and the length must fit inside it.
+  Uint8List view(int phys, int length) {
+    if (phys >= ramAt && phys + length <= ramEnd) {
+      return Uint8List.sublistView(ram, phys - ramAt, phys - ramAt + length);
+    }
+    if (phys >= vramAt && phys + length <= vramAt + vramSize) {
+      return Uint8List.sublistView(vram, phys - vramAt, phys - vramAt + length);
+    }
+    if (phys >= scratchAt && phys + length <= scratchAt + scratchSize) {
+      return Uint8List.sublistView(
+          scratch, phys - scratchAt, phys - scratchAt + length);
+    }
+    throw ArgumentError('no region at 0x${phys.toRadixString(16)}');
+  }
+
+  /// Copies guest bytes out for the loader and state code; unmapped parts
+  /// read as zero.
+  Uint8List readBytes(int addr, int length) {
+    final out = Uint8List(length);
+    for (var i = 0; i < length; i++) {
+      out[i] = read8(addr + i);
+    }
+    return out;
+  }
+
+  void writeBytes(int addr, List<int> bytes) {
+    for (var i = 0; i < bytes.length; i++) {
+      write8(addr + i, bytes[i]);
+    }
+  }
+
+  String readString(int addr, [int max = 256]) {
+    final bytes = <int>[];
+    for (var i = 0; i < max; i++) {
+      final b = read8(addr + i);
+      if (b == 0) break;
+      bytes.add(b);
+    }
+    return String.fromCharCodes(bytes);
+  }
+}

@@ -23,8 +23,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       GetCommandLineArguments();
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
-  // Flutter GPU can draw the 3D renders of the cores.
-  project.set_enable_flutter_gpu(true);
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);

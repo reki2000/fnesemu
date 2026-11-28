@@ -23,19 +23,36 @@ abstract interface class WasmEnv {
 
   /// Whether blocks call the import after the helpers at their entry.
   bool get profileBlocks;
+
+  /// Whether the host supports Wasm fixed-width SIMD (v128).
+  bool get simd;
+
+  /// Whether the host supports Wasm tail calls (`return_call_indirect`).
+  bool get tailCalls;
+
   int slotFor(int pc, int tag);
 }
 
 /// Emits baseline Wasm with i32 and i64 locals for SSA values. Big-endian
-/// accesses reverse bytes around little-endian linear-memory operations. A block returns the
-/// next table index, or zero to leave the dispatcher. Chaining uses a loop
-/// rather than recursive calls, so guest loops cannot grow the host stack.
+/// accesses reverse bytes around little-endian linear-memory operations. When
+/// [WasmEnv.tailCalls] is enabled, blocks chain directly via
+/// `return_call_indirect` and return the exit reason on exit; otherwise a
+/// block returns the next table index (or zero to leave the dispatcher loop),
+/// so guest loops never grow the host stack.
 abstract final class WasmBackend {
   static const dynEntries = DynTable.entries;
   static int dynIndex(int pc, int tag) => DynTable.index(pc, tag);
 
-  static Uint8List dispatcher(int ctx) {
+  static Uint8List dispatcher(int ctx, {bool tailCalls = false}) {
     final c = _Code();
+    if (tailCalls) {
+      c.get(0);
+      c.op(0x13);
+      c.u(0);
+      c.u(0); // return_call_indirect () -> i32
+      c.op(0x0b);
+      return _module(c, 2, const [], const []);
+    }
     c.op(0x03, 0x40); // loop
     c.get(0);
     c.op(0x11);
@@ -51,32 +68,107 @@ abstract final class WasmBackend {
     c.op(0x0b);
     c.i32(0);
     c.op(0x0b);
-    return _module(c, 2, const [], 0);
+    return _module(c, 2, const [], const []);
   }
 
   static Uint8List compile(IrBlock block, WasmEnv env) {
     final c = _Code();
+    final importMap = <int, int>{};
+    final importIds = <int>[];
+    int importIndex(int id) => importMap.putIfAbsent(id, () {
+      final index = importIds.length;
+      importIds.add(id);
+      return index;
+    });
     final insts = block.insts;
     final fused = irFusedCompareConsumers(block);
     bool wide(int v) => insts[v].type == IrType.i64;
+    bool vector(int v) => insts[v].type == IrType.v128;
 
-    // SSA values occupy locals of their own width: i32 values and i32
-    // temporaries first, then i64 values and i64 temporaries.
-    final local = List<int>.filled(insts.length, 0);
-    var count32 = 0, count64 = 0;
-    for (var i = 0; i < insts.length; i++) {
-      local[i] = wide(i) ? count64++ : count32++;
+    // The forms of each v128 value that its uses need: the bits, which
+    // exits, memory and lane operations take, the binary64 values of the
+    // images as two halves, which vector unit operations take, and the
+    // flags of a vector unit operation. A value computes them where it is
+    // defined.
+    final needBits = List<bool>.filled(insts.length, false);
+    final needDecoded = List<bool>.filled(insts.length, false);
+    final needFlags = List<bool>.filled(insts.length, false);
+    void exitNeeds(IrExit e) {
+      for (final (_, v) in e.stores) {
+        if (vector(v.index)) needBits[v.index] = true;
+      }
     }
-    final address = count32, page = count32 + 1, temp = count32 + 2;
-    final swap32 = count32 + 3, value32 = count32 + 4;
-    final locals32 = count32 + 5;
+
+    block.exits.forEach(exitNeeds);
+    if (block.term case IrExitTerm(:final exit)) exitNeeds(exit);
+    for (var i = insts.length - 1; i >= 0; i--) {
+      final inst = insts[i];
+      switch (inst.op) {
+        case IrOp.ctxStore when vector(inst.a):
+          needBits[inst.a] = true;
+        case IrOp.store when vector(inst.b):
+          needBits[inst.b] = true;
+        case IrOp.vExtract || IrOp.vInsert || IrOp.vShuffle || IrOp.vuItof:
+          needBits[inst.a] = true;
+        case IrOp.vuMax || IrOp.vuMin || IrOp.vuClip:
+          needBits[inst.a] = needBits[inst.b] = true;
+        case IrOp.vBlend:
+          if (needBits[i]) needBits[inst.a] = needBits[inst.b] = true;
+          if (needDecoded[i]) needDecoded[inst.a] = needDecoded[inst.b] = true;
+        case IrOp.vuAdd || IrOp.vuSub || IrOp.vuMul:
+          needDecoded[inst.a] = needDecoded[inst.b] = true;
+        case IrOp.vuMadd || IrOp.vuMsub:
+          needDecoded[inst.a] = needDecoded[inst.b] = true;
+          needDecoded[inst.c] = true;
+        case IrOp.vuMac:
+          needFlags[inst.a] = true;
+        case IrOp.vuFtoi:
+          needDecoded[inst.a] = true;
+        default:
+      }
+    }
+
+    // SSA values occupy locals of their own width: i32 values, the flags
+    // of vector unit operations and i32 temporaries first, then i64 values
+    // and i64 temporaries, then v128 values, v128 temporaries and the
+    // binary64 halves of v128 values.
+    final local = List<int>.filled(insts.length, 0);
+    var count32 = 0, count64 = 0, count128 = 0;
+    for (var i = 0; i < insts.length; i++) {
+      local[i] = vector(i)
+          ? count128++
+          : wide(i)
+              ? count64++
+              : count32++;
+    }
+    final flagLocal = List<int>.filled(insts.length, -1);
+    final decodedLocal = List<int>.filled(insts.length, -1);
+    var flagCount = 0, decodedCount = 0;
+    for (var i = 0; i < insts.length; i++) {
+      if (needFlags[i]) flagLocal[i] = count32 + flagCount++;
+      if (needDecoded[i]) decodedLocal[i] = 2 * decodedCount++;
+    }
+    final scratch32 = count32 + flagCount;
+    final address = scratch32, page = scratch32 + 1, temp = scratch32 + 2;
+    final swap32 = scratch32 + 3, value32 = scratch32 + 4;
+    final locals32 = scratch32 + 5;
     for (var i = 0; i < insts.length; i++) {
       if (wide(i)) local[i] += locals32;
     }
     final swap64 = locals32 + count64, value64 = swap64 + 1;
     final mulLow = swap64 + 2, mulMiddle = swap64 + 3;
     final locals64 = count64 + 4;
+    final vectorBase = locals32 + locals64;
+    for (var i = 0; i < insts.length; i++) {
+      if (vector(i)) local[i] += vectorBase;
+    }
+    // v128 temporaries
+    final t = [for (var k = 0; k < 8; k++) vectorBase + count128 + k];
+    final decodedBase = vectorBase + count128 + t.length;
+    final locals128 =
+        count128 == 0 ? 0 : count128 + t.length + 2 * decodedCount;
     void get(int v) => c.get(local[v]);
+    int decoded(int v, int half) => decodedBase + decodedLocal[v] + half;
 
     // Emit a single-use comparison directly onto the Wasm if condition
     // stack instead of materializing it in a local and loading it again.
@@ -169,6 +261,14 @@ abstract final class WasmBackend {
       List<(int, IrValue)> stores = const [],
     }) {
       for (final (word, v) in stores) {
+        if (vector(v.index)) {
+          c.i32(env.ctxOffset + 4 * word);
+          get(v.index);
+          c.simd(0x0b);
+          c.u(2);
+          c.u(0);
+          continue;
+        }
         ctxStore(word, () => get(v.index), wide: wide(v.index));
       }
       if (refund != 0) {
@@ -188,7 +288,7 @@ abstract final class WasmBackend {
         () => pcLocal == null ? c.i32(pc) : c.get(pcLocal),
       );
       ctxStore(JitCtx.exitTag, () => c.i32(tag));
-      c.i32(0);
+      c.i32(env.tailCalls ? reason : 0);
       c.op(0x0f);
     }
 
@@ -200,7 +300,13 @@ abstract final class WasmBackend {
       exit(JitReason.miss, pc, tag);
       c.op(0x0b);
       c.get(page);
-      c.op(0x0f);
+      if (env.tailCalls) {
+        c.op(0x13);
+        c.u(0);
+        c.u(0); // return_call_indirect () -> i32
+      } else {
+        c.op(0x0f);
+      }
     };
 
     void sideExit(IrExit e) => exit(
@@ -287,6 +393,223 @@ abstract final class WasmBackend {
       if (windowed) c.op(0x0b);
     }
 
+    // four 32-bit lanes of two binary64 lanes of the words [low], [high]
+    List<int> lanes64(int low, int high) => [low, high, low, high];
+
+    // i8x16.shuffle of the two vectors on the stack by 32-bit lanes, 0 to
+    // 3 of the first and 4 to 7 of the second
+    void shuffle(List<int> lanes) {
+      c.simd(0x0d);
+      for (final l in lanes) {
+        for (var k = 0; k < 4; k++) {
+          c.op(4 * l + k);
+        }
+      }
+    }
+
+    /// The lanes of the encoded images of the binary64 lanes in the locals
+    /// [low] (lanes 0 and 1) and [high] (lanes 2 and 3) in temporaries:
+    /// t0 the image bits below single precision shifted into place (unless
+    /// [reversed]), t1 the high words, t3 the underflows, t4 the zeros and
+    /// t5 the overflows, in lane order or [reversed].
+    void encodeLanes(int low, int high, {required bool reversed}) {
+      final order = reversed ? const [3, 2, 1, 0] : const [0, 1, 2, 3];
+      void pick(List<int> words) {
+        shuffle([for (final o in order) words[o]]);
+      }
+
+      c.get(low);
+      c.get(high);
+      pick(const [1, 3, 5, 7]);
+      c.set(t[1]);
+      if (!reversed) {
+        c.get(low);
+        c.i32(29);
+        c.simd(0xcd); // i64x2.shr_u
+        c.get(high);
+        c.i32(29);
+        c.simd(0xcd);
+        pick(const [0, 2, 4, 6]);
+        c.v128(const [896 << 23, 896 << 23, 896 << 23, 896 << 23]);
+        c.simd(0xb1);
+        c.set(t[0]);
+      }
+      c.get(t[1]);
+      c.v128(const [0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff]);
+      c.simd(0x4e);
+      c.set(t[2]); // the magnitude of the high words
+      c.get(t[2]);
+      c.get(low);
+      c.get(high);
+      pick(const [0, 2, 4, 6]);
+      c.simd(0x50);
+      c.v128(const [0, 0, 0, 0]);
+      c.simd(0x37);
+      c.set(t[3]); // zero values
+      c.get(t[2]);
+      c.v128(const [897 << 20, 897 << 20, 897 << 20, 897 << 20]);
+      c.simd(0x39);
+      c.set(t[4]);
+      c.get(t[2]);
+      c.v128(const [
+        (1152 << 20) - 1,
+        (1152 << 20) - 1,
+        (1152 << 20) - 1,
+        (1152 << 20) - 1
+      ]);
+      c.simd(0x3b);
+      c.set(t[5]);
+      c.get(t[4]);
+      c.get(t[3]);
+      c.simd(0x4f);
+      c.set(t[3]);
+    }
+
+    /// the binary64 halves of the images of [v] to its decoded locals; each
+    /// binary64 lane takes its image in both words, which puts the sign at
+    /// bit 63
+    void decodeAt(int v) {
+      if (!needDecoded[v]) return;
+      final splat = insts[v].op == IrOp.vSplat;
+      for (var half = 0; half < (splat ? 1 : 2); half++) {
+        final h = half * 2;
+        get(v);
+        get(v);
+        shuffle([h, h, h + 1, h + 1]);
+        c.set(t[0]);
+        c.get(t[0]);
+        c.v128(lanes64(0x7fffffff, 0));
+        c.simd(0x4e);
+        c.i32(29);
+        c.simd(0xcb); // i64x2.shl
+        c.v128(lanes64(0, 896 << 20));
+        c.simd(0xce); // i64x2.add
+        c.get(t[0]);
+        c.v128(lanes64(0, 0x80000000));
+        c.simd(0x4e);
+        c.simd(0x50);
+        c.get(t[0]);
+        c.v128(lanes64(0x7f800000, 0));
+        c.simd(0x4e);
+        c.v128(const [0, 0, 0, 0]);
+        c.simd(0x37); // i32x4.eq
+        c.set(t[1]);
+        c.get(t[1]);
+        c.get(t[1]);
+        shuffle(const [0, 0, 2, 2]);
+        c.simd(0x4f); // andnot
+        c.set(decoded(v, half));
+      }
+      if (splat) {
+        c.get(decoded(v, 0));
+        c.set(decoded(v, 1));
+      }
+    }
+
+    /// pushes half [half] of the binary64 lanes [lanes] of [v], as
+    /// [IrOp.vShuffle] selects them
+    void decodedLanes(int v, int lanes, int half) {
+      final p = (lanes >> 4 * half) & 3, q = (lanes >> 4 * half + 2) & 3;
+      c.get(decoded(v, p >> 1));
+      if (p.isEven && q == p + 1) return;
+      c.get(decoded(v, q >> 1));
+      shuffle([2 * (p & 1), 2 * (p & 1) + 1, 4 + 2 * (q & 1), 5 + 2 * (q & 1)]);
+    }
+
+    /// The forms and the flags of the vector unit result [i] from its
+    /// binary64 lanes in t6 (lanes 0 and 1) and t7 (lanes 2 and 3); leaves
+    /// the bits, or zero when no use needs them.
+    void vuResult(int i) {
+      encodeLanes(t[6], t[7], reversed: false);
+      if (needDecoded[i]) {
+        // the zeros are +0, the bits below single precision are dropped,
+        // and an overflow is the largest magnitude of its sign
+        for (var half = 0; half < 2; half++) {
+          final h = 2 * half, r = t[6 + half];
+          void expand(int mask) {
+            c.get(mask);
+            c.get(mask);
+            shuffle([h, h, h + 1, h + 1]);
+          }
+
+          c.get(r);
+          c.v128(lanes64(0xe0000000, 0xffffffff));
+          c.simd(0x4e);
+          expand(t[4]);
+          c.simd(0x4f); // andnot
+          c.get(r);
+          c.v128(lanes64(0, 0x80000000));
+          c.simd(0x4e);
+          c.v128(lanes64(0xe0000000, 0x47ffffff));
+          c.simd(0x50);
+          // the overflow, else the truncated value
+          c.set(t[2]);
+          c.set(r);
+          c.get(t[2]);
+          c.get(r);
+          expand(t[5]);
+          c.simd(0x52); // bitselect
+          c.set(decoded(i, half));
+        }
+      }
+      if (needFlags[i]) {
+        var first = true;
+        for (final (v, shift) in [(t[4], 0), (t[1], 4), (t[3], 8), (t[5], 12)]) {
+          c.get(v);
+          c.get(v);
+          shuffle(const [3, 2, 1, 0]);
+          c.simd(0xa4); // i32x4.bitmask
+          if (shift != 0) {
+            c.i32(shift);
+            c.op(0x74);
+          }
+          if (!first) c.op(0x72);
+          first = false;
+        }
+        c.set(flagLocal[i]);
+      }
+      if (!needBits[i]) {
+        c.v128(const [0, 0, 0, 0]);
+        return;
+      }
+      // the bits of a normal image, the sign, and the largest magnitude of
+      // an overflow
+      c.get(t[0]);
+      c.get(t[4]);
+      c.get(t[5]);
+      c.simd(0x50);
+      c.simd(0x4f);
+      c.get(t[1]);
+      c.v128(const [0x80000000, 0x80000000, 0x80000000, 0x80000000]);
+      c.simd(0x4e);
+      c.simd(0x50);
+      c.get(t[5]);
+      c.i32(1);
+      c.simd(0xad); // i32x4.shr_u
+      c.simd(0x50);
+    }
+
+    /// Replaces the vector on the stack, pushed by [value] as well, by the
+    /// vuMax key of its lanes: the magnitude, negated for a sign, and 0
+    /// for an exponent 0.
+    void imageKey(void Function() value) {
+      c.v128(const [0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff]);
+      c.simd(0x4e);
+      value();
+      c.i32(31);
+      c.simd(0xac); // i32x4.shr_s
+      c.tee(t[0]);
+      c.simd(0x51);
+      c.get(t[0]);
+      c.simd(0xb1);
+      value();
+      c.v128(const [0x7f800000, 0x7f800000, 0x7f800000, 0x7f800000]);
+      c.simd(0x4e);
+      c.v128(const [0, 0, 0, 0]);
+      c.simd(0x37);
+      c.simd(0x4f);
+    }
+
     ctxLoad(JitCtx.stop);
     ctxLoad(JitCtx.budget);
     c.i32(0);
@@ -294,33 +617,84 @@ abstract final class WasmBackend {
     c.op(0x04, 0x40);
     exit(JitReason.budget, block.pc, block.tag);
     c.op(0x0b);
-    for (final g in block.guards) {
-      c.i32(g.addr);
-      c.set(address);
-      lookup(false);
-      c.get(page);
-      c.op(0x04, 0x40);
-      hostAddress();
-      c.load();
-      // Compare with the raw little-endian word in linear memory.
-      final v = g.value;
-      c.i32(
-        g.endian == IrEndian.big
+    if (block.guards.isNotEmpty) {
+      int guardWord(IrGuard g) {
+        final v = g.value;
+        return g.endian == IrEndian.big
             ? (v & 0xff) << 24 |
                   (v >>> 8 & 0xff) << 16 |
                   (v >>> 16 & 0xff) << 8 |
                   v >>> 24
-            : v,
-      );
-      c.op(0x47, 0x04, 0x40);
+            : v;
+      }
+
+      final pageMask = (1 << env.pageShift) - 1;
+      c.op(0x02, 0x40); // block $ok
+      c.op(0x02, 0x40); // block $fail
+      var gi = 0;
+      while (gi < block.guards.length) {
+        final pageIndex =
+            (block.guards[gi].addr & env.addrMask) >>> env.pageShift;
+        var pageEnd = gi + 1;
+        while (pageEnd < block.guards.length &&
+            ((block.guards[pageEnd].addr & env.addrMask) >>> env.pageShift) ==
+                pageIndex) {
+          pageEnd++;
+        }
+        c.i32(env.readTable + 4 * pageIndex);
+        c.load();
+        c.tee(page);
+        c.op(0x04, 0x40); // if (page != 0)
+        var k = gi;
+        while (k < pageEnd) {
+          final off = block.guards[k].addr & pageMask;
+          if (env.simd &&
+              k + 4 <= pageEnd &&
+              (block.guards[k + 1].addr & pageMask) == off + 4 &&
+              (block.guards[k + 2].addr & pageMask) == off + 8 &&
+              (block.guards[k + 3].addr & pageMask) == off + 12) {
+            c.get(page);
+            c.simd(0x00); // v128.load
+            c.u(2);
+            c.u(off);
+            c.v128([
+              guardWord(block.guards[k]),
+              guardWord(block.guards[k + 1]),
+              guardWord(block.guards[k + 2]),
+              guardWord(block.guards[k + 3]),
+            ]);
+            c.simd(0x38); // i32x4.ne
+            c.simd(0x53); // v128.any_true
+            c.op(0x0d, 1); // br_if $fail
+            k += 4;
+          } else if (k + 2 <= pageEnd &&
+              (block.guards[k + 1].addr & pageMask) == off + 4) {
+            c.get(page);
+            c.load(opcode: 0x29, align: 2, offset: off); // i64.load
+            c.i64(guardWord(block.guards[k]), guardWord(block.guards[k + 1]));
+            c.op(0x52, 0x0d, 1); // i64.ne; br_if $fail
+            k += 2;
+          } else {
+            c.get(page);
+            c.load(offset: off); // i32.load
+            c.i32(guardWord(block.guards[k]));
+            c.op(0x47, 0x0d, 1); // i32.ne; br_if $fail
+            k++;
+          }
+        }
+        c.op(0x0b); // end if
+        gi = pageEnd;
+      }
+      c.op(0x0c, 1); // br $ok
+      c.op(0x0b); // end $fail
       exit(JitReason.invalid, block.pc, block.tag);
-      c.op(0x0b, 0x0b);
+      c.op(0x0b); // end $ok
     }
     if (env.profileBlocks) {
       c.i32(0);
       c.i32(0);
       c.i32(0);
-      c.call(2 + env.helperCount);
+      c.call(importIndex(2 + env.helperCount));
       c.op(0x1a);
     }
     ctxStore(JitCtx.budget, () {
@@ -354,6 +728,160 @@ abstract final class WasmBackend {
       }
 
       switch (inst.op) {
+        case IrOp.ctxLoad when inst.type == IrType.v128:
+          c.i32(env.ctxOffset + 4 * inst.imm);
+          c.simd(0x00);
+          c.u(2);
+          c.u(0);
+        case IrOp.ctxStore when inst.type == IrType.v128:
+          c.i32(env.ctxOffset + 4 * inst.imm);
+          a();
+          c.simd(0x0b);
+          c.u(2);
+          c.u(0);
+        case IrOp.vSplat:
+          a();
+          c.simd(0x11);
+        case IrOp.vExtract:
+          a();
+          c.simd(0x1b);
+          c.op(inst.imm);
+        case IrOp.vInsert:
+          a();
+          b();
+          c.simd(0x1c);
+          c.op(inst.imm);
+        case IrOp.vShuffle:
+          a();
+          a();
+          shuffle([for (var k = 0; k < 4; k++) (inst.imm >> 2 * k) & 3]);
+        case IrOp.vBlend:
+          if (needDecoded[i]) {
+            for (var half = 0; half < 2; half++) {
+              final m = (inst.imm >> 2 * half) & 3;
+              final low = m & 1 != 0 ? inst.b : inst.a;
+              final high = m & 2 != 0 ? inst.b : inst.a;
+              c.get(decoded(low, half));
+              if (low != high) {
+                c.get(decoded(high, half));
+                shuffle(const [0, 1, 6, 7]);
+              }
+              c.set(decoded(i, half));
+            }
+          }
+          if (needBits[i]) {
+            b();
+            a();
+            c.v128([
+              for (var k = 0; k < 4; k++) inst.imm & (1 << k) != 0 ? -1 : 0
+            ]);
+            c.simd(0x52); // bitselect
+          } else {
+            c.v128(const [0, 0, 0, 0]);
+          }
+        case IrOp.vuAdd ||
+              IrOp.vuSub ||
+              IrOp.vuMul ||
+              IrOp.vuMadd ||
+              IrOp.vuMsub:
+          for (var half = 0; half < 2; half++) {
+            if (inst.c >= 0) c.get(decoded(inst.c, half));
+            decodedLanes(inst.a, inst.imm & 0xff, half);
+            decodedLanes(inst.b, inst.imm >> 8, half);
+            c.simd(switch (inst.op) {
+              IrOp.vuAdd => 0xf0, // f64x2.add
+              IrOp.vuSub => 0xf1, // f64x2.sub
+              _ => 0xf2, // f64x2.mul
+            });
+            if (inst.op == IrOp.vuMadd) c.simd(0xf0);
+            if (inst.op == IrOp.vuMsub) c.simd(0xf1);
+            c.set(t[6 + half]);
+          }
+          vuResult(i);
+        case IrOp.vuMac:
+          c.get(flagLocal[inst.a]);
+        case IrOp.vuItof:
+          for (var half = 0; half < 2; half++) {
+            a();
+            if (half == 1) {
+              a();
+              shuffle(const [2, 3, 2, 3]);
+            }
+            c.simd(0xfe); // f64x2.convert_low_i32x4_s
+            if (inst.imm != 0) {
+              c.v128(lanes64(0, (1023 - inst.imm) << 20));
+              c.simd(0xf2);
+            }
+            c.set(t[6 + half]);
+          }
+          vuResult(i);
+        case IrOp.vuFtoi:
+          // saturated to the limits of the sign
+          for (var half = 0; half < 2; half++) {
+            c.get(decoded(inst.a, half));
+            if (inst.imm != 0) {
+              c.v128(lanes64(0, (1023 + inst.imm) << 20));
+              c.simd(0xf2);
+            }
+            c.simd(0xfc); // i32x4.trunc_sat_f64x2_s_zero
+          }
+          shuffle(const [0, 1, 4, 5]);
+        case IrOp.vuMax || IrOp.vuMin:
+          b();
+          a();
+          a();
+          imageKey(a);
+          b();
+          imageKey(b);
+          if (inst.op == IrOp.vuMin) {
+            c.set(t[0]);
+            c.set(t[1]);
+            c.get(t[0]);
+            c.get(t[1]);
+          }
+          c.simd(0x39); // i32x4.lt_s: the lanes that take b
+          c.simd(0x52);
+        case IrOp.vuClip:
+          b();
+          b();
+          shuffle(const [3, 3, 3, 3]);
+          c.set(t[0]);
+          c.get(t[0]);
+          c.v128(const [0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff]);
+          c.simd(0x4e);
+          c.get(t[0]);
+          c.v128(const [0x7f800000, 0x7f800000, 0x7f800000, 0x7f800000]);
+          c.simd(0x4e);
+          c.v128(const [0, 0, 0, 0]);
+          c.simd(0x37);
+          c.simd(0x4f);
+          c.set(t[2]); // the limit
+          a();
+          imageKey(a);
+          c.set(t[3]);
+          c.get(t[3]);
+          c.get(t[2]);
+          c.simd(0x3b); // above: i32x4.gt_s
+          c.set(t[4]);
+          c.get(t[3]);
+          c.v128(const [0, 0, 0, 0]);
+          c.get(t[2]);
+          c.simd(0xb1); // i32x4.sub
+          c.simd(0x39); // below: i32x4.lt_s
+          c.set(t[5]);
+          // above and below interleaved by lane
+          c.get(t[4]);
+          c.get(t[5]);
+          shuffle(const [0, 4, 1, 5]);
+          c.simd(0xa4);
+          c.get(t[4]);
+          c.get(t[5]);
+          shuffle(const [2, 6, 2, 6]);
+          c.simd(0xa4);
+          c.i32(3);
+          c.op(0x71);
+          c.i32(4);
+          c.op(0x74, 0x72);
         case IrOp.constant:
           w ? c.i64(inst.imm, inst.immHi) : c.i32(inst.imm);
         case IrOp.ctxLoad:
@@ -523,6 +1051,71 @@ abstract final class WasmBackend {
         case IrOp.trunc32:
           a();
           c.op(0xa7);
+        case IrOp.load when inst.type == IrType.v128:
+          a();
+          c.set(address);
+          lookup(false);
+          if (inst.exit >= 0) {
+            exitIfUnmapped(block.exits[inst.exit]);
+            hostAddress();
+            c.simd(0x00); // v128.load
+            c.u(2);
+            c.u(0);
+          } else {
+            c.get(page);
+            c.op(0x04, 0x7b);
+            hostAddress();
+            c.simd(0x00);
+            c.u(2);
+            c.u(0);
+            c.op(0x05);
+            // the words through the callback in address order
+            c.v128(const [0, 0, 0, 0]);
+            for (var k = 0; k < 4; k++) {
+              c.get(address);
+              c.i32(4 * k);
+              c.op(0x6a);
+              c.i32(4);
+              c.i32(0);
+              c.call(importIndex(0));
+              c.simd(0x1c); // i32x4.replace_lane
+              c.op(k);
+            }
+            c.op(0x0b);
+          }
+        case IrOp.store when vector(inst.b):
+          a();
+          c.set(address);
+          lookup(true);
+          if (inst.exit >= 0) {
+            exitIfUnmapped(block.exits[inst.exit]);
+            hostAddress();
+            b();
+            c.simd(0x0b); // v128.store
+            c.u(2);
+            c.u(0);
+            break;
+          }
+          c.get(page);
+          c.op(0x04, 0x40);
+          hostAddress();
+          b();
+          c.simd(0x0b);
+          c.u(2);
+          c.u(0);
+          c.op(0x05);
+          for (var k = 0; k < 4; k++) {
+            c.get(address);
+            c.i32(4 * k);
+            c.op(0x6a);
+            b();
+            c.simd(0x1b); // i32x4.extract_lane
+            c.op(k);
+            c.i32(4);
+            c.call(importIndex(1));
+            c.op(0x1a);
+          }
+          c.op(0x0b);
         case IrOp.load:
           a();
           c.set(address);
@@ -563,7 +1156,7 @@ abstract final class WasmBackend {
               }
               c.i32(size == 8 ? 4 : size);
               c.i32(0);
-              c.call(0);
+              c.call(importIndex(0));
               if (size == 8) c.op(0xad);
             }
             if (size == 8) {
@@ -641,7 +1234,7 @@ abstract final class WasmBackend {
               c.op(0xa7);
             }
             c.i32(size == 8 ? 4 : size);
-            c.call(1);
+            c.call(importIndex(1));
             c.op(0x1a);
           }
           c.op(0x0b);
@@ -682,7 +1275,7 @@ abstract final class WasmBackend {
           a();
           b();
           get(inst.c);
-          c.call(2 + inst.imm);
+          c.call(importIndex(2 + inst.imm));
         case IrOp.exitIf:
           emitCondition(inst.a);
           c.op(0x04, 0x40);
@@ -695,6 +1288,12 @@ abstract final class WasmBackend {
           exitIfUnmapped(block.exits[inst.aux]);
       }
       if (irHasResult(inst.op)) c.set(local[i]);
+      if (vector(i) &&
+          !irIsVuArithmetic(inst.op) &&
+          inst.op != IrOp.vuItof &&
+          inst.op != IrOp.vBlend) {
+        decodeAt(i);
+      }
     }
 
     switch (block.term) {
@@ -736,7 +1335,13 @@ abstract final class WasmBackend {
         exit(JitReason.miss, 0, tag, pcLocal: address);
         c.op(0x0b);
         c.get(page);
-        c.op(0x0f);
+        if (env.tailCalls) {
+          c.op(0x13);
+          c.u(0);
+          c.u(0); // return_call_indirect () -> i32
+        } else {
+          c.op(0x0f);
+        }
       case IrExitTerm(:final exit):
         sideExit(exit);
     }
@@ -745,15 +1350,17 @@ abstract final class WasmBackend {
     return _module(c, 0, [
       (locals32, 0x7f),
       (locals64, 0x7e),
-    ], 2 + env.helperCount + (env.profileBlocks ? 1 : 0));
+      (locals128, 0x7b),
+    ], importIds);
   }
 
   static Uint8List _module(
     _Code code,
     int type,
     List<(int, int)> locals,
-    int imports,
+    List<int> importIds,
   ) {
+    final imports = importIds.length;
     final m = _Code()..bytes.addAll([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
     final types = _Code()..u(3);
     for (final params in [0, 3, 1]) {
@@ -774,9 +1381,9 @@ abstract final class WasmBackend {
     im.name('table');
     im.op(1, 0x70, 0);
     im.u(0);
-    for (int i = 0; i < imports; i++) {
+    for (final id in importIds) {
       im.name('env');
-      im.name('f$i');
+      im.name('f$id');
       im.op(0);
       im.u(1);
     }
@@ -864,6 +1471,22 @@ final class _Code {
   void get(int index) {
     op(0x20);
     u(index);
+  }
+
+  /// a SIMD instruction
+  void simd(int opcode) {
+    op(0xfd);
+    u(opcode);
+  }
+
+  /// v128.const of four 32-bit lanes
+  void v128(List<int> lanes) {
+    simd(0x0c);
+    for (final l in lanes) {
+      for (var k = 0; k < 4; k++) {
+        op((l >> 8 * k) & 0xff);
+      }
+    }
   }
 
   void set(int index) {

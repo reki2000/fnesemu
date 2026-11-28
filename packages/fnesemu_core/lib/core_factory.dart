@@ -40,8 +40,14 @@ class CoreFactory {
     final modules = installedCoreModules.toList()
       ..sort((a, b) => a.discPriority.compareTo(b.discPriority));
     for (final module in modules) {
-      final system = await module.identifyDisc(drive);
-      if (system != null) return system;
+      // a check which fails on a disc of another system does not claim it,
+      // and the other cores still look at the disc
+      try {
+        final system = await module.identifyDisc(drive);
+        if (system != null) return system;
+      } catch (_) {
+        continue;
+      }
     }
     return null;
   }

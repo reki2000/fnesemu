@@ -44,6 +44,15 @@ Future<void> _until(
   }
 }
 
+/// Presses the toolbar button [key] through its callback. The game keeps
+/// running in real time, and the scrolling toolbar can move between a
+/// layout and a tap, so a tap at the button's position could miss it.
+void _press(WidgetTester tester, String key) {
+  final tile = tester.widget<ListTile>(find.byKey(ValueKey(key)));
+  expect(tile.onTap, isNotNull, reason: key);
+  tile.onTap!();
+}
+
 Future<void> _untilFound(WidgetTester tester, Finder finder) =>
     _until(tester, () => finder.evaluate().isNotEmpty, '$finder');
 
@@ -90,13 +99,13 @@ void main() {
     // without a game, the state buttons are disabled
     expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('save-state')))
-            .onPressed,
+            .widget<ListTile>(find.byKey(const ValueKey('save-state')))
+            .onTap,
         isNull);
     expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('load-state')))
-            .onPressed,
+            .widget<ListTile>(find.byKey(const ValueKey('load-state')))
+            .onTap,
         isNull);
 
     // boot the fixture ROM through the directory picker
@@ -135,12 +144,10 @@ void main() {
     await tester.pump();
     expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('save-state')))
-            .onPressed,
+            .widget<ListTile>(find.byKey(const ValueKey('save-state')))
+            .onTap,
         isNotNull);
-    await tester.ensureVisible(find.byTooltip('Save state'));
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => tester.tap(find.byTooltip('Save state')));
+    await tester.runAsync(() async => _press(tester, 'save-state'));
     await _untilFound(tester, find.byType(StateSlotDialog));
     expect(find.byType(StateSlotDialog), findsOneWidget);
     expect(find.text('Save state'), findsWidgets);
@@ -168,9 +175,7 @@ void main() {
     await tester.runAsync(() => _untilSaved(storage, gameId, 3));
 
     // the load dialog disables the empty slots and shows the saved ones
-    await tester.ensureVisible(find.byTooltip('Load state'));
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => tester.tap(find.byTooltip('Load state')));
+    await tester.runAsync(() async => _press(tester, 'load-state'));
     await _untilFound(tester, find.byType(StateSlotDialog));
     expect(find.byType(StateSlotDialog), findsOneWidget);
     for (final (slot, enabled) in [(0, true), (1, false), (3, true)]) {

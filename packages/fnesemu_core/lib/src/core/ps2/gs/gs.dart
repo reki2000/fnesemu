@@ -1,10 +1,57 @@
 import 'dart:typed_data';
 
+import '../../../compute_sink.dart';
 import '../../../field_output.dart';
 import '../../../types.dart';
+import '../../../util/debug.dart';
 import '../state.dart';
+import 'gs_compute.dart';
 import 'gs_memory.dart';
 import 'gs_raster.dart';
+
+void Function(int operation, int register, int value)? gsCommandRecorder;
+
+/// the registers that select the picture of the read circuits
+typedef _Display = ({
+  int pmode,
+  int smode2,
+  int dispfb1,
+  int display1,
+  int dispfb2,
+  int display2,
+});
+
+/// Takes the work of a Gs in order while attached as [Gs.residentSink]: the
+/// primitives, the transfers and the CLUT loads. The Gs keeps its registers,
+/// and the sink brings [Gs.mem] up to date at each vblank and before a local
+/// to host transfer.
+abstract interface class GsResidentSink {
+  void beginUpload(int psm, int base, int bufferWidth, int x, int y,
+      int width, int height);
+
+  /// Returns true after the last word of the transfer.
+  bool uploadWord(int word);
+  void loadClut(int entry, int psm, int index);
+
+  /// Copies the rectangle of a local to local transfer, with the fields of
+  /// BITBLTBUF, TRXPOS and TRXREG, in the order of DIR of TRXPOS.
+  void copyLocal(int bitbltbuf, int trxpos, int trxreg);
+
+  /// Brings the rectangle of a local to host transfer up to date in
+  /// [Gs.mem], from which the core then reads it.
+  void beginDownload(int psm, int base, int bufferWidth, int x, int y,
+      int width, int height);
+
+  /// Called at the start of each vertical blank with the field that ends.
+  void vblank(int field);
+
+  /// Takes a primitive instead of the raster. [type] is a Gs.prim* value,
+  /// [attrs] the PRIM attribute bits in effect, and [vertices] one for a
+  /// point, two for a line or a sprite and three for a triangle.
+  void primitive(int type, int attrs, List<GsVertex> vertices);
+}
+
+final _log = DebugLog('ps2 gs');
 
 /// A vertex of the primitive being assembled.
 class GsVertex {
@@ -100,8 +147,64 @@ class Gs {
   /// the TEX0 fields that TEX2 replaces: PSM and the CLUT fields
   static const _tex2Mask = 0xffffffe003f00000;
 
-  final mem = GsMemory();
+  final _mem = GsMemory();
   late final GsRaster raster = GsRaster(this);
+
+  /// the sink that takes the work of the Gs; null draws in [raster]
+  GsResidentSink? residentSink;
+
+  /// the GS on the GPU of [_computeSink], attached while the app gives one
+  GsCompute? _compute;
+  ComputeSink? _computeSink;
+
+  /// the GS on the GPU while it is attached, for tools
+  GsCompute? get compute => _compute;
+
+  /// Set when a local to host transfer waits for the memory from a GPU
+  /// that does not wait: the core stops after the current instruction,
+  /// awaits [computeWait] and calls [syncCompute] before it runs on.
+  bool syncRequested = false;
+
+  /// On a sink that does not wait, returns the future of the previous
+  /// vblank's display prefetch if it has not settled yet.
+  Future<void>? vblankWait() => _compute?.vblankWait();
+
+  /// Asks the GPU for the memory that the Gs needs at the next vblank, a
+  /// transfer or a saved state, on a sink that does not wait. Returns the
+  /// future that completes when it has come; null when it is there.
+  Future<void>? computeWait() {
+    if (!syncRequested) {
+      if (_compute?.vblankWait() case final wait?) return wait;
+    }
+    return _compute?.requestSync();
+  }
+
+  /// Brings [mem] up to date for the transfer of [syncRequested], after
+  /// [computeWait] has completed.
+  void syncCompute() {
+    syncRequested = false;
+    _compute?.sync();
+  }
+
+  GsMemory get mem => _mem;
+
+  /// Moves the work of the Gs to [sink], or back to [raster] when null.
+  set computeSink(ComputeSink? sink) {
+    if (identical(sink, _computeSink)) return;
+    _compute?.detach();
+    syncRequested = false;
+    _compute = null;
+    _shown = null;
+    _computeSink = sink;
+    if (sink == null) return;
+    try {
+      _compute = GsCompute(this, sink)..attach();
+      _log.info('drawing on ${sink.name}');
+    } catch (e) {
+      // without the program, the Gs draws by itself
+      _log.warn('no compute GS on ${sink.name}: $e');
+    }
+  }
 
   /// raised when an unmasked event sets a CSR flag
   void Function()? onInterrupt;
@@ -113,7 +216,23 @@ class Gs {
   int extbuf = 0, extdata = 0, extwrite = 0, bgcolor = 0;
   int csr = 0, imr = 0xff00, busdir = 0, siglblid = 0;
   int _field = 0;
+
+  /// Whether the vblank starts before a read of CSR ends, as for
+  /// the I_STAT read of the INTC. A VSync wait that polls I_STAT sees the vblank this
+  /// early and then reads FIELD to choose the field it draws next, so the
+  /// read sees the field after the vblank too.
+  bool Function() vblankUpcoming = _never;
+
+  static bool _never() => false;
+
   final _fields = FieldOutput();
+
+  // The picture of the last vblank while the GPU draws it: the display
+  // registers and the field then. [_shown] is the progressive picture that
+  // [showPicture] made from it.
+  _Display? _pending;
+  int _pendingParity = 0;
+  ImageBuffer? _shown;
   int _pendingInterrupts = 0;
 
   // general registers
@@ -152,9 +271,11 @@ class Gs {
     for (final v in [...vertices, _incoming]) {
       v.saveState(w);
     }
+    _compute?.sync();
     w.typed(mem.bytes);
     raster.saveState(w);
     _fields.saveState(w);
+    w.ints([_heldQ, ..._held.sublist(_heldNext, _heldEnd)]);
   }
 
   void loadState(StateReader s) {
@@ -223,17 +344,30 @@ class Gs {
     s.typed(mem.bytes);
     raster.loadState(s);
     _fields.loadState(s);
+    final held = s.ints();
+    _heldQ = held[0];
+    _heldNext = _heldEnd = 0;
+    for (var k = 1; k + 2 < held.length; k += 3) {
+      _hold(held[k], held[k + 1], held[k + 2]);
+    }
+    _pending = null;
+    _shown = null;
+    // the GPU takes the loaded memory
+    _compute?.attach();
   }
 
   void reset() {
     _field = 0;
     _fields.reset();
+    _pending = null;
+    _shown = null;
     csr = 0;
     imr = 0xff00;
     _pendingInterrupts = 0;
     _vertexCount = 0;
     _trxLeft = 0;
     trxdir = 3;
+    _heldNext = _heldEnd = 0;
   }
 
   // ---- privileged registers ----
@@ -271,7 +405,8 @@ class Gs {
       case 0x00e0:
         return bgcolor;
       case 0x1000:
-        return csr | (_field << 13) | (0x55 << 24) | (0x1b << 16);
+        final field = vblankUpcoming() ? _field ^ 1 : _field;
+        return csr | (field << 13) | (0x55 << 24) | (0x1b << 16);
       case 0x1010:
         return imr;
       case 0x1040:
@@ -283,7 +418,9 @@ class Gs {
   }
 
   void writePrivileged(int address, int value) {
-    switch (address & 0x1fff) {
+    gsCommandRecorder?.call(1, address, value);
+    final reg = address & 0x1fff;
+    switch (reg) {
       case 0x0000:
         pmode = value;
       case 0x0010:
@@ -319,6 +456,7 @@ class Gs {
         if (value & 0x200 != 0) reset();
         csr &= ~(value & 0x1f);
         _pendingInterrupts &= ~(value & 0x1f);
+        if (_stopped && csr & csrSignal == 0) _resume();
       case 0x1010:
         imr = value;
         _signalInterrupt();
@@ -341,9 +479,56 @@ class Gs {
     _pendingInterrupts = active;
   }
 
+  /// The frame buffer area that the picture of the current display reads:
+  /// its format, base, buffer width and rectangle. Null when it shows none.
+  ({int psm, int bp, int bw, int x, int y, int w, int h})? get displayArea {
+    if (pmode & 3 == 0) return null;
+    final useCircuit2 = pmode & 2 != 0;
+    final fb = useCircuit2 ? dispfb2 : dispfb1;
+    final disp = useCircuit2 ? display2 : display1;
+    final magh = (disp >> 23) & 15;
+    final width = (((disp >> 32) & 0xfff) + 1) ~/ (magh + 1);
+    // every mode reads rows below dby + the lines + 1 (see [_readImage])
+    final lines = ((disp >> 44) & 0x7ff) + 2;
+    final psm = (fb >> 15) & 0x1f;
+    if (width <= 0 || width > 2048 || !GsPsm.isValid(psm)) return null;
+    return (
+      psm: psm,
+      bp: (fb & 0x1ff) * 32,
+      bw: (fb >> 9) & 0x3f,
+      x: (fb >> 32) & 0x7ff,
+      y: (fb >> 43) & 0x7ff,
+      w: width,
+      h: lines < 2048 ? lines : 2048,
+    );
+  }
+
+  _Display get _display => (
+        pmode: pmode,
+        smode2: smode2,
+        dispfb1: dispfb1,
+        display1: display1,
+        dispfb2: dispfb2,
+        display2: display2,
+      );
+
   /// called at the start of the vertical blank
   void vblank() {
-    if (smode2 & 1 != 0) _readImage();
+    gsCommandRecorder?.call(4, 0, 0);
+    final compute = _compute;
+    if (compute != null &&
+        identical(residentSink, compute) &&
+        compute.defersPicture) {
+      // The picture of this vblank is made at the next one, when the GPU
+      // has drawn it, so the core does not wait for the GPU here.
+      showPicture();
+      compute.vblank(_field);
+      _pending = _display;
+      _pendingParity = _field;
+    } else {
+      residentSink?.vblank(_field);
+      if (smode2 & 1 != 0) _readImage(_field, _display);
+    }
     _field ^= 1;
     _event(csrVsint);
   }
@@ -361,13 +546,89 @@ class Gs {
 
   /// the current Q as register bits, for the packed RGBAQ format
   int get qBits {
+    if (_stopped) return _heldQ;
     _convert.setFloat32(0, _q);
     return _convert.getUint32(0);
   }
 
-  void setQ(int bits) => _q = _float(bits);
+  void setQ(int bits) {
+    if (_stopped) {
+      _hold(_heldSetQ, 0, bits);
+      _heldQ = bits & 0xffffffff;
+      return;
+    }
+    _setQ(bits);
+  }
+
+  void _setQ(int bits) {
+    gsCommandRecorder?.call(5, 0, bits);
+    _q = _float(bits);
+  }
+
+  // ---- the stop at SIGNAL ----
+
+  /// The writes that wait while the GS is stopped, three values each: the
+  /// kind, the register and the data. The GS is stopped while writes from
+  /// [_heldNext] on are held.
+  ///
+  /// A SIGNAL write that comes while the SIGNAL flag of CSR is still set
+  /// stops the GS until the CPU clears the flag. The paths still deliver
+  /// their data here, which is held in order and applied when the flag is
+  /// cleared; the hardware instead stops taking data, which only changes
+  /// the timing of the transfers.
+  var _held = Int64List(3 * 256);
+  int _heldNext = 0, _heldEnd = 0;
+
+  bool get _stopped => _heldNext < _heldEnd;
+
+  /// the Q value for the packed RGBAQ of the paths while writes are held
+  int _heldQ = 0;
+
+  static const _heldRegister = 0, _heldSetQ = 1, _heldHostQuad = 2;
+
+  void _hold(int kind, int a, int b) {
+    var held = _held;
+    if (_heldEnd + 3 > held.length) {
+      _held = held = Int64List(held.length * 2)..setAll(0, held);
+    }
+    held[_heldEnd] = kind;
+    held[_heldEnd + 1] = a;
+    held[_heldEnd + 2] = b;
+    _heldEnd += 3;
+  }
+
+  /// applies the held writes up to the next stop
+  void _resume() {
+    final held = _held, end = _heldEnd;
+    var k = _heldNext;
+    for (; k < end; k += 3) {
+      final kind = held[k], a = held[k + 1], b = held[k + 2];
+      if (kind == _heldRegister && a == 0x60 && csr & csrSignal != 0) break;
+      switch (kind) {
+        case _heldRegister:
+          _writeRegister(a, b);
+        case _heldSetQ:
+          _setQ(b);
+        default:
+          _hostQuad(a, b);
+      }
+    }
+    _heldNext = k;
+    if (k == _heldEnd) _heldNext = _heldEnd = 0;
+  }
 
   void writeRegister(int reg, int data) {
+    if (_stopped || reg == 0x60 && csr & csrSignal != 0) {
+      if (!_stopped) _heldQ = qBits;
+      _hold(_heldRegister, reg, data);
+      if (reg == 0x01) _heldQ = data >>> 32;
+      return;
+    }
+    _writeRegister(reg, data);
+  }
+
+  void _writeRegister(int reg, int data) {
+    if (reg != 0x54) gsCommandRecorder?.call(0, reg, data);
     switch (reg) {
       case 0x00:
         prim = data & 0x7ff;
@@ -576,6 +837,23 @@ class Gs {
     _accBits = 0;
     final w = _rrw, h = _rrh;
     _trxLeft = w * h;
+    final resident = residentSink;
+    if (resident != null) {
+      if (direction == 0) {
+        resident.beginUpload(_dpsm, _dbp, _dbw, (trxpos >> 32) & 0x7ff,
+            (trxpos >> 48) & 0x7ff, w, h);
+        return;
+      }
+      if (direction == 2) {
+        resident.copyLocal(bitbltbuf, trxpos, trxreg);
+        _trxLeft = 0;
+        return;
+      }
+      if (direction == 1) {
+        resident.beginDownload(_spsm, _sbp, _sbw, trxpos & 0x7ff,
+            (trxpos >> 16) & 0x7ff, w, h);
+      }
+    }
     if (direction == 2) {
       _localToLocal();
       _trxLeft = 0;
@@ -587,6 +865,7 @@ class Gs {
   /// Copies the rectangle in the order of DIR of TRXPOS, which matters when
   /// the source and the destination overlap.
   void _localToLocal() {
+    final mem = this.mem;
     final sx = trxpos & 0x7ff, sy = (trxpos >> 16) & 0x7ff;
     final dx = (trxpos >> 32) & 0x7ff, dy = (trxpos >> 48) & 0x7ff;
     final dir = (trxpos >> 59) & 3;
@@ -605,6 +884,13 @@ class Gs {
   /// receives 32 bits of image data for a host to local transfer
   void hostWord(int word) {
     if (trxdir != 0 || _trxLeft <= 0) return;
+    gsCommandRecorder?.call(2, 0, word & 0xffffffff);
+    final resident = residentSink;
+    if (resident != null) {
+      if (resident.uploadWord(word & 0xffffffff)) _trxLeft = 0;
+      return;
+    }
+    final mem = this.mem;
     final psm = _dpsm;
     final bits = GsPsm.pixelBits(psm);
     _acc |= (word & 0xffffffff) << _accBits;
@@ -630,6 +916,14 @@ class Gs {
   }
 
   void hostQuad(int low, int high) {
+    if (_stopped) {
+      _hold(_heldHostQuad, low, high);
+      return;
+    }
+    _hostQuad(low, high);
+  }
+
+  void _hostQuad(int low, int high) {
     hostWord(low);
     hostWord(low >>> 32);
     hostWord(high);
@@ -638,12 +932,14 @@ class Gs {
 
   /// supplies 128 bits of a local to host transfer
   void readQuad(Int64List out) {
+    gsCommandRecorder?.call(3, 0, 0);
     out[0] = _readWords() | (_readWords() << 32);
     out[1] = _readWords() | (_readWords() << 32);
   }
 
   int _readWords() {
     if (trxdir != 1) return 0;
+    final mem = this.mem;
     final psm = _spsm;
     final bits = GsPsm.pixelBits(psm);
     final sx = trxpos & 0x7ff, sy = (trxpos >> 16) & 0x7ff;
@@ -672,11 +968,25 @@ class Gs {
   /// The picture the CRT would show: the read circuit that is enabled (2
   /// before 1) at the size of its display rectangle. Completed interlaced
   /// fields retain the other parity; merge circuits remain unimplemented.
-  ImageBuffer image() => smode2 & 1 != 0 && _fields.image != null
-      ? _fields.image!
-      : _readImage();
+  ImageBuffer image() {
+    if (smode2 & 1 != 0 && _fields.image != null) return _fields.image!;
+    return _shown ?? _readImage(_field, _display);
+  }
 
-  ImageBuffer _readImage() {
+  /// Makes the picture of the vblank that the GPU has drawn since, from the
+  /// local memory then. Called before the memory is read for another use.
+  void showPicture() {
+    final display = _pending;
+    if (display == null) return;
+    _pending = null;
+    _compute?.takeMemory();
+    final image = _readImage(_pendingParity, display);
+    _shown = display.smode2 & 1 != 0 ? null : image;
+  }
+
+  ImageBuffer _readImage(int parity, _Display display) {
+    final (:pmode, :smode2, :dispfb1, :display1, :dispfb2, :display2) =
+        display;
     final interlaced = smode2 & 1 != 0;
     final useCircuit2 = pmode & 2 != 0;
     if (pmode & 3 == 0) {
@@ -709,17 +1019,43 @@ class Gs {
     }
     // FFMD=0 reads alternating source rows; FFMD=1 reads consecutive rows.
     final consecutive = smode2 & 2 != 0;
+    final mem = this.mem;
+    // the layout is looked up per row: a row of a page takes its units from
+    // one row of the page table
+    final layout = mem.layout(psm);
+    final table = layout.table;
+    final xBits = layout.xBits, yBits = layout.yBits;
+    final xMask = (1 << xBits) - 1, yMask = (1 << yBits) - 1;
+    final pages = layout.pagesInRow(bw), unitShift = layout.unitShift;
+    final words = mem.words;
+    final is16 = psm == GsPsm.ct16 || psm == GsPsm.ct16s;
+    final is32 = psm == GsPsm.ct32 || psm == GsPsm.ct24;
     for (var y = 0; y < height; y++) {
-      final sourceY = interlaced && !consecutive ? y * 2 + _field : y;
-      final sy = interlaced ? sourceY ~/ (magv + 1) : sourceY;
+      final sourceY = interlaced && !consecutive ? y * 2 + parity : y;
+      final sy = dby + (interlaced ? sourceY ~/ (magv + 1) : sourceY);
+      final row = (sy & yMask) << xBits;
+      final rowBase = bp * 64 + (sy >> yBits) * pages * 2048;
+      final o = y * width;
       for (var x = 0; x < width; x++) {
-        final raw = mem.read(psm, bp, bw, dbx + x, dby + sy);
-        out[y * width + x] = _displayColor(psm, raw);
+        final px = dbx + x;
+        final i = ((rowBase + (px >> xBits) * 2048) << unitShift) +
+            table[row | (px & xMask)];
+        if (is32) {
+          out[o + x] = 0xff000000 | (words[i & 0xfffff] & 0xffffff);
+        } else if (is16) {
+          final h = words[(i >> 1) & 0xfffff] >>> ((i & 1) << 4);
+          out[o + x] = 0xff000000 |
+              (((h >> 10) & 31) << 19) |
+              (((h >> 5) & 31) << 11) |
+              ((h & 31) << 3);
+        } else {
+          out[o + x] = _displayColor(psm, mem.readAt(psm, i));
+        }
       }
     }
     final field = ImageBuffer(width, height, out,
         displayWidth_: 320, displayHeight: height);
-    if (interlaced) return _fields.writeField(field, _field);
+    if (interlaced) return _fields.writeField(field, parity);
     _fields.reset();
     return field;
   }

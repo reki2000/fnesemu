@@ -59,9 +59,9 @@ class Ps2Bus {
   // TLB, so a TLB change clears them.
   static const _pageCount = 1 << 20;
   static const _scratchPages = 0x10000000, _biosPages = 0x20000000;
-  final _readPages = Int32List(_pageCount);
-  final _writePages = Int32List(_pageCount);
-  final _filled = Int32List(4096);
+  final _readPages = Uint32List(_pageCount);
+  final _writePages = Uint32List(_pageCount);
+  final _filled = Uint32List(4096);
   int _filledCount = 0;
 
   int _fetchEpoch = 0;
@@ -118,11 +118,12 @@ class Ps2Bus {
   int unmappedAccesses = 0;
   int lastUnmappedAddress = 0;
 
-  /// [ram] gives the main memory, such as a buffer shared with compiled
-  /// code; it must hold [ramSize] bytes
-  Ps2Bus({Uint8List? ram})
+  /// [ram] and [scratch] give the main memory and the scratchpad, such as
+  /// buffers shared with compiled code; they must hold [ramSize] and
+  /// [scratchSize] bytes
+  Ps2Bus({Uint8List? ram, Uint8List? scratch})
       : this._(ram ?? Uint8List(ramSize), Uint8List(biosSize),
-            Uint8List(scratchSize));
+            scratch ?? Uint8List(scratchSize));
 
   Ps2Bus._(this.ram, this.bios, this.scratch)
       : _ram = ByteData.sublistView(ram),
@@ -177,6 +178,22 @@ class Ps2Bus {
     }
     _unmapped(a);
     return null;
+  }
+
+  /// The physical address of the device register that a read of [vaddr]
+  /// reaches, or -1 for memory and for unmapped addresses. Translates
+  /// without counting an unmapped access.
+  int deviceAddress(int vaddr) {
+    final a = vaddr & 0xffffffff;
+    if (a >= scratchBase && a < scratchBase + scratchSize) return -1;
+    int phys;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      phys = a & 0x1fffffff;
+    } else {
+      final t = _physical ? null : tlb;
+      phys = t != null && t.active ? t.translate(a, false) : a;
+    }
+    return phys >= 0x10000000 && phys < 0x20000000 ? phys : -1;
   }
 
   void _unmapped(int a) {

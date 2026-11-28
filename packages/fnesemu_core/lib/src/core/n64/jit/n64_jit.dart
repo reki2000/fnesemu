@@ -33,6 +33,24 @@ final class N64Jit extends JitAdapter {
   late final N64Bus bus;
   late final Vr4300Translator _translator;
   late final _code = JitCodeMemory(rt);
+  final _watchedPages = <(int, (Uint8List, int)?, (Uint8List, int)?)>[];
+
+  void watchRdram(int start, int end) {
+    final last = (end - 1) >>> rt.pageShift;
+    for (var page = start >>> rt.pageShift; page <= last; page++) {
+      _watchedPages.add((page, rt.readPages[page], rt.writePages[page]));
+      rt.setPage(false, page, null);
+      rt.setPage(true, page, null);
+    }
+  }
+
+  void unwatchRdram() {
+    for (final (page, read, write) in _watchedPages) {
+      rt.setPage(false, page, read);
+      rt.setPage(true, page, write);
+    }
+    _watchedPages.clear();
+  }
   late final _driver = JitDriver(rt,
       translate: (pc, tag) => _translator.translate(pc, tag: tag),
       codeWord: _fetch,
@@ -191,8 +209,7 @@ final class N64Jit extends JitAdapter {
       pc & 3 == 0 &&
       (pc & 0x1fffffff) + 4 <= ram.length;
 
-  int? _fetch(int pc) =>
-      _canFetch(pc) ? bus.ramData.getUint32(pc & 0x1fffffff) : null;
+  int? _fetch(int pc) => _canFetch(pc) ? bus.fetch(pc) : null;
 
   @override
   void reset() {
@@ -210,6 +227,7 @@ final class N64Jit extends JitAdapter {
     if (budget <= 0) return false;
     final originalPc = cpu.pc;
     if (!_canFetch(originalPc)) return false;
+    bus.touchRdram(originalPc & 0x1fffffff, 4);
     final tag = cop1
         ? (fpu.wide ? 1 : 0) | ((cpu.cop0[12] & (1 << 29)) != 0 ? 2 : 0)
         : 0;

@@ -1,7 +1,10 @@
 /// The IR of a guest code block.
 ///
 /// A block is straight-line SSA code with one entry, optional side exits
-/// ([IrBuilder.exitIf]) and one terminator. Values have explicit i32 or i64 widths.
+/// ([IrBuilder.exitIf]) and one terminator. Values have explicit i32, i64 or
+/// v128 widths; v128 values exist only on runtimes with [JitRuntime.vectors]
+/// and take part only in context accesses, exit stores and the vector
+/// operations.
 /// Guest state lives in the context, an array of 32-bit words shared with the
 /// host; [IrBuilder.ctxLoad] and [IrBuilder.ctxStore] access it by a constant
 /// word index; i64 context values occupy two words, low word first. Guest
@@ -12,7 +15,11 @@ library;
 /// Value widths for bit patterns; integer arithmetic wraps at the declared width.
 enum IrType {
   i32(32),
-  i64(64);
+  i64(64),
+
+  /// four 32-bit lanes, lane 0 at the lowest context word, or two binary64
+  /// lanes, each the size of two 32-bit lanes
+  v128(128);
 
   final int bits;
   const IrType(this.bits);
@@ -122,7 +129,76 @@ enum IrOp {
 
   /// exits through aux if address a has no mapped page; imm is 1 for write
   guardMapped,
+
+  // ---- vector operations (v128) ----
+
+  /// the i32 a in every lane
+  vSplat,
+
+  /// lane imm (0 to 3) of a, as i32
+  vExtract,
+
+  /// a with lane imm (0 to 3) replaced by the i32 b
+  vInsert,
+
+  /// lane i is lane `(imm >> 2 * i) & 3` of a
+  vShuffle,
+
+  /// lane i is lane i of b if bit i of imm is set, else lane i of a
+  vBlend,
+
+  /// The vector unit operations on register images of a console: binary32
+  /// bits with no infinity or NaN, whose exponent 0 is a zero (+0) and 255
+  /// a normal exponent. Lane i of the result takes lane `(imm >> 2 * i) & 3`
+  /// of a and lane `(imm >> 8 + 2 * i) & 3` of b. The images are converted
+  /// to binary64 exactly, the product is exact, a sum is rounded to nearest,
+  /// and the result is truncated to an image: an exponent below the single
+  /// range gives a zero of the sign, one above it the largest magnitude of
+  /// the sign, and otherwise the bits below single precision are dropped.
+  ///
+  /// a + b, a - b and a * b
+  vuAdd,
+  vuSub,
+  vuMul,
+
+  /// c + a * b and c - a * b, with lane i of the accumulator c
+  vuMadd,
+  vuMsub,
+
+  /// The flags of the result of the operation a ([vuAdd] to [vuMsub]) as
+  /// i32: for lane i, bit 3 - i is set for a zero image, 7 - i for a set
+  /// sign, 11 - i for an underflow (a zero image of a nonzero value) and
+  /// 15 - i for an overflow.
+  vuMac,
+
+  /// The register image of each signed 32-bit lane of a divided by 2^imm
+  /// (0 to 31), truncated as the result of [vuAdd].
+  vuItof,
+
+  /// Each register image of a multiplied by 2^imm (0 to 31) as a signed
+  /// 32-bit integer, truncated toward zero; a value beyond the range gives
+  /// the limit of its sign.
+  vuFtoi,
+
+  /// Lane i is the larger (vuMax) or the smaller (vuMin) of the register
+  /// images in lane i of a and b, compared by value with every image of
+  /// exponent 0 equal to zero; a for equal values.
+  vuMax,
+  vuMin,
+
+  /// The clip judgement of lanes 0 to 2 of a against the magnitude of lane
+  /// 3 of b, as i32: for lane i, bit 2 * i is set when the value is above
+  /// the magnitude, and bit 2 * i + 1 when it is below its negation, with
+  /// the images compared as for [vuMax].
+  vuClip,
 }
+
+/// Whether [op] is one of [IrOp.vuAdd] to [IrOp.vuMsub].
+bool irIsVuArithmetic(IrOp op) =>
+    op.index >= IrOp.vuAdd.index && op.index <= IrOp.vuMsub.index;
+
+/// Whether [op] is a vector operation.
+bool irIsVector(IrOp op) => op.index >= IrOp.vSplat.index;
 
 /// Number of value operands of each [IrOp].
 int irOperandCount(IrOp op) => switch (op) {
@@ -140,17 +216,24 @@ int irOperandCount(IrOp op) => switch (op) {
   IrOp.floatSqrt ||
   IrOp.load ||
   IrOp.exitIf ||
-  IrOp.guardMapped => 1,
-  IrOp.select || IrOp.call => 3,
+  IrOp.guardMapped ||
+  IrOp.vSplat ||
+  IrOp.vExtract ||
+  IrOp.vShuffle ||
+  IrOp.vuMac ||
+  IrOp.vuItof ||
+  IrOp.vuFtoi => 1,
+  IrOp.select || IrOp.call || IrOp.vuMadd || IrOp.vuMsub => 3,
   _ => 2,
 };
 
 /// The index of the exit/terminal consuming each single-use comparison,
 /// or -1 when its boolean result must be materialized. Side-exit snapshots,
 /// calls and all other consumers count as uses; only an exitIf or terminator
-/// may fuse. Backends emit the comparison at that consumer, not at its IR
-/// definition, so intervening flag-clobbering instructions are harmless.
-List<int> irFusedCompareConsumers(IrBlock block) {
+/// may fuse, and with [selects] also a select that takes the comparison as
+/// its condition. Backends emit the comparison at that consumer, not at its
+/// IR definition, so intervening flag-clobbering instructions are harmless.
+List<int> irFusedCompareConsumers(IrBlock block, {bool selects = false}) {
   final n = block.insts.length;
   final uses = List<int>.filled(n, 0);
   final consumers = List<int>.filled(n, -1);
@@ -171,7 +254,9 @@ List<int> irFusedCompareConsumers(IrBlock block) {
     if (i.op == IrOp.exitIf || i.op == IrOp.guardMapped) {
       exitUses(block.exits[i.aux]);
     }
-    if (i.op == IrOp.exitIf) consumers[i.a] = at;
+    if (i.op == IrOp.exitIf || selects && i.op == IrOp.select) {
+      consumers[i.a] = at;
+    }
   }
   switch (block.term) {
     case IrBranch t:
@@ -434,6 +519,10 @@ final class IrBlock {
     }
 
     IrType type(int v) => insts[v].type;
+    void lanes(int imm, int limit) {
+      if (!(imm >= 0 && imm < limit)) fail('an immediate is out of range');
+    }
+
     if (!(cost >= 0)) {
       fail('negative block cost');
     }
@@ -525,7 +614,15 @@ final class IrBlock {
           }
           if (inst.op == IrOp.ctxStore) width(type(inst.a) == inst.type);
         case IrOp.load || IrOp.store:
-          if (!([1, 2, 4, 8].contains(inst.imm) &&
+          if (inst.type == IrType.v128) {
+            // a whole aligned vector, which stays in one page
+            if (!(inst.imm == 16 &&
+                inst.endian == IrEndian.little &&
+                inst.translation == -1 &&
+                inst.aux == 0)) {
+              fail('v$i is an invalid v128 access');
+            }
+          } else if (!([1, 2, 4, 8].contains(inst.imm) &&
               inst.imm <= inst.type.bytes)) {
             fail('v$i has an invalid access size ${inst.imm}');
           }
@@ -577,8 +674,56 @@ final class IrBlock {
         case IrOp.sext8 || IrOp.sext16 || IrOp.zext8 || IrOp.zext16:
           // These conversions may extend a narrow value to either width.
           break;
+        case IrOp.vSplat:
+          width(inst.type == IrType.v128 && type(inst.a) == IrType.i32);
+        case IrOp.vExtract:
+          width(inst.type == IrType.i32 && type(inst.a) == IrType.v128);
+          lanes(inst.imm, 4);
+        case IrOp.vInsert:
+          width(inst.type == IrType.v128 &&
+              type(inst.a) == IrType.v128 &&
+              type(inst.b) == IrType.i32);
+          lanes(inst.imm, 4);
+        case IrOp.vShuffle:
+          width(inst.type == IrType.v128 && type(inst.a) == IrType.v128);
+          lanes(inst.imm, 256);
+        case IrOp.vuAdd || IrOp.vuSub || IrOp.vuMul:
+          width(inst.type == IrType.v128 &&
+              type(inst.a) == IrType.v128 &&
+              type(inst.b) == IrType.v128);
+          lanes(inst.imm, 0x10000);
+        case IrOp.vuMadd || IrOp.vuMsub:
+          width(inst.type == IrType.v128 &&
+              type(inst.a) == IrType.v128 &&
+              type(inst.b) == IrType.v128 &&
+              type(inst.c) == IrType.v128);
+          lanes(inst.imm, 0x10000);
+        case IrOp.vuMac:
+          width(inst.type == IrType.i32 && irIsVuArithmetic(insts[inst.a].op));
+        case IrOp.vuItof || IrOp.vuFtoi:
+          width(inst.type == IrType.v128 && type(inst.a) == IrType.v128);
+          lanes(inst.imm, 32);
+        case IrOp.vBlend:
+          width(inst.type == IrType.v128 &&
+              type(inst.a) == IrType.v128 &&
+              type(inst.b) == IrType.v128);
+          lanes(inst.imm, 16);
+        case IrOp.vuClip:
+          width(inst.type == IrType.i32 &&
+              type(inst.a) == IrType.v128 &&
+              type(inst.b) == IrType.v128);
         default:
           width(inst.type == type(inst.a) && inst.type == type(inst.b));
+      }
+      if (!irIsVector(inst.op) &&
+          inst.op != IrOp.ctxLoad &&
+          inst.op != IrOp.ctxStore &&
+          inst.op != IrOp.load &&
+          inst.op != IrOp.store &&
+          (inst.type == IrType.v128 ||
+              [inst.a, inst.b, inst.c]
+                  .any((v) => v >= 0 && type(v) == IrType.v128))) {
+        fail('v$i uses a v128 value outside the vector operations');
       }
     }
     switch (term) {
@@ -621,7 +766,12 @@ final class IrBuilder {
 
   int get length => _insts.length;
 
+  /// the v128 values so far
+  int get vectors => _vectors;
+  int _vectors = 0;
+
   IrValue _emit(IrInst inst) {
+    if (inst.type == IrType.v128) _vectors++;
     _insts.add(inst);
     return IrValue(_insts.length - 1);
   }
@@ -785,6 +935,50 @@ final class IrBuilder {
   /// IEEE bits to a signed word, to nearest even or with [truncate] toward zero
   IrValue floatToInt(IrValue a, {bool truncate = false}) =>
       _emit(IrInst(IrOp.floatToInt, a: a.index, imm: truncate ? 1 : 0));
+
+  IrValue vSplat(IrValue a) =>
+      _emit(IrInst(IrOp.vSplat, a: a.index, type: IrType.v128));
+  IrValue vExtract(IrValue a, int lane) =>
+      _emit(IrInst(IrOp.vExtract, a: a.index, imm: lane));
+  IrValue vInsert(IrValue a, IrValue value, int lane) => _emit(IrInst(
+      IrOp.vInsert,
+      a: a.index,
+      b: value.index,
+      imm: lane,
+      type: IrType.v128));
+  IrValue vShuffle(IrValue a, int lanes) => _emit(
+      IrInst(IrOp.vShuffle, a: a.index, imm: lanes, type: IrType.v128));
+  IrValue vBlend(IrValue a, IrValue b, int mask) => _emit(IrInst(IrOp.vBlend,
+      a: a.index, b: b.index, imm: mask, type: IrType.v128));
+  /// [IrOp.vuAdd] to [IrOp.vuMsub] ([op]) of the lanes [aLanes] of [a] and
+  /// [bLanes] of [b], as for [vShuffle], with the accumulator [c] of
+  /// vuMadd and vuMsub
+  IrValue vuArithmetic(IrOp op, IrValue a, IrValue b,
+      {IrValue? c, int aLanes = 0xe4, int bLanes = 0xe4}) {
+    if (!irIsVuArithmetic(op) ||
+        (c != null) != (op == IrOp.vuMadd || op == IrOp.vuMsub)) {
+      throw ArgumentError.value(op);
+    }
+    return _emit(IrInst(op,
+        a: a.index,
+        b: b.index,
+        c: c?.index ?? -1,
+        imm: aLanes | bLanes << 8,
+        type: IrType.v128));
+  }
+
+  IrValue vuMac(IrValue result) =>
+      _emit(IrInst(IrOp.vuMac, a: result.index));
+  IrValue vuItof(IrValue a, int shift) => _emit(
+      IrInst(IrOp.vuItof, a: a.index, imm: shift, type: IrType.v128));
+  IrValue vuFtoi(IrValue a, int shift) => _emit(
+      IrInst(IrOp.vuFtoi, a: a.index, imm: shift, type: IrType.v128));
+  IrValue vuMax(IrValue a, IrValue b) =>
+      _emit(IrInst(IrOp.vuMax, a: a.index, b: b.index, type: IrType.v128));
+  IrValue vuMin(IrValue a, IrValue b) =>
+      _emit(IrInst(IrOp.vuMin, a: a.index, b: b.index, type: IrType.v128));
+  IrValue vuClip(IrValue a, IrValue b) =>
+      _emit(IrInst(IrOp.vuClip, a: a.index, b: b.index));
 
   IrValue call(int helper, [IrValue? a, IrValue? b, IrValue? c]) {
     final zero = c32(0);

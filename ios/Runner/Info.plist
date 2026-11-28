@@ -45,7 +45,5 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>FLTEnableFlutterGPU</key>
-	<true/>
 </dict>
 </plist>

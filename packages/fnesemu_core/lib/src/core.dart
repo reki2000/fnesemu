@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'cdrom_drive.dart';
+import 'compute_sink.dart';
 import 'core_debug.dart';
+import 'media_decoder.dart';
 import 'pad_button.dart';
 import 'pad_source.dart';
-import 'render_frame.dart';
 import 'sram.dart';
+import 'state.dart';
 import 'types.dart';
 import 'video_debug.dart';
 
@@ -53,8 +56,8 @@ class Core extends CoreDebug {
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio) {}
 
-  /// connects the CD-ROM drive. cores without a CD-ROM ignore it
-  void setCdromDrive(CdromDrive drive) {}
+  /// Connects the drive and completes any media loading needed before boot.
+  FutureOr<void> setCdromDrive(CdromDrive drive) {}
 
   /// sets the BIOS (system ROM) images supplied by the user. called before
   /// [setRom], or instead of it to boot the BIOS without a cartridge.
@@ -64,13 +67,23 @@ class Core extends CoreDebug {
   /// set sram storage interface
   void setSram(Sram sram) {}
 
-  /// whether the core can leave its 3D renders to [renderFrameSink]
-  bool get rendersFrames => false;
+  /// runs the video chip on the host GPU in the cores that support it;
+  /// null draws in the core. other cores ignore it
+  set computeSink(ComputeSink? sink) {}
 
-  /// receives the 3D renders that the host draws in place of the core's
-  /// renderer; null draws them in the core. cores without [rendersFrames]
-  /// ignore it
-  set renderFrameSink(RenderFrameSink? sink) {}
+  /// decodes the movies and the music of the media in the cores that play
+  /// them; null plays them without a picture or sound. other cores ignore
+  /// it
+  set mediaDecoder(MediaDecoder? decoder) {}
+
+  /// Asks for the results on the GPU that the core needs before it runs on
+  /// or saves a state, when the sink cannot wait by itself
+  /// ([ComputeSink.waits] is false), and returns the future that completes
+  /// when they are on the host; null when there are none. A [runFrame] may
+  /// return with [ExecResult.linesLeft] scanlines not run; the caller then
+  /// awaits this before it runs the rest. The caller also awaits it before
+  /// [saveState].
+  Future<void>? computeWait() => null;
 
   /// releases what the core holds outside the Dart heap; the core is not
   /// used afterwards
@@ -85,6 +98,11 @@ class Core extends CoreDebug {
   /// core, media or format version. Callbacks, media and configuration of
   /// this instance are kept.
   void loadState(Uint8List state) => throw UnsupportedError('Core.loadState');
+
+  /// The media identity that [saveState] writes in the [StateHeader], for
+  /// finding the media of a saved state. Cores may override it with a way
+  /// that does not save the whole state.
+  int get stateMedia => StateHeader.of(saveState()).media;
 
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');

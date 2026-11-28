@@ -3,12 +3,19 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../cdrom_drive.dart';
+import '../../compute_sink.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
+import '../../util/disasm.dart';
+import '../../util/int.dart';
+import '../../util/register_dump.dart';
 import 'bus.dart';
+import 'disasm.dart';
+import 'ee_idle_loop.dart';
 import 'ee_io.dart';
 import 'elf.dart';
 import 'intc.dart';
@@ -21,8 +28,11 @@ import 'iop/spu2.dart';
 import 'iso9660.dart';
 import 'jit/iop_jit.dart';
 import 'jit/ps2_jit.dart';
+import 'jit/vu_jit.dart';
 import 'r5900/r5900.dart';
 import 'state.dart';
+import 'vu.dart';
+import 'vu_disasm.dart';
 
 final _log = DebugLog('ps2');
 
@@ -33,7 +43,11 @@ class Ps2 extends Core {
   // line 240 (ps2tek)
   static const _scanlines = 262, _busClocksInScanline = 9370;
 
-  static const _deviceQuantum = 32;
+  /// The EE clocks between two advances of the devices and the IOP. The
+  /// devices see the EE, and the EE sees their interrupts, at this
+  /// granularity; each advance costs about as much as tens of compiled EE
+  /// instructions.
+  static const _deviceQuantum = 128;
   static const _vblankLine = 240;
 
   /// The EE clocks of an uncached read of an EE register, as seen by
@@ -46,14 +60,32 @@ class Ps2 extends Core {
 
   /// the IOP recompiler, created with the EE one
   final IopJit? iopJit;
+
+  /// the VU1 recompiler, created with the EE one
+  final VuJit? vuJit;
+
+  /// the recompiler of the VU0 micro programs, created with the EE one
+  final VuJit? vu0Jit;
   final Ps2Bus bus;
-  late final R5900 cpu = R5900(bus, gpr: jit?.gpr, fpr: jit?.fpr);
+  late final R5900 cpu = R5900(bus,
+      gpr: jit?.gpr,
+      fpr: jit?.fpr,
+      multiply: jit?.multiply,
+      fpuControl: jit?.fpuControl);
   late EeIo io = _newIo();
 
-  Ps2({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
-      : this._(jit ? Ps2Jit.create() : null, jit ? IopJit.create() : null);
+  /// a polling loop of the EE that [runFrame] skips
+  late final _idle = EeIdleLoop(cpu);
 
-  Ps2._(this.jit, this.iopJit) : bus = Ps2Bus(ram: jit?.ram) {
+  Ps2({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
+      : this._(jit ? Ps2Jit.create() : null, jit ? IopJit.create() : null,
+            jit && _vuJit ? VuJit.create() : null,
+            jit && _vuJit ? VuJit.create(index: 0) : null);
+
+  static const _vuJit = bool.fromEnvironment('VU_JIT', defaultValue: true);
+
+  Ps2._(this.jit, this.iopJit, this.vuJit, this.vu0Jit)
+      : bus = Ps2Bus(ram: jit?.ram, scratch: jit?.scratch) {
     jit?.attach(cpu);
     iopJit?.attach(iop, iopMemory);
   }
@@ -66,16 +98,24 @@ class Ps2 extends Core {
 
   @override
   bool get jitEnabled =>
-      (jit?.native ?? false) || (iopJit?.native ?? false);
+      (jit?.native ?? false) ||
+      (iopJit?.native ?? false) ||
+      (vuJit?.native ?? false) ||
+      (vu0Jit?.native ?? false);
 
   @override
   bool get jitSuspended =>
-      (jit?.suspended ?? false) || (iopJit?.suspended ?? false);
+      (jit?.suspended ?? false) ||
+      (iopJit?.suspended ?? false) ||
+      (vuJit?.suspended ?? false) ||
+      (vu0Jit?.suspended ?? false);
 
   @override
   set jitSuspended(bool value) {
     jit?.suspended = value;
     iopJit?.suspended = value;
+    vuJit?.suspended = value;
+    vu0Jit?.suspended = value;
   }
 
   @override
@@ -84,8 +124,11 @@ class Ps2 extends Core {
 
   @override
   void dispose() {
+    _releaseCompute();
     jit?.dispose();
     iopJit?.dispose();
+    vuJit?.dispose();
+    vu0Jit?.dispose();
   }
 
   late final IopMemory iopMemory = IopMemory(bus.bios, ram: iopJit?.ram);
@@ -99,6 +142,7 @@ class Ps2 extends Core {
       ..cdvd.drive = _drive
       ..cdvd.discId = _discId
       ..cdvd.dvd = _dvd
+      ..cdvd.onDiscChange = _lookUpDisc
       ..spu2.onAudio =
           (samples) => _onAudio(AudioBuffer(Spu2.sampleHz, 2, samples));
     io.cdvd = iopIo.cdvd;
@@ -151,13 +195,15 @@ class Ps2 extends Core {
   }
 
   EeIo _newIo() {
-    final io = EeIo(bus);
+    final io = EeIo(bus, vu0: jit?.newVu0(vu0Jit), vu1: vuJit?.newVu());
     bus.io = io;
     cpu
       ..vu0 = io.vu0
       ..cpCond0 = () => io.dmac.cpCond0;
     io.iopRam = iopMemory.ram;
     io.intc.upcoming = _upcomingIntc;
+    io.gs.vblankUpcoming = () => _upcomingIntc() == 1 << Intc.vblankStart;
+    io.gs.computeSink = _computeSink;
     return io;
   }
 
@@ -199,6 +245,19 @@ class Ps2 extends Core {
   @override
   ImageBuffer imageBuffer() => io.gs.image();
 
+  ComputeSink? _computeSink;
+
+  @override
+  set computeSink(ComputeSink? sink) {
+    _computeSink = sink;
+    io.gs.computeSink = sink;
+  }
+
+  /// Releases the program of the GS on the sink, if it has one.
+  void _releaseCompute() {
+    if (_computeSink != null) io.gs.computeSink = null;
+  }
+
   late final _pad = Ps2Pad()..source = padPort;
 
   @override
@@ -211,26 +270,39 @@ class Ps2 extends Core {
   String? _discId;
   bool _dvd = false;
 
-  /// Inserts [drive] and looks up the game ID in its SYSTEM.CNF and the
-  /// media type in the background. The CDVD disc key carries this ID. The ID
-  /// of a disc inserted later through the tray is not looked up.
+  /// Inserts [drive] and looks up the disc in it with [_lookUpDisc]. The
+  /// CDVD looks up a disc changed later through the tray again.
   @override
   void setCdromDrive(CdromDrive drive) {
     _drive = drive;
+    drive.clearEvents();
+    iopIo.cdvd.drive = drive;
+    _lookUpDisc();
+  }
+
+  /// Looks up the game ID in SYSTEM.CNF and the media type of the disc in
+  /// the drive in the background. The CDVD disc key carries this ID. A
+  /// result that arrives after the disc changed again is dropped.
+  void _lookUpDisc() {
+    final drive = _drive;
+    if (drive == null) return;
     _discId = null;
     _dvd = false;
     iopIo.cdvd
-      ..drive = drive
       ..discId = null
       ..dvd = false;
+    final status = drive.status;
+    if (!status.isReady) return;
+    final disc = status.discId;
+    bool current() => _drive == drive && drive.status.discId == disc;
     discLookup = Future.wait([
       isDvd(drive).then((dvd) {
-        if (_drive != drive) return;
+        if (!current()) return;
         _dvd = dvd;
         iopIo.cdvd.dvd = dvd;
       }),
       readSystemCnf(drive).then((text) {
-        if (_drive != drive || text == null) return;
+        if (!current() || text == null) return;
         _discId = bootFileName(text);
         iopIo.cdvd.discId = _discId;
       }),
@@ -242,9 +314,14 @@ class Ps2 extends Core {
 
   @override
   void reset() {
+    _idle.reset();
     jit?.reset();
     iopJit?.reset();
+    vuJit?.reset();
+    vu0Jit?.reset();
     cpu.reset();
+    // the new GS takes the sink; the old one releases its program
+    _releaseCompute();
     io = _newIo();
     iop.reset();
     _pad.reset();
@@ -263,7 +340,7 @@ class Ps2 extends Core {
 
   // ---- state ----
 
-  static const _stateVersion = 3;
+  static const _stateVersion = 4;
 
   /// The BIOS bytes and the disc TOC. The disc contents beyond the TOC are
   /// not compared, so a state only fits the disc it was saved with.
@@ -307,6 +384,7 @@ class Ps2 extends Core {
     final s = StateReader(state, 'ps2', _stateVersion, _media);
     s.section('ps2');
     final v = s.fields(7, 'ps2');
+    _idle.reset();
     _nextScanlineClock = v[0];
     _lastDeviceClock = v[1];
     _nextDeviceClock = v[2];
@@ -327,6 +405,8 @@ class Ps2 extends Core {
     // compiled code may hold the old memory
     jit?.reset();
     iopJit?.reset();
+    vuJit?.reset();
+    vu0Jit?.reset();
     io.intc.dirty = io.dmac.dirty = true;
     _updateInterruptLines();
     iop.setInterrupt(iopIo.asserted);
@@ -352,7 +432,8 @@ class Ps2 extends Core {
     _iopFraction += eeClocks;
     final steps = _iopFraction >> 3;
     _iopFraction &= 7;
-    var remaining = steps;
+    // An interrupt raised below is taken at the next step.
+    var remaining = steps > 0 && iop.idle(steps) ? 0 : steps;
     while (remaining > 0) {
       final ran = iopJit?.run(remaining) ?? 0;
       if (ran > 0) {
@@ -404,29 +485,51 @@ class Ps2 extends Core {
   ExecResult runFrame(int scanlines) {
     final cpu = this.cpu;
     var rendered = 0;
+    final gs = io.gs;
     while (rendered < scanlines) {
+      // A GPU that does not wait brings the memory of the Gs before the
+      // core reads a local to host transfer, and before the vblank.
+      if (gs.syncRequested) {
+        if (gs.computeWait() != null) {
+          return _waitForCompute(scanlines - rendered);
+        }
+        gs.syncCompute();
+      }
       final limit = _nextScanlineClock < _nextDeviceClock
           ? _nextScanlineClock
           : _nextDeviceClock;
       final jit = this.jit;
       while (cpu.clocks < limit) {
         final before = cpu.clocks;
+        if (_idle.skip(limit, _nextScanlineClock - _registerReadClocks) ||
+            _idle.skipSpin(limit)) {
+          _result.elapsedClocks = cpu.clocks - before;
+          continue;
+        }
         if (jit != null && jit.run(limit - before)) {
           _result.elapsedClocks = cpu.clocks - before;
           if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+          if (gs.syncRequested) break;
           continue;
         }
+        final at = cpu.pc;
         if (!cpu.step()) {
           _result
             ..stopped = true
             ..elapsedClocks = 0
-            ..scanlineRendered = false;
+            ..scanlineRendered = false
+            ..linesLeft = 0;
           return _result;
         }
+        _idle.observe(at);
         _result.elapsedClocks = cpu.clocks - before;
         if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+        if (gs.syncRequested) break;
       }
       if (cpu.clocks >= _nextScanlineClock) {
+        if (_line + 1 == _vblankLine && gs.vblankWait() != null) {
+          return _waitForCompute(scanlines - rendered);
+        }
         _nextScanlineClock += clocksInScanline;
         _endOfScanline();
         rendered++;
@@ -436,9 +539,18 @@ class Ps2 extends Core {
     }
     _result
       ..stopped = false
-      ..scanlineRendered = true;
+      ..scanlineRendered = true
+      ..linesLeft = 0;
     return _result;
   }
+
+  ExecResult _waitForCompute(int linesLeft) => _result
+    ..stopped = false
+    ..scanlineRendered = false
+    ..linesLeft = linesLeft;
+
+  @override
+  Future<void>? computeWait() => io.gs.computeWait();
 
   void _updateInterruptLines() {
     io.intc.dirty = io.dmac.dirty = false;
@@ -461,5 +573,173 @@ class Ps2 extends Core {
     if (cpu.clocks >= _nextDeviceClock) _advanceDevices();
     if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
     return _result;
+  }
+
+  @override
+  List<CpuInfo> get cpuInfos =>
+      const [
+        CpuInfo(0, 'R5900', 32),
+        CpuInfo(1, 'IOP', 32),
+        CpuInfo(2, 'VU0', 16),
+        CpuInfo(3, 'VU1', 16),
+      ];
+
+  /// The VU of debugger CPU [cpuNo] 2 or 3, or null for the others.
+  Vu? _debugVu(int cpuNo) => switch (cpuNo) {
+        2 => io.vu0,
+        3 => io.vu1,
+        _ => null,
+      };
+
+  @override
+  int programCounter(int cpuNo) => switch (cpuNo) {
+        1 => iop.pc,
+        2 => io.vu0.pc * 8,
+        3 => io.vu1.pc * 8,
+        _ => cpu.pc,
+      };
+
+  @override
+  int stackPointer(int cpuNo) => switch (cpuNo) {
+        1 => iop.r[29],
+        2 || 3 => 0,
+        _ => cpu.reg(29) & 0xffffffff,
+      };
+
+  @override
+  int read(int cpuNo, int addr) {
+    final vu = _debugVu(cpuNo);
+    if (vu != null) {
+      final word = vu.data[(addr >> 2) % vu.data.length];
+      return (word >> ((addr & 3) * 8)) & 0xff;
+    }
+    return cpuNo == 1 ? iopMemory.read8(addr) : bus.read8(addr);
+  }
+
+  @override
+  (String, int) disasm(int cpuNo, int addr) {
+    final vu = _debugVu(cpuNo);
+    if (vu != null) {
+      addr &= ~7;
+      final low = vu.readMicro(addr >> 2), high = vu.readMicro((addr >> 2) + 1);
+      return (
+        formatDisasm(addr.x4, '${high.x8} ${low.x8}',
+            VuDisasm.pair(low, high, addr),
+            codeWidth: 17),
+        8
+      );
+    }
+    addr &= ~3;
+    if (cpuNo == 1) {
+      final op = iopMemory.read32(addr);
+      return (
+        formatDisasm(addr.x8, op.x8, Ps2Disasm.iop(op, addr), codeWidth: 8),
+        4
+      );
+    }
+    final op = bus.read32(addr);
+    return (
+      formatDisasm(addr.x8, op.x8, Ps2Disasm.ee(op, addr), codeWidth: 8),
+      4
+    );
+  }
+
+  @override
+  List<int> get vram => io.gs.mem.bytes;
+
+  @override
+  ImageBuffer renderBg() => imageBuffer();
+
+  @override
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) => imageBuffer();
+
+  @override
+  ImageBuffer renderColorTable(int paletteNo) => ImageBuffer.empty();
+
+  @override
+  List<String> spriteInfo() => const [];
+
+  String _traceIopRegisters() => [
+        registerRows(
+            [for (var i = 0; i < 32; i++) ('r$i', iop.r[i])],
+            perLine: 32),
+        'HI:${iop.hi.x8} LO:${iop.lo.x8} SR:${iop.readCop0(Iop.cop0Status).x8} CAUSE:${iop.readCop0(Iop.cop0Cause).x8} EPC:${iop.readCop0(Iop.cop0Epc).x8}',
+      ].join(' ');
+
+  String _traceEeRegisters() => [
+        registerRows([
+          for (var i = 0; i < 32; i++) ('r$i', cpu.reg(i)),
+          ('HI', cpu.hi),
+          ('LO', cpu.lo),
+          ('HI1', cpu.hi1),
+          ('LO1', cpu.lo1),
+        ], bits: 64, perLine: 36),
+        registerRows([
+          for (var i = 0; i < 32; i++) ('CP0[$i]', cpu.cop0[i]),
+        ], perLine: 32),
+        'SA:${cpu.sa.x2}',
+      ].join(' ');
+
+  @override
+  TraceLog trace(int cpuNo) {
+    final vu = _debugVu(cpuNo);
+    if (vu != null) {
+      return TraceLog(
+        vu.pc * 8,
+        vu.cycles,
+        disasm(cpuNo, vu.pc * 8).$1,
+        [for (var i = 1; i < 16; i++) 'vi$i:${(vu.vi[i] & 0xffff).x4}']
+            .join(' '),
+        [vu.pc, for (var i = 0; i < 16; i++) vu.vi[i] & 0xffff],
+      );
+    }
+    if (cpuNo == 1) {
+      final opcode = iopMemory.read32(iop.pc & ~3);
+      return TraceLog(
+        iop.pc,
+        iop.clocks,
+        disasm(cpuNo, iop.pc).$1,
+        _traceIopRegisters(),
+        [iop.pc, ...iop.r],
+        flow: traceMipsFlow(opcode, iop.pc, iop.r),
+      );
+    }
+    final opcode = bus.read32(cpu.pc & ~3);
+    return TraceLog(
+      cpu.pc,
+      cpu.clocks,
+      disasm(cpuNo, cpu.pc).$1,
+      _traceEeRegisters(),
+      [cpu.pc, for (var i = 0; i < 32; i++) cpu.reg(i) & 0xffffffff],
+      flow: traceMipsFlow(
+        opcode,
+        cpu.pc,
+        [for (var i = 0; i < 32; i++) cpu.reg(i)],
+        wide: true,
+      ),
+    );
+  }
+
+  @override
+  String dump(
+      {bool showZeroPage = false,
+      bool showSpriteVram = false,
+      bool showStack = false,
+      bool showApu = false}) {
+    final eeDisasm = disasm(0, cpu.pc).$1;
+    final iopDisasm = disasm(1, iop.pc).$1;
+    return 'PS2 (EE R5900 + IOP)\n'
+        'EE $eeDisasm clocks:${cpu.clocks}\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("r$i", cpu.reg(i))], bits: 64)}\n'
+        '${registerRows([("HI", cpu.hi), ("LO", cpu.lo), ("HI1", cpu.hi1), ("LO1", cpu.lo1)], bits: 64)} SA:${cpu.sa.x2}\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("CP0[$i]", cpu.cop0[i])])}\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("f$i", cpu.fpr[i])])}\n'
+        'FACC:${cpu.facc.x8} FCR31:${cpu.fcr31.x8}\n'
+        'INTC stat:${io.intc.stat.x8} mask:${io.intc.mask.x8}\n'
+        'DMAC stat:${io.dmac.stat.x8} ctrl:${io.dmac.ctrl.x8}\n'
+        'GS CSR:${io.gs.readPrivileged(0x1000).toRadixString(16).padLeft(16, "0")}\n'
+        'IOP $iopDisasm clocks:${iop.clocks} (BIOS loaded: $biosLoaded)\n'
+        '${registerRows([for (var i = 0; i < 32; i++) ("iop.r$i", iop.r[i])])}\n'
+        'IOP HI:${iop.hi.x8} LO:${iop.lo.x8} SR:${iop.readCop0(Iop.cop0Status).x8} CAUSE:${iop.readCop0(Iop.cop0Cause).x8} EPC:${iop.readCop0(Iop.cop0Epc).x8}';
   }
 }

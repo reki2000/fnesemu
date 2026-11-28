@@ -56,6 +56,11 @@ class Bus {
   // CPU low-power state set via HALTCNT; cleared when an interrupt is pending.
   bool halted = false;
 
+  /// Set by an I/O access whose result or effect may change between
+  /// display events: any write, and reads of the sound, DMA and timer
+  /// registers. The core clears it to find loops that only wait.
+  bool timedIo = false;
+
   // set when BG2X/Y (index 0) or BG3X/Y (index 1) is written; the PPU reloads
   // its internal affine reference point from the register before the next line.
   final affineRefDirty = [false, false];
@@ -394,9 +399,14 @@ class Bus {
       _isApuFreqReg(reg);
 
   int _readIo16(int reg) {
-    if (_isApuReg(reg)) return apu.read16(reg);
-    if (reg >= 0x0b0 && reg <= 0x0df) return dma.read16(reg);
-    if (reg >= 0x100 && reg <= 0x10f) return timers.read16(reg);
+    if (_isApuReg(reg)) {
+      timedIo = true;
+      return apu.read16(reg);
+    }
+    if (reg >= 0x0b0 && reg <= 0x10f) {
+      timedIo = true;
+      return reg <= 0x0df ? dma.read16(reg) : timers.read16(reg);
+    }
     switch (reg) {
       case _dispstat:
         return _readDispstat();
@@ -416,6 +426,7 @@ class Bus {
   }
 
   void _writeIo16(int reg, int data) {
+    timedIo = true;
     data &= 0xffff;
     if (_isWriteOnly(reg)) {
       // remember the value for byte-write merging; the PSG trigger bit (15)

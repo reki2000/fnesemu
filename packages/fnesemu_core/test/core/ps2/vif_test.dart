@@ -71,6 +71,56 @@ void main() {
     expect(io.vu1.data.sublist(16, 20), List.filled(4, 0xffffffff));
   });
 
+  aggCase('UNPACK formats, modes and skipping writes match a model', () {
+    const rowInit = [0x10, 0xfffffff0, 0x7fffffff, 3];
+    for (final fmt in [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]) {
+      for (final unsigned in [false, true]) {
+        for (final mode in [0, 1, 2]) {
+          for (final (cl, wl) in [(1, 1), (4, 4), (3, 2)]) {
+            final (bus, io) = _setup();
+            io.vu1.data.fillRange(0, 64, 0xdeadbeef);
+            final comps = (fmt >> 2) + 1, bits = 32 >> (fmt & 3);
+            const num = 5;
+            final words = List<int>.generate(
+                (num * comps * bits + 31) >> 5,
+                (k) => (0x9e3779b9 * (k + 1) + fmt * 0x01010101) & 0xffffffff);
+            _send(bus, fifo1, [
+              0x30000000, ...rowInit, // STROW
+              0x05000000 | mode, // STMOD
+              0x01000000 | wl << 8 | cl, // STCYCL
+              (0x60 | fmt) << 24 | num << 16 | (unsigned ? 1 << 14 : 0),
+              ...words,
+            ]);
+            final expected = List<int>.filled(64, 0xdeadbeef);
+            final row = List.of(rowInit);
+            var pos = 0;
+            int element() {
+              var v = (words[pos >> 5] >>> (pos & 31)) &
+                  (bits == 32 ? 0xffffffff : (1 << bits) - 1);
+              if (bits < 32 && !unsigned) v = v.toSigned(bits) & 0xffffffff;
+              pos += bits;
+              return v;
+            }
+
+            for (var i = 0; i < num; i++) {
+              final dest = (i ~/ wl) * cl + i % wl;
+              final e = [for (var c = 0; c < comps; c++) element()];
+              for (var c = 0; c < 4; c++) {
+                var v = comps == 1 ? e[0] : (c < comps ? e[c] : 0);
+                if (mode != 0) v = (v + row[c]) & 0xffffffff;
+                if (mode == 2) row[c] = v;
+                expected[dest * 4 + c] = v;
+              }
+            }
+            expect(io.vu1.data.sublist(0, 64), expected,
+                reason: 'fmt $fmt unsigned $unsigned mode $mode cl $cl wl $wl');
+            expect(io.vif1.row, row, reason: 'row of fmt $fmt mode $mode');
+          }
+        }
+      }
+    }
+  });
+
   aggCase('a filling write reads CL of WL vectors and fills the rest', () {
     final (bus, io) = _setup();
     _send(bus, fifo1, [
@@ -152,8 +202,8 @@ void main() {
       _lowerNop, _upperNop,
       0x14000000, // MSCAL 0
     ]);
-    expect(io.vu1.micro[0], _lowerNop);
-    expect(io.vu1.micro[1], _upperNop | (1 << 30));
+    expect(io.vu1.readMicro(0), _lowerNop);
+    expect(io.vu1.readMicro(1), _upperNop | (1 << 30));
   });
 
   aggCase('COP2 moves between GPRs, VU0 registers and control registers', () {

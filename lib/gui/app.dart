@@ -7,17 +7,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/app_api.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
-import 'package:render_frame_gpu/render_frame_gpu.dart';
 
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
+import 'benchmark.dart';
+import 'compute_sink/compute_sink.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
 import 'debug/game_layout.dart';
 import 'floating_game_menu.dart';
 import 'game_list.dart';
+import 'host_info/host_info.dart';
 import 'key_handler.dart';
+import 'media_decoder/media_decoder.dart';
 import 'pad_input.dart';
 import 'recent_game.dart';
 import 'rom_archive.dart';
@@ -29,6 +32,7 @@ import 'state_slot_dialog.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
 
+part 'benchmark_run.dart';
 part 'loader.dart';
 
 final _log = DebugLog('app');
@@ -58,6 +62,18 @@ class AppSnackBar {
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
         SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+  }
+
+  /// shows [message] until [done] completes
+  static void showUntil(String message, Future<void> done) {
+    final messenger = messengerKey.currentState;
+    if (messenger == null) {
+      return;
+    }
+    messenger.hideCurrentSnackBar();
+    final bar = messenger.showSnackBar(SnackBar(
+        content: Text(message), duration: const Duration(minutes: 1)));
+    unawaited(done.whenComplete(bar.close));
   }
 }
 
@@ -99,7 +115,7 @@ class MainPage extends StatefulWidget {
 
 enum _DiscAction { eject, empty, select }
 
-enum _SetupAction { gpu }
+enum _SetupAction { gpu, benchmark }
 
 class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
@@ -147,11 +163,58 @@ class MainPageState extends State<MainPage> {
 
   final _coreSetupKey = GlobalKey<PopupMenuButtonState>();
 
-  // draws the 3D renders of the cores when the GPU setting selects it; null
-  // until it is created, and when the platform has no Flutter GPU
-  GpuFrameSink? _gpu;
   static const _gpuKey = "gpu";
-  bool get _gpuSelected => _gpu != null && _storage.setting(_gpuKey) == "gpu";
+
+  /// the description of the compute GPU; empty selects one automatically
+  static const _gpuAdapterKey = "gpuAdapter";
+
+  // runs the video chip of the cores that support it on the GPU; opened when
+  // the GPU setting first selects it, null if it cannot be
+  ComputeSink? _compute;
+  bool _computeOpened = false;
+  // whether [prepareComputeSink] finished; the Web opens its GPU only after
+  bool _computePrepared = false;
+
+  // the GPUs that wgpu-native found, listed when the GPU dialog first opens
+  List<String>? _adapters;
+
+  String get _adapter => _storage.setting(_gpuAdapterKey) ?? "";
+
+  ComputeSink? _openCompute() {
+    if (!_computePrepared) return null;
+    if (!_computeOpened) {
+      _computeOpened = true;
+      _compute = openComputeSink(
+          adapter: _adapter,
+          onError: (reason) {
+            _log.warn("compute GPU is not available: $reason");
+            AppSnackBar.show("compute GPU is not available");
+          });
+      if (_compute case final compute?) {
+        _log.info("compute GPU: ${compute.name}");
+      }
+    }
+    return _compute;
+  }
+
+  /// Closes the compute GPU, after the cores stopped using it, so that the
+  /// next [_openCompute] opens the GPU of the setting.
+  void _closeCompute() {
+    _controller.computeSink = null;
+    if (_compute case final compute?) closeComputeSink(compute);
+    _compute = null;
+    _computeOpened = false;
+  }
+
+  /// the renderer of the GPU setting that is available: "software" or
+  /// "compute"
+  String get _renderer =>
+      _storage.setting(_gpuKey) == "compute" && _openCompute() != null
+          ? "compute"
+          : "software";
+
+  String get _rendererName =>
+      _renderer == "compute" ? "Compute: ${_compute!.name}" : "Software";
 
   @override
   void initState() {
@@ -178,6 +241,9 @@ class MainPageState extends State<MainPage> {
 
     _padInput = PadInput()..enabled = false;
     _controller.input = _padInput;
+    final mediaDecoder = openMediaDecoder();
+    _log.info("media decoders: ${mediaDecoder.name}");
+    _controller.mediaDecoder = mediaDecoder;
     _keyHandler = KeyHandler(controller: _controller, input: _padInput);
     _inputLifecycle = AppLifecycleListener(
         onInactive: _padInput.clear,
@@ -186,13 +252,12 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
-    unawaited(GpuFrameSink.create().then((sink) {
-      _log.infoc(() => "${GpuFrameSink.name} is "
-          "${sink == null ? 'not available' : 'available'}");
-      _gpu = sink;
+    // opening the compute GPU takes a moment, so it waits for the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_storage.setting(_gpuKey) == "compute") await _prepareCompute();
       _applyGpu();
       if (mounted) setState(() {});
-    }));
+    });
 
     _cdromWaitTimer = Timer.periodic(
         const Duration(milliseconds: 300), (_) => _tickCdromWait());
@@ -272,6 +337,56 @@ class MainPageState extends State<MainPage> {
     });
 
     setState(() {});
+  }
+
+  // the benchmark in progress and its status, shown over the game
+  _BenchmarkRun? _benchmark;
+  final _benchmarkStatus = ValueNotifier<String?>(null);
+
+  static const _benchmarkMachineKey = 'benchmark_machine';
+
+  /// runs the scenes of a benchmark archive with the menu closed, then
+  /// shows the results
+  Future<void> _selectBenchmark() async {
+    final file = (await pickFiles(
+            dialogTitle: 'Select a benchmark archive (.7z / .zip)'))
+        ?.firstOrNull;
+    if (file == null || !mounted) return;
+    _benchmarkStatus.value = 'loading';
+    setState(() => _menuOpen = false);
+    final List<BenchResult> results;
+    final Map<String, Object?> host;
+    BenchArchive? archive;
+    try {
+      archive = await BenchArchive.open(file);
+      final scenes =
+          BenchScene.parse(utf8.decode(await archive.read('bench.json')));
+      host = {...await hostInfo(), 'gpu': _rendererName};
+      final run = _benchmark = _BenchmarkRun(
+          this, archive, (s) => _benchmarkStatus.value = s, host);
+      await _stop();
+      _disableKeyHandler();
+      results = await run.run(scenes);
+    } finally {
+      await archive?.close();
+      _benchmark = null;
+      _benchmarkStatus.value = null;
+      // the core of the last scene is loaded, outside of any game
+      _gameId = null;
+      _nextDisc = null;
+      _romName = '';
+      if (mounted) setState(() => _menuOpen = true);
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+        context: context,
+        builder: (_) => BenchResultsDialog(
+            results: results,
+            machine: _storage.setting(_benchmarkMachineKey) ?? benchPlatform,
+            date: DateTime.now(),
+            host: host,
+            onMachine: (machine) =>
+                _storage.setSetting(_benchmarkMachineKey, machine)));
   }
 
   Future<void> _openMenu() async {
@@ -385,11 +500,14 @@ class MainPageState extends State<MainPage> {
 
   /// replaces the running core with [system] booted with its BIOS and [rom].
   /// without [rom], the system boots its BIOS (and the disc in the drive).
+  /// the game runs after the boot if [run], by default unless the app was
+  /// started for debugging.
   Future<bool> _boot(CoreSystem system,
       {Uint8List? rom,
       required String name,
       String? folder,
-      String? path}) async {
+      String? path,
+      bool? run}) async {
     final watch = Stopwatch()..start();
     final bios = await _storage.bios(system.id);
     _log.infoc(() => "loaded the BIOS of ${system.id} "
@@ -411,6 +529,7 @@ class MainPageState extends State<MainPage> {
         "in ${watch.elapsedMilliseconds}ms");
 
     _keyHandler.init();
+    _nextDisc = null;
     _romName = name;
     // a disc boot gets its identity from _insertItem, which records the
     // recent entry of the disc
@@ -424,38 +543,75 @@ class MainPageState extends State<MainPage> {
 
     AppSnackBar.show("loaded: $name");
 
-    if (!widget.config.debug) {
-      if (_menuBusy) {
-        _resumeAfterAction = true;
-      } else {
-        await _resumeFromMenu();
-      }
-    }
+    if (run ?? !widget.config.debug) await _runGame();
     return true;
   }
 
-  void _applyGpu() => _controller.renderFrameSink = _gpuSelected ? _gpu : null;
+  /// runs the game when the menu action in progress ends, or now
+  Future<void> _runGame() async {
+    if (_menuBusy) {
+      _resumeAfterAction = true;
+    } else {
+      await _resumeFromMenu();
+    }
+  }
 
-  /// lets the user select the renderer of the 3D renders of the cores
+  Future<void> _prepareCompute() async {
+    await prepareComputeSink();
+    _computePrepared = true;
+  }
+
+  void _applyGpu() =>
+      _controller.computeSink = _renderer == "compute" ? _compute : null;
+
+  /// lets the user select the renderer of the 3D renders of the cores: the
+  /// software renderer, or one of the GPUs that wgpu-native finds
   Future<void> _selectGpu() async {
-    final selected = await showDialog<bool>(
+    await _prepareCompute();
+    if (!mounted) return;
+    final adapters = _adapters ??= computeAdapters();
+    final current = _renderer;
+    final currentAdapter = current == "compute" ? _adapter : null;
+    final selected = await showDialog<(String, String)>(
         context: context,
         builder: (context) => SimpleDialog(title: const Text('GPU'), children: [
-              for (final (gpu, name) in [
-                (false, 'Software'),
-                if (_gpu != null) (true, GpuFrameSink.name),
+              for (final (renderer, adapter, name, detail) in [
+                ("software", "", 'Software', null),
+                (
+                  "compute",
+                  "",
+                  'Compute: automatic',
+                  currentAdapter == "" ? _compute?.name : 'a discrete GPU first'
+                ),
+                for (final a in adapters) ("compute", a, 'Compute', a),
+                if (adapters.isEmpty)
+                  ("compute", "", 'Compute', 'wgpu-native found no GPU'),
               ])
                 SimpleDialogOption(
-                    onPressed: () => Navigator.of(context).pop(gpu),
+                    onPressed: () =>
+                        Navigator.of(context).pop((renderer, adapter)),
                     child: ListTile(
                         title: Text(name),
-                        trailing: gpu == _gpuSelected
+                        subtitle: detail == null ? null : Text(detail),
+                        trailing: renderer == current &&
+                                (renderer == "software" ||
+                                    adapter == currentAdapter)
                             ? const Icon(Icons.check)
                             : null)),
             ]));
     if (selected == null) return;
-    await _storage.setSetting(_gpuKey, selected ? "gpu" : "software");
+    final (renderer, adapter) = selected;
+    if (renderer == "compute" && adapter != _adapter) {
+      _closeCompute();
+      await _storage.setSetting(_gpuAdapterKey, adapter);
+    }
+    if (renderer == "compute" && _openCompute() == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+    await _storage.setSetting(_gpuKey, renderer);
     _applyGpu();
+    if (mounted) setState(() {});
   }
 
   /// lets the user select the BIOS files of [system] and saves them
@@ -499,28 +655,47 @@ class MainPageState extends State<MainPage> {
           initialDirectory: _storage.setting(_lastBiosDirKey),
           onDirectory: (dir) => _storage.setSetting(_lastBiosDirKey, dir));
 
-  /// plays the disc in the drive. the running system keeps running if it
-  /// plays the disc (the disc is changed as on the real console), otherwise
-  /// the system of the disc boots.
-  Future<bool> _startDisc(String name, {CoreSystem? system}) async {
+  /// plays the disc in the drive, whose game identity is [gameId]. a disc
+  /// change never resets the running system: a system with a drive keeps
+  /// running with the disc inserted, as on the real console, and a disc of
+  /// another system boots on the next [_reset]. otherwise the system of the
+  /// disc boots. returns the system of the disc, null if it is not played.
+  Future<CoreSystem?> _startDisc(String name,
+      {CoreSystem? system, required String Function(CoreSystem) gameId}) async {
     final watch = Stopwatch()..start();
     system ??= await CoreFactory.systemOfDisc(_drive);
     _log.infoc(() => "identified $name as ${system?.id} "
         "in ${watch.elapsedMilliseconds}ms");
     if (system == null) {
+      _nextDisc = null;
       AppSnackBar.show("unknown disc: $name");
-      return false;
+      return null;
     }
 
-    if (_controller.acceptsDisc(system)) {
-      AppSnackBar.show("inserted: $name");
+    final accepted = _controller.acceptsDisc(system);
+    final running = CoreFactory.systemOrNull(_controller.system);
+    if (accepted || running?.disc != null) {
+      _nextDisc = accepted
+          ? null
+          : (_drive.status.discId, system, name, gameId(system));
+      if (accepted) _gameId = gameId(system);
+      AppSnackBar.show(accepted
+          ? "inserted: $name"
+          : "inserted: $name (${system.name} starts on reset)");
       _romName = name;
       _resumeAfterAction = !widget.config.debug;
-      return true;
+      return system;
     }
 
-    return await _boot(system, name: name);
+    if (!await _boot(system, name: name)) return null;
+    _gameId = gameId(system);
+    return system;
   }
+
+  /// the disc of another system inserted into the running system, with its
+  /// drive disc id: the system boots on the next [_reset] while the disc
+  /// stays in the drive
+  (int, CoreSystem, String, String)? _nextDisc;
 
   static const _lastDiscDirKey = "disc_dir";
 
@@ -683,11 +858,13 @@ class MainPageState extends State<MainPage> {
       return;
     }
 
-    if (await _startDisc(item.path, system: system)) {
-      await _storage.recordRecent(_controller.system, item.path,
-          folder: _folderHistoryKey(scan));
-      _gameId = Storage.gameId(_controller.system, item.path,
-          folder: _folderHistoryKey(scan));
+    final folder = _folderHistoryKey(scan);
+    final played = await _startDisc(item.path,
+        system: system,
+        gameId: (system) =>
+            Storage.gameId(system.id, item.path, folder: folder));
+    if (played != null) {
+      await _storage.recordRecent(played.id, item.path, folder: folder);
     }
   }
 
@@ -895,8 +1072,26 @@ class MainPageState extends State<MainPage> {
     });
   }
 
+  /// resets the running system, or boots the system of the disc of another
+  /// system inserted while it ran, if the disc is still in the drive. the
+  /// game runs after the reset unless the debug mode is on.
   _reset() async {
+    final run = !_debugRequested;
+    final next = _nextDisc;
+    _nextDisc = null;
+    if (next != null &&
+        _drive.status.isReady &&
+        _drive.status.discId == next.$1 &&
+        !_controller.acceptsDisc(next.$2)) {
+      if (await _boot(next.$2, name: next.$3, run: run)) {
+        _gameId = next.$4;
+      } else {
+        _nextDisc = next; // kept to boot when the BIOS is set
+      }
+      return;
+    }
     await _controller.reset();
+    if (run) await _runGame();
   }
 
   _debug(bool onoff) {
@@ -916,41 +1111,64 @@ class MainPageState extends State<MainPage> {
           subtitle: Text(_biosSummary(setup)),
           trailing: const Icon(Icons.file_open_outlined)));
 
+  Widget _menuPopupChild(IconData icon, String label) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+                child:
+                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+            const Icon(Icons.chevron_right, size: 18),
+          ],
+        ),
+      );
+
+  Widget _menuActionTile(IconData icon, String label, VoidCallback? onTap,
+          {Key? key}) =>
+      Tooltip(
+        message: label,
+        child: ListTile(
+          key: key,
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: Icon(icon, size: 20),
+          title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          enabled: onTap != null,
+          onTap: onTap,
+        ),
+      );
+
   Widget _menuToolbar() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_romName.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Text(
+                _romName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+            const Divider(height: 1),
+          ],
           IgnorePointer(
               ignoring: _menuBusy || _menuTransition || _progress.value != null,
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  PopupMenuButton<Object>(
-                    key: _coreSetupKey,
-                    icon: const Icon(Icons.settings),
-                    tooltip: "Core setup",
-                    onSelected: (item) => _menuAction(() async => item
-                            is BiosSetup
-                        ? _selectBios(item)
-                        : _selectGpu()),
-                    itemBuilder: (_) => [
-                      for (final setup in CoreFactory.biosSetups)
-                        _coreSetupItem(setup),
-                      if (CoreFactory.biosSetups.isNotEmpty)
-                        const PopupMenuDivider(),
-                      PopupMenuItem(
-                          value: _SetupAction.gpu,
-                          child: ListTile(
-                              title: const Text('GPU'),
-                              subtitle: Text(_gpuSelected
-                                  ? GpuFrameSink.name
-                                  : 'Software'),
-                              trailing: const Icon(Icons.memory))),
-                    ],
+                  _menuActionTile(
+                    Icons.play_arrow,
+                    'Resume',
+                    _hasGame ? () => _do(_resumeFromMenu) : null,
                   ),
-
                   PopupMenuButton<Object>(
-                    icon: const Icon(Icons.folder_open),
                     tooltip: "CD / ROM",
                     onSelected: (action) =>
                         _menuAction(() async => _discMenuAction(action)),
@@ -970,10 +1188,9 @@ class MainPageState extends State<MainPage> {
                         PopupMenuItem(
                             value: directory.id, child: Text(directory.path)),
                     ],
+                    child: _menuPopupChild(Icons.folder_open, 'CD / ROM'),
                   ),
-
                   PopupMenuButton<RecentGame>(
-                    icon: const Icon(Icons.history),
                     tooltip: 'History',
                     onSelected: (game) =>
                         _menuAction(() => _launchHistory(game)),
@@ -988,58 +1205,76 @@ class MainPageState extends State<MainPage> {
                             child: Text(
                                 '${(CoreFactory.systemOrNull(game.core)?.name ?? game.core).toUpperCase()} ${game.name}')),
                     ],
+                    child: _menuPopupChild(Icons.history, 'History'),
                   ),
-
-                  IconButton(
-                    tooltip: 'Resume',
-                    onPressed: _hasGame ? () => _do(_resumeFromMenu) : null,
-                    icon: const Icon(Icons.play_arrow),
-                  ),
-
-                  // reset button
-                  iconButton(Icons.restart_alt, "Reset",
-                      () => _menuAction(() async => _reset())),
-
-                  // state save / load buttons
-                  IconButton(
+                  const Divider(height: 1),
+                  _menuActionTile(
+                    Icons.save,
+                    'Save state',
+                    _canUseStates ? () => _showSaveStateDialog() : null,
                     key: const ValueKey('save-state'),
-                    tooltip: 'Save state',
-                    onPressed:
-                        _canUseStates ? () => _showSaveStateDialog() : null,
-                    icon: const Icon(Icons.save),
                   ),
-                  IconButton(
+                  _menuActionTile(
+                    Icons.restore,
+                    'Load state',
+                    _canUseStates ? () => _showLoadStateDialog() : null,
                     key: const ValueKey('load-state'),
-                    tooltip: 'Load state',
-                    onPressed:
-                        _canUseStates ? () => _showLoadStateDialog() : null,
-                    icon: const Icon(Icons.restore),
                   ),
-
-                  // debug on/off button
+                  _menuActionTile(
+                    Icons.restart_alt,
+                    'Reset',
+                    () => _menuAction(() async => _reset()),
+                  ),
+                  const Divider(height: 1),
+                  PopupMenuButton<Object>(
+                    key: _coreSetupKey,
+                    tooltip: "Core setup",
+                    onSelected: (item) => _menuAction(() async => switch (item) {
+                          BiosSetup() => _selectBios(item),
+                          _SetupAction.benchmark => _selectBenchmark(),
+                          _ => _selectGpu(),
+                        }),
+                    itemBuilder: (_) => [
+                      for (final setup in CoreFactory.biosSetups)
+                        _coreSetupItem(setup),
+                      if (CoreFactory.biosSetups.isNotEmpty)
+                        const PopupMenuDivider(),
+                      PopupMenuItem(
+                          value: _SetupAction.gpu,
+                          child: ListTile(
+                              title: const Text('GPU'),
+                              subtitle: Text(_rendererName),
+                              trailing: const Icon(Icons.memory))),
+                      const PopupMenuItem(
+                          value: _SetupAction.benchmark,
+                          child: ListTile(
+                              title: Text('Benchmark...'),
+                              subtitle: Text('Run the states of a .7z / .zip'),
+                              trailing: Icon(Icons.speed))),
+                    ],
+                    child: _menuPopupChild(Icons.settings, 'Core setup'),
+                  ),
                   _debugging
-                      ? iconButton(Icons.bug_report, "Disable Debug Options",
-                          () => _do(() => _debug(false)))
-                      : iconButton(
+                      ? _menuActionTile(
+                          Icons.bug_report,
+                          'Disable Debug Options',
+                          () => _do(() => _debug(false)),
+                        )
+                      : _menuActionTile(
                           Icons.bug_report_outlined,
-                          "Enable Debug Options",
-                          () => _do(() => _debug(true))),
-                  IconButton(
-                    tooltip: 'License',
-                    onPressed: () => _menuAction(() async {
+                          'Enable Debug Options',
+                          () => _do(() => _debug(true)),
+                        ),
+                  _menuActionTile(
+                    Icons.info_outline,
+                    'License',
+                    () => _menuAction(() async {
                       await Navigator.of(context).push(MaterialPageRoute<void>(
                           builder: (_) => const LicensePage()));
                     }),
-                    icon: const Icon(Icons.info_outline),
                   ),
                 ],
               )),
-          if (_romName.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child:
-                  Text(_romName, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
         ],
       );
 
@@ -1081,55 +1316,57 @@ class MainPageState extends State<MainPage> {
       );
 
   Widget _fpsIndicator() => Row(mainAxisSize: MainAxisSize.min, children: [
-        // shown for a moment when the sram is saved
-        ValueListenableBuilder<bool>(
-          valueListenable: _sramSaved,
-          builder: (context, lit, _) => AnimatedOpacity(
-            opacity: lit ? 1 : 0,
-            duration: const Duration(milliseconds: 300),
-            child: _badge(
-                const Text('saved', style: TextStyle(color: Colors.white)),
-                key: const ValueKey('sram-saved')),
-          ),
-        ),
-        const SizedBox(width: 6),
-        ValueListenableBuilder<int>(
-          valueListenable: _cdromWaitDots,
-          builder: (context, dots, _) => dots == 0
+        // the benchmark in progress; a tap cancels it
+        ValueListenableBuilder<String?>(
+          valueListenable: _benchmarkStatus,
+          builder: (context, status, _) => status == null
               ? const SizedBox.shrink()
               : Padding(
                   padding: const EdgeInsets.only(right: 6),
-                  child: _badge(
-                      Text('loading${'.' * dots}',
-                          style: const TextStyle(color: Colors.white)),
-                      key: const ValueKey('cdrom-loading')),
+                  child: GestureDetector(
+                    onTap: () => _benchmark?.cancel(),
+                    child: _badge(
+                        Text('$status  ✕',
+                            style: const TextStyle(color: Colors.white)),
+                        key: const ValueKey('benchmark-status')),
+                  ),
                 ),
         ),
-        StreamBuilder<DebugState>(
-          stream: _controller.debugger.debugStream.distinct((a, b) =>
-              a.jitEnabled == b.jitEnabled && a.jitUsage == b.jitUsage),
-          initialData: _controller.debugger.state,
-          builder: (context, snapshot) => snapshot.data?.jitEnabled == true
-              ? Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: _badge(
-                      Text(
-                          snapshot.data?.jitUsage == null
-                              ? 'JIT'
-                              : 'JIT${(snapshot.data!.jitUsage! * 100).toStringAsFixed(0).padLeft(3)}%',
-                          style: const TextStyle(color: Colors.white)),
-                      key: const ValueKey('jit-indicator')),
-                )
-              : const SizedBox.shrink(),
-        ),
-        StreamBuilder<double>(
-          stream: _controller.fpsStream,
-          builder: (context, snapshot) => _badge(
-              Text(
-                  '${(snapshot.data ?? 0.0).toStringAsFixed(1).padLeft(4)} fps',
-                  style: const TextStyle(color: Colors.white)),
-              key: const ValueKey('fps-indicator')),
-        ),
+        // shown for a moment when the sram is saved
+        IgnorePointer(
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+          ValueListenableBuilder<bool>(
+            valueListenable: _sramSaved,
+            builder: (context, lit, _) => AnimatedOpacity(
+              opacity: lit ? 1 : 0,
+              duration: const Duration(milliseconds: 300),
+              child: _badge(
+                  const Text('saved', style: TextStyle(color: Colors.white)),
+                  key: const ValueKey('sram-saved')),
+            ),
+          ),
+          const SizedBox(width: 6),
+          ValueListenableBuilder<int>(
+            valueListenable: _cdromWaitDots,
+            builder: (context, dots, _) => dots == 0
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: _badge(
+                        Text('loading${'.' * dots}',
+                            style: const TextStyle(color: Colors.white)),
+                        key: const ValueKey('cdrom-loading')),
+                  ),
+          ),
+          StreamBuilder<double>(
+            stream: _controller.fpsStream,
+            builder: (context, snapshot) => _badge(
+                Text(
+                    '${(snapshot.data ?? 0.0).toStringAsFixed(1).padLeft(4)} fps',
+                    style: const TextStyle(color: Colors.white)),
+                key: const ValueKey('fps-indicator')),
+          ),
+        ])),
       ]);
 
   Widget _fpsOverlay() => ValueListenableBuilder<double?>(

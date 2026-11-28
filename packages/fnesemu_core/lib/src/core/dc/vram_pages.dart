@@ -18,10 +18,46 @@ class DcVramPages {
   /// The stamp of the page holding [offset].
   int at(int offset) => _pages[offset >> 12];
 
-  void mark(int offset) => _pages[offset >> 12] = ++_clock;
+  // Two ranges of storage, as start and end pairs, whose next mark calls
+  // [onWatched] before the bytes change.
+  final _watched = Int64List(4);
+  bool _watching = false;
+
+  /// Called once, when a writer marks a watched byte.
+  void Function()? onWatched;
+
+  /// Watches the storage bytes [start0, end0) and [start1, end1).
+  void watch(int start0, int end0, int start1, int end1) {
+    _watched
+      ..[0] = start0
+      ..[1] = end0
+      ..[2] = start1
+      ..[3] = end1;
+    _watching = true;
+  }
+
+  void unwatch() => _watching = false;
+
+  /// Whether the storage bytes [start, end) are watched.
+  bool watches(int start, int end) =>
+      _watching &&
+      ((start < _watched[1] && end > _watched[0]) ||
+          (start < _watched[3] && end > _watched[2]));
+
+  void _wrote(int start, int end) {
+    if (!watches(start, end)) return;
+    _watching = false;
+    onWatched?.call();
+  }
+
+  void mark(int offset) {
+    if (_watching) _wrote(offset, offset + 1);
+    _pages[offset >> 12] = ++_clock;
+  }
 
   void markRange(int offset, int length) {
     if (length <= 0) return;
+    if (_watching) _wrote(offset, offset + length);
     final stamp = ++_clock;
     final last = (offset + length - 1) >> 12;
     for (var page = offset >> 12; page <= last; page++) {

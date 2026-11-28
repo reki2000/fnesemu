@@ -61,10 +61,6 @@ static void my_application_activate(GApplication* application) {
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
-  // Flutter GPU, which can draw the 3D renders of the cores, runs on
-  // Impeller.
-  fl_dart_project_set_enable_impeller(project, TRUE);
-  fl_dart_project_set_enable_flutter_gpu(project, TRUE);
 
   FlView* view = fl_view_new(project);
   gtk_widget_show(GTK_WIDGET(view));

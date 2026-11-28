@@ -23,6 +23,19 @@ The reference executor uses `BigInt` for exact i64 semantics on every Dart compi
 - Native backends rely on the host default rounding mode (x64 MXCSR, ARM64 FPCR). The operations preserve the N64 interpreter arithmetic model and do not implement guest exception flags or other rounding modes.
 - Values remain ordinary SSA bit patterns. Guest FPRs are not allocated to host floating-point registers across blocks.
 
+## Vector values
+
+`IrType.v128` holds four 32-bit lanes. Lane 0 is the lowest word. A v128 value appears only in `ctxLoad`, `ctxStore`, 16-byte `load` and `store`, side-exit stores and the vector operations, and occupies four context words. The verifier rejects any other use. A 16-byte access is little endian, untranslated and 16-byte aligned.
+
+- `vSplat`, `vExtract`, `vInsert`, `vShuffle` and `vBlend` move 32-bit lanes.
+- The vector unit operations take register images of a vector unit. An image is binary32 bits without infinity or NaN: exponent 0 is zero and exponent 255 is a normal exponent.
+- `vuAdd`, `vuSub`, `vuMul`, `vuMadd` and `vuMsub` decode their operands exactly to binary64, pick the lanes of each operand by a shuffle selector, round a sum to nearest and truncate the result back to images. `vuMac` returns the zero, sign, underflow and overflow flags of such a result as one i32.
+- `vuItof` and `vuFtoi` convert between 32-bit integer lanes and images with a fixed-point shift. `vuMax`, `vuMin` and `vuClip` compare images by value.
+
+A backend chooses the forms of each value: the images, the decoded binary64 lanes or the flags. It computes a form only when a use needs it, so a chain of arithmetic operations stays decoded and drops the flags nobody reads.
+
+The operations are available only when `JitRuntime.vectors` is true: in the reference executor, on x86-64 (SSE2), on ARM64 (Advanced SIMD) and in Wasm runtimes that validate SIMD modules. The exact semantics of each operation are in the comments of `IrOp`.
+
 ## Optimizer
 
 Compiled backends run `optimizeIrBlock` before emission. It folds i32 constants (including safe division), algebraic identities and discards unused pure values. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks keep their i64 operations while the safe i32 simplifications and dead-value removal still apply. The native and Wasm backends fuse a comparison or masked bit test (`and`) into a branch or conditional exit when its result has exactly one consumer, preserving operands through intervening operations. On x64 the bit test becomes an AND that sets flags, on ARM64 an ANDS to the zero register, and on Wasm an inline `and` feeding `if`.

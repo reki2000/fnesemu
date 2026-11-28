@@ -1,5 +1,9 @@
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../bus.dart';
+import '../vu.dart';
+import 'vu0_macro.dart';
+
 /// Translates R5900 integer code into IR blocks.
 ///
 /// A general register is 128 bits wide and takes four context words: the
@@ -11,21 +15,20 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// jumps, MOVZ/MOVN, the aligned loads and stores up to 128 bits, integer
 /// DIV/DIVU and the MMI DIV1/DIVU1, and COP1: the register moves, LWC1 and
 /// SWC1, the single precision arithmetic, the compares and CVT.W.S. HI/LO
-/// and HI1/LO1 live in four extra 64-bit context slots synchronized by
-/// Ps2Jit at compiled/interpreter boundaries, and the division forms
-/// preserve the zero-divisor and overflow semantics. The COP1 register
-/// images follow the HI/LO slots in the context; the accumulator and
-/// FCR31 take one word each after them, and the adapter copies those two
-/// in and out around a run because the interpreter keeps them in plain
-/// fields. EE floating point semantics are rebuilt with integer
+/// and HI1/LO1 live in four extra 64-bit context slots, and the division
+/// forms preserve the zero-divisor and overflow semantics. The COP1
+/// register images follow the HI/LO slots in the context, and the
+/// accumulator and FCR31 take one word each after them. The interpreter
+/// keeps all of these in the same context words. EE floating point
+/// semantics are rebuilt with integer
 /// operations around the binary64 IR operations: decode and encode are
 /// exact bit constructions (see [_fdecode] and [_fencode]), so compiled
-/// results match the interpreter bit for bit. COP0 and COP2, BC1,
-/// CVT.S.W (the IR has no integer to float conversion), the other
-/// multimedia instructions, the unaligned accesses and the exceptions
-/// are left to the interpreter: a block ends before them, and a load or
-/// store, a trapping add or a misaligned address exits before its
-/// effects.
+/// results match the interpreter bit for bit. BC1 branches on the
+/// condition bit of FCR31. COP0 and COP2, CVT.S.W (the IR has no
+/// integer to float conversion), the other multimedia instructions, the
+/// unaligned accesses and the exceptions are left to the interpreter: a
+/// block ends before them, and a load or store, a trapping add or a
+/// misaligned address exits before its effects.
 final class R5900Translator {
   static const defaultMaxInstructions = 32;
   static const ctxRegs = JitCtx.user;
@@ -36,8 +39,18 @@ final class R5900Translator {
   static const ctxFpr = ctxLo1 + 2;
   static const ctxFacc = ctxFpr + 32;
   static const ctxFcr31 = ctxFacc + 1;
-  static const ctxWords = ctxFcr31 + 1;
+
+  /// VU0 for the COP2 instructions ([Vu0Macro]): the VF registers and the
+  /// accumulator, VI0 to VI15 as halfwords, and the scalars of [Vu]
+  static const ctxVu0Vf = ctxFcr31 + 1;
+  static const ctxVu0Vi = ctxVu0Vf + 33 * 4;
+  static const ctxVu0Scalars = ctxVu0Vi + 8;
+  static const ctxWords = ctxVu0Scalars + Vu.scalarWords;
   static const interpret = JitReason.user;
+
+  /// where the adapter maps the scratchpad in the address space of
+  /// compiled code, outside main memory
+  static const scratchAlias = 0x02000000;
 
   /// FCR31 cause bits I, D, O, U (bits 17..14), as the interpreter's FPU
   /// extension lays them out.
@@ -65,7 +78,8 @@ final class R5900Translator {
   R5900Translator(
       {required this.fetch,
       required this.protect,
-      this.maxInstructions = defaultMaxInstructions});
+      this.maxInstructions = defaultMaxInstructions,
+      this.vectors = false});
 
   static int _ctxLow(int r) => ctxRegs + r * 4;
   static int _ctxHigh(int r) => ctxRegs + r * 4 + 2;
@@ -91,6 +105,26 @@ final class R5900Translator {
         b.sext32(b.select(byZero, zeroQuotient, quotient)));
     _setSpecial(pipe1 ? ctxHi1 : ctxHi,
         b.sext32(b.select(byZero, x, remainder)));
+  }
+
+  /// MULT, MULTU, their pipe 1 forms and MADD/MADDU: the 64-bit product,
+  /// added to HI:LO when [accumulate], to LO and HI as sign-extended
+  /// words, and its low word to [d]
+  void _multiply(int s, int t, int d,
+      {required bool signed, bool pipe1 = false, bool accumulate = false}) {
+    IrValue wide(int r) => signed ? b.sext32(_low(r)) : b.zext32(_low(r));
+    final loWord = pipe1 ? ctxLo1 : ctxLo, hiWord = pipe1 ? ctxHi1 : ctxHi;
+    var product = b.mul(wide(s), wide(t));
+    if (accumulate) {
+      product = b.add(
+          b.or(b.shl(_specialReg(hiWord), _c(32)),
+              b.zext32(b.trunc32(_specialReg(loWord)))),
+          product);
+    }
+    final lo = b.sext32(b.trunc32(product));
+    _setSpecial(loWord, lo);
+    _setSpecial(hiWord, b.sext32(b.trunc32(b.shrS(product, _c(32)))));
+    _put64(d, lo);
   }
 
   IrValue _get64(int r) => r == 0
@@ -120,6 +154,7 @@ final class R5900Translator {
       if (_faccDirty) (ctxFacc, _facc!),
       if (_fcrDirty) (ctxFcr31, _fcr!),
       for (final word in _specialDirty) (word, _specialRegs[word]!),
+      ..._vu0.stores(),
     ]);
   }
 
@@ -136,15 +171,22 @@ final class R5900Translator {
     for (final word in _specialDirty) {
       b.ctxStore(word, _specialRegs[word]!);
     }
+    _vu0.flush();
   }
 
-  static const _loads = [30, 32, 33, 35, 36, 37, 39, 49, 55];
-  static const _stores = [31, 40, 41, 43, 57, 63];
+  static const _loads = [
+    26, 27, 30, 32, 33, 34, 35, 36, 37, 38, 39, 49, 54, 55, //
+  ];
+  static const _stores = [31, 40, 41, 42, 43, 44, 45, 46, 57, 62, 63];
 
   static bool _memory(int op) {
     final code = op >>> 26;
     return _loads.contains(code) || _stores.contains(code);
   }
+
+  /// BC1F, BC1T, BC1FL and BC1TL, which branch only when COP1 is usable
+  bool _bc1(int op) =>
+      _cop1Usable && op >>> 26 == 17 && (op >>> 21) & 31 == 8;
 
   static bool _branch(int op) {
     final code = op >>> 26;
@@ -158,7 +200,7 @@ final class R5900Translator {
 
   static const _special = [
     0, 2, 3, 4, 6, 7, 10, 11, 15, 16, 17, 18, 19, 20, 22, 23,
-    26, 27, 32, 33, 34, 35, 36, 37, 38, //
+    24, 25, 26, 27, 32, 33, 34, 35, 36, 37, 38, //
     39, 42, 43, 45, 47, 56, 58, 59, 60, 62, 63,
   ];
   static const _immediate = [8, 9, 10, 11, 12, 13, 14, 15, 25, 47, 51];
@@ -167,22 +209,61 @@ final class R5900Translator {
   /// low bit, set by the adapter from Status.CU1).
   bool _cop1Usable = false;
 
+  /// Whether COP2 was usable (the tag's bit 1, set by the adapter from
+  /// Status.CU2 when VU0 keeps its registers in the context), and the
+  /// runtime has the vector operations.
+  bool _cop2Usable = false;
+
+  /// Whether the TLB mapped the user addresses from 0x30000000 to main
+  /// memory less 0x30000000 (the tag's bit 2, set by the adapter from
+  /// [Tlb.ucabIdentity]).
+  bool _ucab = false;
+
+  /// whether the runtime has the vector operations ([JitRuntime.vectors])
+  final bool vectors;
+
+  final _vu0 = Vu0Macro(
+      vf: ctxVu0Vf, vi: ctxVu0Vi, scalars: ctxVu0Scalars);
+
   bool _supported(int op) {
     final code = op >>> 26;
     if (code == 0) return _special.contains(op & 63);
-    if (code == 17) return _cop1Usable && _cop1Supported(op);
+    if (code == 17) {
+      // CVT.S.W converts with the VU0 ITOF operation
+      if ((op >>> 21) & 31 == 20) {
+        return _cop1Usable && vectors && op & 63 == 0x20;
+      }
+      return _cop1Usable && _cop1Supported(op);
+    }
     if (code == 49 || code == 57) return _cop1Usable;
+    if (code == 54 || code == 62) return _cop2Usable;
+    if (code == 18) return _cop2Usable && _cop2Supported(op);
     if (code == 28) {
-      return const [0x10, 0x11, 0x12, 0x13, 0x1a, 0x1b]
+      return const [0x00, 0x01, 0x10, 0x11, 0x12, 0x13, 0x18, 0x19, 0x1a, 0x1b]
           .contains(op & 63);
     }
     return _immediate.contains(code) || _memory(op);
   }
 
+  /// COP2 forms the translator covers: QMFC2, QMTC2, the control
+  /// register moves that stay in the context, and the macro instructions
+  /// of [Vu0Macro.supports]. BC2 and VCALLMS start or wait for a micro
+  /// program and end the block.
+  static bool _cop2Supported(int op) {
+    final rs = (op >>> 21) & 31, rd = (op >>> 11) & 31;
+    return switch (rs) {
+      1 || 5 => true,
+      2 => Vu0Macro.control(rd, write: false),
+      6 => Vu0Macro.control(rd, write: true),
+      >= 16 => Vu0Macro.supports(op),
+      _ => false,
+    };
+  }
+
   /// COP1 forms the translator covers: the register moves, and of the
-  /// single precision functions everything the interpreter implements
-  /// except CVT.S.W, which needs an integer to float conversion the IR
-  /// does not have. BC1 (format 8..11) ends the block.
+  /// single precision functions everything the interpreter implements.
+  /// CVT.S.W is checked in [_supported]. BC1 (format 8..11) ends the
+  /// block.
   static bool _cop1Supported(int op) {
     final fmt = (op >>> 21) & 31;
     if (fmt == 0 || fmt == 2 || fmt == 4 || fmt == 6) return true;
@@ -210,7 +291,10 @@ final class R5900Translator {
 
   IrBlock? translate(int pc, {int tag = 0}) {
     _cop1Usable = tag & 1 != 0;
+    _cop2Usable = tag & 2 != 0 && vectors;
+    _ucab = tag & 4 != 0;
     b = IrBuilder(pc, tag: tag);
+    _vu0.reset(b);
     _wideRegs.fillRange(0, 32, null);
     _lowRegs.fillRange(0, 32, null);
     _dirty.clear();
@@ -232,9 +316,14 @@ final class R5900Translator {
     while (spent < maxInstructions) {
       final op = fetch(at);
       if (op == null) return end();
-      if (_branch(op)) {
+      if (_branch(op) || _bc1(op)) {
         final slot = fetch((at + 4) & 0xffffffff);
-        if (slot == null || !_supported(slot) || _branch(slot)) return end();
+        if (slot == null ||
+            !_supported(slot) ||
+            _branch(slot) ||
+            _bc1(slot)) {
+          return end();
+        }
         b.guard(at, op);
         protect(at);
         b.guard((at + 4) & 0xffffffff, slot);
@@ -242,8 +331,8 @@ final class R5900Translator {
         final beforeBranch = _mayExit(slot) ? _snapshot(at, spent) : null;
         final term = _branchTerm(op, at);
         final code = op >>> 26;
-        final likely =
-            code >= 20 && code <= 23 || code == 1 && ((op >>> 16) & 2) != 0;
+        final likely = code >= 20 && code <= 23 ||
+            (code == 1 || code == 17) && ((op >>> 16) & 2) != 0;
         if (likely) {
           b.exitIf(
               b.eq((term as IrBranch).cond, _c(0)),
@@ -278,6 +367,12 @@ final class R5900Translator {
     if (code == 2 || code == 3) {
       if (code == 3) _word(31, _c(next));
       return IrJump((at & 0xf0000000) | ((op & 0x3ffffff) << 2));
+    }
+    if (code == 17) {
+      // the condition bit of FCR31, set for BC1T and BC1TL
+      final set = b.and(_fcrGet(), _c(_conditionBit));
+      return IrBranch(t.isOdd ? b.ne(set, _c(0)) : b.eq(set, _c(0)), target,
+          next);
     }
     if (code >= 20 && code <= 23) code -= 16;
     final a = _get64(s), zero = _c64(0);
@@ -327,6 +422,8 @@ final class R5900Translator {
           _put64(d, _specialReg(ctxLo));
         case 19: // MTLO
           _setSpecial(ctxLo, _get64(s));
+        case 24 || 25: // MULT, MULTU
+          _multiply(s, t, d, signed: fn == 24);
         case 26 || 27: // DIV, DIVU
           _divide(s, t, signed: fn == 26);
         case 20 || 22 || 23: // DSLLV, DSRLV, DSRAV
@@ -387,6 +484,10 @@ final class R5900Translator {
             _put64(d, _specialReg(ctxLo1));
           case 0x13:
             _setSpecial(ctxLo1, _get64(s));
+          case 0x00 || 0x01: // MADD, MADDU
+            _multiply(s, t, d, signed: op & 63 == 0x00, accumulate: true);
+          case 0x18 || 0x19: // MULT1, MULTU1
+            _multiply(s, t, d, signed: op & 63 == 0x18, pipe1: true);
           case 0x1a || 0x1b:
             _divide(s, t, signed: (op & 63) == 0x1a, pipe1: true);
         }
@@ -416,21 +517,51 @@ final class R5900Translator {
         _cop1(op);
       case 49 || 57:
         _accessF(code == 57, s, t, imm, sideExit!);
+      case 54 || 62:
+        _quadVf(code == 62, s, t, imm, sideExit!);
+      case 26 || 27 || 34 || 38 || 42 || 44 || 45 || 46:
+        _leftRight(code, s, t, imm, sideExit!);
+      case 18:
+        _cop2(op);
       default:
         _access(code, s, t, imm, sideExit!);
     }
   }
 
-  /// Exits unless [address] is aligned to [size] and in a segment that the
+  /// Returns the address that compiled code accesses for [address], and
+  /// exits unless it is aligned to [size] and in a segment that the
   /// adapter maps to main memory: user addresses below 0x40000000 (which
   /// the adapter requires to be mapped one to one) and the unmapped kernel
-  /// segments. Pages outside main memory exit at the access.
-  void _checkAddress(IrValue address, int size, IrExit exit) {
-    final segment = b.shrU(address, _c(29));
+  /// segments. In blocks compiled with [_ucab], the user addresses from
+  /// 0x30000000 reach main memory at the address less 0x30000000. The
+  /// scratchpad is moved to [scratchAlias], and the other addresses that
+  /// reach that alias exit. Pages outside main memory and the scratchpad
+  /// exit at the access.
+  IrValue _checkAddress(IrValue address, int size, IrExit exit) {
+    final scratch = b.eq(b.and(address, _c(~(Ps2Bus.scratchSize - 1))),
+        _c(Ps2Bus.scratchBase));
+    var mapped = b.select(scratch,
+        b.xor(address, _c(Ps2Bus.scratchBase ^ scratchAlias)), address);
+    if (_ucab) {
+      final ucab = b.eq(b.shrU(address, _c(28)), _c(3));
+      mapped = b.select(ucab, b.and(address, _c(0x0fffffff)), mapped);
+    }
+    final segment = b.shrU(mapped, _c(29));
     final allowed = b.and(b.shrU(_c(0x33), segment), _c(1));
     var bad = b.eq(allowed, _c(0));
+    bad = b.or(
+        bad,
+        b.eq(b.and(address, _c(0x1fffffff & ~(Ps2Bus.scratchSize - 1))),
+            _c(scratchAlias)));
+    if (_ucab) {
+      bad = b.or(
+          bad,
+          b.eq(b.and(address, _c(~(Ps2Bus.scratchSize - 1))),
+              _c(0x30000000 | scratchAlias)));
+    }
     if (size > 1) bad = b.or(bad, b.ne(b.and(address, _c(size - 1)), _c(0)));
     b.exitIf(bad, exit);
+    return mapped;
   }
 
   void _access(int code, int s, int t, int imm, IrExit exit) {
@@ -440,8 +571,7 @@ final class R5900Translator {
       55 || 63 => 8,
       _ => 4,
     };
-    final address = b.add(_low(s), _c(imm));
-    _checkAddress(address, size, exit);
+    final address = _checkAddress(b.add(_low(s), _c(imm)), size, exit);
     if (_stores.contains(code)) {
       b.store(size, address, size == 8 ? _get64(t) : _low(t), unmapped: exit);
       return;
@@ -455,8 +585,8 @@ final class R5900Translator {
 
   /// LQ and SQ ignore the low four address bits
   void _quad(bool store, int s, int t, int imm, IrExit exit) {
-    final address = b.and(b.add(_low(s), _c(imm)), _c(~15));
-    _checkAddress(address, 1, exit);
+    final address =
+        _checkAddress(b.and(b.add(_low(s), _c(imm)), _c(~15)), 1, exit);
     final high = b.add(address, _c(8));
     if (store) {
       b.store(8, address, _get64(t), unmapped: exit);
@@ -472,10 +602,90 @@ final class R5900Translator {
     b.ctxStore(_ctxHigh(t), highValue);
   }
 
+  /// LDL, LDR, LWL, LWR and their stores: a read of the aligned unit
+  /// that holds the address, merged with [t] by the byte offset (and, for
+  /// the stores, written back whole)
+  void _leftRight(int code, int s, int t, int imm, IrExit exit) {
+    final size = const [26, 27, 44, 45].contains(code) ? 8 : 4;
+    final left = const [26, 34, 42, 44].contains(code);
+    final wide = size == 8;
+    IrValue c(int v) => wide ? _c64(v) : _c(v);
+    final ea = b.add(_low(s), _c(imm));
+    final address = _checkAddress(b.and(ea, _c(~(size - 1))), 1, exit);
+    final offset = b.and(ea, _c(size - 1));
+    // the bits below the merged bytes of a left access, and the bits of
+    // the offset of a right access
+    final offsetBits = b.shl(offset, _c(3));
+    final bits = left ? b.sub(_c(size * 8 - 8), offsetBits) : offsetBits;
+    final memory = b.load(size, address,
+        type: wide ? IrType.i64 : IrType.i32, unmapped: exit);
+    final value = wide ? _get64(t) : _low(t);
+    if (code >= 40) {
+      final merged = left
+          ? b.or(b.and(memory, b.xor(b.shrU(c(-1), bits), c(-1))),
+              b.shrU(value, bits))
+          : b.or(b.and(memory, b.sub(b.shl(c(1), bits), c(1))),
+              b.shl(value, bits));
+      b.store(size, address, merged, unmapped: exit);
+      return;
+    }
+    final merged = left
+        ? b.or(b.and(value, b.sub(b.shl(c(1), bits), c(1))),
+            b.shl(memory, bits))
+        : b.or(b.and(value, b.xor(b.shrU(c(-1), bits), c(-1))),
+            b.shrU(memory, bits));
+    if (wide) {
+      _put64(t, merged);
+    } else if (left) {
+      _put64(t, b.sext32(merged));
+    } else {
+      // LWR sign-extends only a whole word and keeps the upper word else
+      _put64(
+          t,
+          b.select(
+              b.eq(offset, _c(0)),
+              b.sext32(merged),
+              b.or(b.and(_get64(t), _c64(-0x100000000)),
+                  b.zext32(merged))));
+    }
+  }
+
+  /// LQC2 and SQC2: [t] names a VF register of VU0. A misaligned address
+  /// exits, for the interpreter to raise the address error.
+  void _quadVf(bool store, int s, int t, int imm, IrExit exit) {
+    final address = _checkAddress(b.add(_low(s), _c(imm)), 16, exit);
+    if (store) {
+      b.store(16, address, _vu0.vfGet(t), unmapped: exit);
+    } else if (t != 0) {
+      _vu0.vfSet(
+          t, 15, b.load(16, address, type: IrType.v128, unmapped: exit));
+    }
+  }
+
+  /// the COP2 instructions of [_cop2Supported]
+  void _cop2(int op) {
+    final rs = (op >>> 21) & 31, t = (op >>> 16) & 31, d = (op >>> 11) & 31;
+    switch (rs) {
+      case 1: // QMFC2: the four words of VF d to the 128 bits of t
+        if (t == 0) return;
+        b.ctxStore(_ctxLow(t), _vu0.vfGet(d));
+        _wideRegs[t] = _lowRegs[t] = null;
+        _dirty.remove(t);
+      case 5: // QMTC2
+        if (_dirty.contains(t)) b.ctxStore(_ctxLow(t), _wideRegs[t]!);
+        _vu0.vfSet(d, 15, b.ctxLoad(_ctxLow(t), type: IrType.v128));
+      case 2: // CFC2
+        _word(t, _vu0.readControl(d));
+      case 6: // CTC2
+        _vu0.writeControl(d, _low(t));
+      default:
+        _vu0.emit(op);
+    }
+  }
+
   /// LWC1 and SWC1: [t] names a COP1 register instead of a general one.
   void _accessF(bool store, int s, int t, int imm, IrExit exit) {
-    final address = b.add(_low(s), _c(imm));
-    _checkAddress(address, 4, exit);
+    final address = _checkAddress(b.add(_low(s), _c(imm)), 4, exit);
     if (store) {
       b.store(4, address, _fget(t), unmapped: exit);
       return;
@@ -644,6 +854,8 @@ final class R5900Translator {
         _word(rt, fs == 31 ? _fcrGet() : _c(fs == 0 ? 0x2e00 : 0));
       case 4: // MTC1
         _fput(fs, _low(rt));
+      case 20: // CVT.S.W truncates as VU0 ITOF0 does, and raises nothing
+        _fput(fd, b.vExtract(b.vuItof(b.vSplat(_fget(fs)), 0), 0));
       case 6: // CTC1 replaces FCR31 wholesale, pending flags included
         if (fs == 31) {
           _fcrBase = null;

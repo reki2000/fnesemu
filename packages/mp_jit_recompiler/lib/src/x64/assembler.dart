@@ -229,6 +229,19 @@ final class Assembler {
     u64(imm);
   }
 
+  /// [movRI64] with the shortest encoding: a 32-bit move when [imm] fits
+  /// unsigned, or a sign-extended 32-bit immediate when it fits signed
+  void movRI64Short(int dst, int imm) {
+    if (imm >= 0 && imm <= 0xffffffff) {
+      movRI(dst, imm);
+    } else if (imm == imm.toSigned(32)) {
+      _opReg([0xc7], 0, dst, w: true);
+      u32(imm & 0xffffffff);
+    } else {
+      movRI64(dst, imm);
+    }
+  }
+
   void mov16MR(Mem m, int src) {
     u8(0x66);
     _opMem([0x89], src, m);
@@ -350,6 +363,103 @@ final class Assembler {
 
   void cmovRR(int cc, int dst, int src, {bool w = false}) =>
       _opReg([0x0f, 0x40 + cc], dst, src, w: w);
+  void cmovRM(int cc, int dst, Mem m, {bool w = false}) =>
+      _opMem([0x0f, 0x40 + cc], dst, m, w: w);
+
+  // SSE2 on XMM registers by number; [prefix] 0 for none
+
+  void sseRR(int prefix, int op, int reg, int rm) {
+    if (prefix != 0) u8(prefix);
+    _opReg([0x0f, op], reg, rm);
+  }
+
+  void sseRM(int prefix, int op, int reg, Mem m) {
+    if (prefix != 0) u8(prefix);
+    _opMem([0x0f, op], reg, m);
+  }
+
+  /// with the RIP-relative memory operand at [l], which the instruction
+  /// ends with
+  void sseRL(int prefix, int op, int reg, Label l) {
+    if (prefix != 0) u8(prefix);
+    _rex(false, reg, 0, 0);
+    u8(0x0f);
+    u8(op);
+    u8((reg & 7) << 3 | 5);
+    _rel32(l);
+  }
+
+  void movdquRM(int x, Mem m) => sseRM(0xf3, 0x6f, x, m);
+  void movdquMR(Mem m, int x) => sseRM(0xf3, 0x7f, x, m);
+  void movdqaRR(int dst, int src) => sseRR(0x66, 0x6f, dst, src);
+  void movdqaRL(int dst, Label l) => sseRL(0x66, 0x6f, dst, l);
+
+  /// MOVD from the 32-bit register [src] to [x]
+  void movdXR(int x, int src) => sseRR(0x66, 0x6e, x, src);
+
+  /// MOVD from the low lane of [x] to the 32-bit register [dst]
+  void movdRX(int dst, int x) => sseRR(0x66, 0x7e, x, dst);
+  void movmskps(int dst, int x) => sseRR(0, 0x50, dst, x);
+
+  /// PMOVMSKB: the sign bits of the bytes of [x] to [dst]
+  void pmovmskb(int dst, int x) => sseRR(0x66, 0xd7, dst, x);
+
+  /// PSHUFLW: the low four words of [dst] picked from [src] by [imm]
+  void pshuflw(int dst, int src, int imm) {
+    sseRR(0xf2, 0x70, dst, src);
+    u8(imm);
+  }
+
+  /// PSHUFHW: the high four words of [dst] picked from [src] by [imm]
+  void pshufhw(int dst, int src, int imm) {
+    sseRR(0xf3, 0x70, dst, src);
+    u8(imm);
+  }
+
+  void pshufd(int dst, int src, int imm) {
+    sseRR(0x66, 0x70, dst, src);
+    u8(imm);
+  }
+
+  void shufps(int dst, int src, int imm) {
+    sseRR(0, 0xc6, dst, src);
+    u8(imm);
+  }
+
+  /// SHUFPD: the low lane of [dst] from lane `imm & 1` of [dst], the high
+  /// lane from lane `imm >> 1 & 1` of [src]
+  void shufpd(int dst, int src, int imm) {
+    sseRR(0x66, 0xc6, dst, src);
+    u8(imm);
+  }
+
+  /// CMPPD with the predicate [imm] (0 EQ, 1 LT, 2 LE, 4 NEQ, 5 NLT, 6 NLE)
+  void cmppd(int dst, int src, int imm) {
+    sseRR(0x66, 0xc2, dst, src);
+    u8(imm);
+  }
+
+  void cvtdq2pd(int dst, int src) => sseRR(0xf3, 0xe6, dst, src);
+  void cvtps2pd(int dst, int src) => sseRR(0, 0x5a, dst, src);
+  void cvttpd2dq(int dst, int src) => sseRR(0x66, 0xe6, dst, src);
+  void punpcklqdq(int dst, int src) => sseRR(0x66, 0x6c, dst, src);
+
+  void shufpdRM(int dst, Mem m, int imm) {
+    sseRM(0x66, 0xc6, dst, m);
+    u8(imm);
+  }
+
+  /// PSLLQ (/6) or PSRLQ (/2) by [imm]
+  void shiftQI(int digit, int x, int imm) {
+    sseRR(0x66, 0x73, digit, x);
+    u8(imm);
+  }
+
+  /// PSRLD (/2) or PSRAD (/4) by [imm]
+  void shiftDI(int digit, int x, int imm) {
+    sseRR(0x66, 0x72, digit, x);
+    u8(imm);
+  }
 
   // control flow
 

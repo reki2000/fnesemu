@@ -100,14 +100,16 @@ void main() {
   });
 
   test('cache eviction drops old links and permits recompilation', () {
-    for (int i = 0; i < 4100; i++) {
+    // Four blocks more than the 32768 that the cache keeps.
+    const count = 32768 + 4;
+    for (int i = 0; i < count; i++) {
       final b = IrBuilder(0x1000 + 4 * i);
       rt.install(b.finish(IrExitTerm(IrExit(JitReason.user, 0x1000 + 4 * i)),
           cost: 1));
     }
     expect(rt.contains(0x1000, 0), isFalse);
     rt.ctx[JitCtx.budget] = 100;
-    expect(rt.run(0x1000 + 4 * 4099, 0), JitReason.user);
+    expect(rt.run(0x1000 + 4 * (count - 1), 0), JitReason.user);
     expect(rt.run(0x1000, 0), JitReason.miss);
     rt.clear();
     final b = IrBuilder(0x1000);

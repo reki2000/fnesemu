@@ -42,7 +42,7 @@ void main(List<String> args) {
     final sw = Stopwatch()..start();
     final jit = Ps2Jit.create()!;
     final io = _BenchIo();
-    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final bus = Ps2Bus(ram: jit.ram, scratch: jit.scratch)..io = io;
     final cpu = R5900(bus, gpr: jit.gpr);
     jit.attach(cpu);
     final address = mode == 'mmio' ? 0x1000f000 : 0x00200000;

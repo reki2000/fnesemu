@@ -102,6 +102,9 @@ class GsMemory {
 
   final Uint8List bytes;
   final Uint32List _words;
+
+  /// the memory as 32-bit words
+  Uint32List get words => _words;
   final Uint16List _halves;
 
   /// the layout of every PSM value; the invalid ones use the 32-bit layout

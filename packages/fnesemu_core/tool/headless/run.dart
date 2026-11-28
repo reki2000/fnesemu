@@ -1,8 +1,6 @@
 import 'dart:io';
 
-import 'package:fnesemu_core/src/core/dc/dc.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
-import 'package:fnesemu_core/src/render_frame.dart';
 import 'package:image/image.dart' as img;
 
 import 'debug_views.dart';
@@ -17,9 +15,6 @@ run <core> <media...> [options]: runs the core and writes the screen and the aud
   -o, --out DIR      output directory (default: /tmp/core_headless)
       --load-state FILE  restore state before running; continue from its frame
       --save-state FILE  save state after the last frame
-      --render-frames PREFIX  dc: write the render frames that start in the
-                     frame before the last one to PREFIX_N.rframe, with the
-                     colors of the core's renderer
   -w, --wav          also write audio.wav (16bit pcm)
   -v, --vram         ps: also write vram.png (the whole 1024x512 VRAM)
   -t, --tty          ps: also write tty.txt (what the program writes to the tty)
@@ -37,7 +32,6 @@ Future<void> run(List<String> args) async {
     "--out",
     "--load-state",
     "--save-state",
-    "--render-frames",
   }, flags: {
     ...mediaFlags,
     "--wav",
@@ -74,15 +68,7 @@ Future<void> run(List<String> args) async {
   final firstFrame = s.frame;
   final sw = Stopwatch()..start();
 
-  final renderFrames = o["--render-frames"];
-  final captured = <RenderFrame>[];
-  final sink = _FrameList(captured);
   while (s.frame < frames) {
-    if (renderFrames != null && core is Dc) {
-      final render = core.bus.gpu.render;
-      render.frameSink = s.frame == frames - 2 ? sink : null;
-      render.frameReference = true;
-    }
     if (!await s.stepFrame()) {
       stdout.writeln("stopped at frame ${s.frame}\n${core.dump()}");
       savePng(core.imageBuffer(), "$outDir/stopped.png");
@@ -96,16 +82,6 @@ Future<void> run(List<String> args) async {
           "pc:${core.programCounter(0).toRadixString(16)} audio-peak:"
           "${s.peak.toStringAsFixed(3)} -> $path");
     }
-  }
-
-  for (var i = 0; i < captured.length; i++) {
-    final frame = captured[i];
-    final path = "${renderFrames}_$i.rframe";
-    File(path).writeAsBytesSync(frame.encode());
-    stdout.writeln("render frame $i: ${frame.width}x${frame.height}, "
-        "${frame.triangleCount} triangles, ${frame.batches.length} batches, "
-        "${frame.textures.length} textures, target "
-        "${frame.target.toRadixString(16)} -> $path");
   }
 
   final saveState = o["--save-state"];
@@ -138,12 +114,4 @@ void _saveVram(Ps ps, String path) {
     }
   }
   File(path).writeAsBytesSync(img.encodePng(image));
-}
-
-class _FrameList implements RenderFrameSink {
-  _FrameList(this.frames);
-  final List<RenderFrame> frames;
-
-  @override
-  void submit(RenderFrame frame) => frames.add(frame);
 }

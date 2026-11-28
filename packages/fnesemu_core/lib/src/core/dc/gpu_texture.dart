@@ -236,7 +236,6 @@ class DcGpuTexture {
       stamps[y * width + x] = 0;
     }
     cache.complete = 0;
-    cache.changes++;
   }
 
   static int _compact(int v) {
@@ -725,7 +724,13 @@ class DcGpuTexture {
       final last = 0.0 + (size - 1);
       return value < 0 ? 0.0 : (value > last ? last : value);
     }
-    return value % (0.0 + (flip ? size * 2 : size));
+    final period = flip ? size * 2 : size;
+    if (period & (period - 1) == 0) {
+      // Division and multiplication by a power of two are exact, so this
+      // equals the modulo below without its call.
+      return value - (value / period).floorToDouble() * period;
+    }
+    return value % (0.0 + period);
   }
 
   /// System Architecture sections 3.4.7.3.1 and 3.6.1.3, with host-double trig/rounding.
@@ -824,7 +829,7 @@ class DcTextureCache {
       : texels = Uint32List(size),
         stamps = Uint32List(size);
   final Uint32List texels, stamps;
-  final Int32List levelOffsets;
+  final Uint32List levelOffsets;
   int generation = 1;
 
   /// The generation in which every level-0 texel was decoded.
@@ -833,11 +838,7 @@ class DcTextureCache {
   /// VRAM page clock and palette version when the contents were validated.
   int checked = 0, paletteVersion = -1;
 
-  /// Counts the invalidations, whole or partial.
-  int changes = 0;
-
   void invalidate() {
-    changes++;
     if (++generation == 0xffffffff) {
       stamps.fillRange(0, stamps.length, 0);
       generation = 1;

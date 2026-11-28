@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// RF5C164: eight channels of sign/magnitude PCM, with 11 fractional bits.
 class CdPcm {
@@ -73,6 +74,42 @@ class CdPcm {
         }
         _off = data;
     }
+  }
+
+  void saveState(StateWriter w) {
+    w.section('md-pcm');
+    w.bytes(ram);
+    w.ints([
+      _channel, _bank, _off, _phase, _enabled ? 1 : 0, //
+      for (final c in _channels)
+        ...[c.envelope, c.pan, c.step, c.loop, c.start, c.position],
+    ]);
+    w.float64(_left);
+    w.float64(_right);
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-pcm');
+    s.bytesInto(ram);
+    final v = List<int>.filled(5 + 8 * 6, 0);
+    s.intsInto(v);
+    _channel = v[0];
+    _bank = v[1];
+    _off = v[2];
+    _phase = v[3];
+    _enabled = v[4] != 0;
+    for (var i = 0; i < 8; i++) {
+      final c = _channels[i], at = 5 + i * 6;
+      c
+        ..envelope = v[at]
+        ..pan = v[at + 1]
+        ..step = v[at + 2]
+        ..loop = v[at + 3]
+        ..start = v[at + 4]
+        ..position = v[at + 5];
+    }
+    _left = s.float64();
+    _right = s.float64();
   }
 
   (double, double) sample(int outputHz) {
