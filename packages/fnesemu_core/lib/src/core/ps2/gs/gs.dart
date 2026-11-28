@@ -165,10 +165,19 @@ class Gs {
   /// awaits [computeWait] and calls [syncCompute] before it runs on.
   bool syncRequested = false;
 
+  /// On a sink that does not wait, returns the future of the previous
+  /// vblank's display prefetch if it has not settled yet.
+  Future<void>? vblankWait() => _compute?.vblankWait();
+
   /// Asks the GPU for the memory that the Gs needs at the next vblank, a
   /// transfer or a saved state, on a sink that does not wait. Returns the
   /// future that completes when it has come; null when it is there.
-  Future<void>? computeWait() => _compute?.requestSync();
+  Future<void>? computeWait() {
+    if (!syncRequested) {
+      if (_compute?.vblankWait() case final wait?) return wait;
+    }
+    return _compute?.requestSync();
+  }
 
   /// Brings [mem] up to date for the transfer of [syncRequested], after
   /// [computeWait] has completed.

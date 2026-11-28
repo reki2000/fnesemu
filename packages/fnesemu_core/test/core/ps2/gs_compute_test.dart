@@ -134,18 +134,19 @@ void main() {
   });
 
   group('on a sink that does not wait', () {
-    test('the memory comes before the vblank that the core waits for',
+    test('vblank prefetches display asynchronously and shows it on the next vblank',
         () async {
       final sink = _Sink(waits: false);
       final gs = _gs()..computeSink = sink;
       final program = sink.made!;
       _sprite(gs);
-      final wait = gs.computeWait()!;
+      gs.vblank();
       expect(program.entries, contains(1));
-      expect(program.fetched, {0, 5});
+      expect(program.fetched, {0});
+      final wait = gs.vblankWait()!;
       program.arriving!.complete();
       await wait;
-      expect(gs.computeWait(), isNull);
+      expect(gs.vblankWait(), isNull);
       gs.vblank();
       expect(gs.mem.words[0], _Program.marker);
       expect(gs.compute!.unsupported, isEmpty);
@@ -159,15 +160,6 @@ void main() {
       program.arriving!.complete();
       _sprite(gs);
       expect(gs.computeWait(), isNotNull);
-    });
-
-    test('a vblank before the memory came keeps the memory as it was', () {
-      final sink = _Sink(waits: false);
-      final gs = _gs()..computeSink = sink;
-      _sprite(gs);
-      gs.vblank();
-      expect(gs.mem.words[0], 0);
-      expect(gs.compute!.unsupported, isNotEmpty);
     });
 
     test('a local to host transfer asks the core to stop for the memory',

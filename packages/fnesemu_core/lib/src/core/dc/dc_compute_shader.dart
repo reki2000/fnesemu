@@ -179,22 +179,23 @@ fn loadTex(i: u32) -> Tex {
       tab[t + 5u], tab[t + 6u], tab[t + 7u], tabf(t + 8u), tab[t + 9u]);
 }
 
+const RGB_OFFSETS = array<u32, 11>(6u, 8u, 0x10u, 0x30u, 0xb0u, 0x2b0u, 0xab0u,
+    0x2ab0u, 0xaab0u, 0x2aab0u, 0xaaab0u);
+const PAL_OFFSETS = array<u32, 11>(3u, 4u, 8u, 0x18u, 0x58u, 0x158u, 0x558u,
+    0x1558u, 0x5558u, 0x15558u, 0x55558u);
+const VQ_OFFSETS = array<u32, 11>(0u, 1u, 2u, 6u, 0x16u, 0x56u, 0x156u, 0x556u,
+    0x1556u, 0x5556u, 0x15556u);
+
 fn rgbOffset(e: u32) -> u32 {
-  var a = array<u32, 11>(6u, 8u, 0x10u, 0x30u, 0xb0u, 0x2b0u, 0xab0u,
-      0x2ab0u, 0xaab0u, 0x2aab0u, 0xaaab0u);
-  return a[min(e, 10u)];
+  return RGB_OFFSETS[min(e, 10u)];
 }
 
 fn paletteOffset(e: u32) -> u32 {
-  var a = array<u32, 11>(3u, 4u, 8u, 0x18u, 0x58u, 0x158u, 0x558u,
-      0x1558u, 0x5558u, 0x15558u, 0x55558u);
-  return a[min(e, 10u)];
+  return PAL_OFFSETS[min(e, 10u)];
 }
 
 fn vqOffset(e: u32) -> u32 {
-  var a = array<u32, 11>(0u, 1u, 2u, 6u, 0x16u, 0x56u, 0x156u, 0x556u,
-      0x1556u, 0x5556u, 0x15556u);
-  return a[min(e, 10u)];
+  return VQ_OFFSETS[min(e, 10u)];
 }
 
 // a byte of the 64-bit texture space
@@ -826,8 +827,12 @@ fn opaqueDepths(e: u32) {
   }
 }
 
-// the opaque list or a presorted translucent list
+// the opaque list or a presorted translucent list; defers shading of
+// overwriting (src=ONE, dst=ZERO, primary) polygons so occluded overdraw is
+// skipped (hidden surface removal)
 fn ordered(first: u32, count: u32, mask: u32) {
+  var hasPending = false;
+  var pendingR = 0u;
   for (var i = 0u; i < count; i++) {
     let r = (first + i) * REC;
     if (!covers(r)) { continue; }
@@ -840,8 +845,21 @@ fn ordered(first: u32, count: u32, mask: u32) {
     if (area >= 0 && mask != u32(area)) { continue; }
     let isp = rec[r];
     if (!depthPass(isp >> 29u, z, pd)) { continue; }
-    composite(shade(r, shadowOf(r, mask)), rec[r + 1u]);
+    let tsp = rec[r + 1u];
+    if ((tsp & 0xff000000u) == 0x20000000u) {
+      hasPending = true;
+      pendingR = r;
+    } else {
+      if (hasPending) {
+        pc = shade(pendingR, shadowOf(pendingR, mask));
+        hasPending = false;
+      }
+      composite(shade(r, shadowOf(r, mask)), tsp);
+    }
     if ((isp & 0x04000000u) == 0u) { pd = z; }
+  }
+  if (hasPending) {
+    pc = shade(pendingR, shadowOf(pendingR, mask));
   }
 }
 
@@ -954,7 +972,7 @@ fn sorted(e: u32, modified: bool) {
   let first = tab[e + 8u];
   let count = tab[e + 9u];
   let opaqueDepth = pd;
-  let s0 = slot * MAX_FRAGMENTS;
+  let s = slot;
   var n = 0u;
   var overflow = false;
   for (var i = 0u; i < count; i++) {
@@ -966,36 +984,43 @@ fn sorted(e: u32, modified: bool) {
       break;
     }
     // Stable insertion: a fragment goes after those with an equal key.
+    // Indexed as k * 64 + slot so adjacent threads access contiguous words.
     let o = bitcast<i32>(rec[r + 3u]);
-    var k = s0 + n;
-    while (k > s0 && (fz[k - 1u] > z || (fz[k - 1u] == z && fo[k - 1u] > o))) {
-      fz[k] = fz[k - 1u];
-      fo[k] = fo[k - 1u];
-      fr[k] = fr[k - 1u];
+    var k = n;
+    while (k > 0u) {
+      let prev = (k - 1u) * 64u + s;
+      if (!(fz[prev] > z || (fz[prev] == z && fo[prev] > o))) { break; }
+      let cur = k * 64u + s;
+      fz[cur] = fz[prev];
+      fo[cur] = fo[prev];
+      fr[cur] = fr[prev];
       k--;
     }
-    fz[k] = z;
-    fo[k] = o;
-    fr[k] = r;
+    let idx = k * 64u + s;
+    fz[idx] = z;
+    fo[idx] = o;
+    fr[idx] = r;
     n++;
   }
   if (overflow) {
     peeled(e, modified, opaqueDepth);
     return;
   }
-  let end = s0 + n;
-  var k = s0;
-  while (k < end) {
-    let z = fz[k];
-    let o = fo[k];
-    var chosen = fr[k];
+  var k = 0u;
+  while (k < n) {
+    let ki = k * 64u + s;
+    let z = fz[ki];
+    let o = fo[ki];
+    var chosen = fr[ki];
     var any = true;
     if (modified) {
       let mask = modifierArea(tab[e + 12u], tab[e + 13u], z);
       any = false;
-      for (var j = k; j < end && fz[j] == z && fo[j] == o; j++) {
-        if (chooses(fr[j], mask)) {
-          chosen = fr[j];
+      for (var j = k; j < n; j++) {
+        let ji = j * 64u + s;
+        if (fz[ji] != z || fo[ji] != o) { break; }
+        if (chooses(fr[ji], mask)) {
+          chosen = fr[ji];
           any = true;
           break;
         }
@@ -1003,7 +1028,11 @@ fn sorted(e: u32, modified: bool) {
     }
     // the rest of the layer
     var next = k + 1u;
-    while (next < end && fz[next] == z && fo[next] == o) { next++; }
+    while (next < n) {
+      let ni = next * 64u + s;
+      if (fz[ni] != z || fo[ni] != o) { break; }
+      next++;
+    }
     k = next;
     if (!any) { continue; }
     composite(shade(chosen, shadowOf(chosen, 0u)), rec[chosen + 1u]);

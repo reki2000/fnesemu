@@ -3520,6 +3520,12 @@ class DcGpuRender {
     }
   }
 
+  bool _waitRequested = false;
+
+  /// Whether a CPU/DMA access or scanout hit deferred tiles whose GPU
+  /// results had not arrived yet.
+  bool get waitRequested => _waitRequested;
+
   /// Writes the deferred tiles to VRAM. On a sink that cannot wait, tiles
   /// whose results have not come stay deferred and are written at a later
   /// call, after the bytes that wanted them; the core stops for the results
@@ -3529,9 +3535,11 @@ class DcGpuRender {
     if (_deferred.isEmpty) return;
     final compute = _deferredCompute!;
     if (compute.fetching != null) {
+      _waitRequested = true;
       _watchTiles();
       return;
     }
+    _waitRequested = false;
     _pages.unwatch();
     _flushing = true;
     try {
@@ -3565,6 +3573,7 @@ class DcGpuRender {
   bool get waitsForCompute => !busy && computeWait != null;
 
   void _dropTiles() {
+    _waitRequested = false;
     _deferred.clear();
     _pages.unwatch();
   }

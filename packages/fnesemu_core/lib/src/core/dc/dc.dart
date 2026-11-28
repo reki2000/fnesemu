@@ -631,7 +631,7 @@ class Dc extends Core {
       while (scanlines > 0) {
         // Stop where no CPU step or device batch is under way, before the
         // next may read the tiles of a render whose results have not come.
-        if (bus.gpu.render.deferred && bus.gpu.render.waitsForCompute) {
+        if (bus.gpu.waitsForCompute) {
           linesLeft = scanlines;
           break;
         }

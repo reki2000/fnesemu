@@ -62,11 +62,13 @@ const _vramBinding = 0, _primBinding = 1, _dataBinding = 2;
 class GeCompute implements PspVramGuard {
   /// Compiles the program on [sink]; throws if it cannot.
   GeCompute(this.mem, ComputeSink sink)
-      : _program = sink.program(
+      : _waits = sink.waits,
+        _program = sink.program(
             pspGeComputeShader, const ['raster', 'copy'], _bindings,
             paramStride: _paramWords * 4, maxDispatches: _maxBatches);
 
   final PspMemory mem;
+  final bool _waits;
   final ComputeProgram _program;
 
   /// Called when a page changes its state, for the JIT mappings.
@@ -98,8 +100,13 @@ class GeCompute implements PspVramGuard {
   /// Copies the video memory to the GPU, takes the ownership of it and
   /// starts with no recorded work.
   void attach() {
-    _takeDisplay();
+    if (_waits || _program.fetching == null) {
+      _takeDisplay();
+    } else {
+      _prefetched = false;
+    }
     _displayed = false;
+    _vramVersion++;
     _resetRecording();
     _program.write(_vramBinding, 0, _vramWords);
     _dirtyCount = 0;
@@ -113,7 +120,7 @@ class GeCompute implements PspVramGuard {
 
   /// Copies the video memory back and leaves it to the CPU.
   void detach() {
-    sync();
+    if (_waits) sync();
     mem.guard = null;
     mem.vramPages = null;
     for (var p = 0; p < _pages; p++) {
@@ -181,6 +188,16 @@ class GeCompute implements PspVramGuard {
       }
     }
     if (last < 0) return;
+    if (!_waits) {
+      if (_program.fetching == null) _takeDisplay();
+      _submit();
+      for (var p = first; p <= last; p++) {
+        if (_state[p] == PspVramGuard.gpuNewer) {
+          _setState(p, PspVramGuard.synced);
+        }
+      }
+      return;
+    }
     _takeDisplay();
     _submit();
     syncs++;
@@ -201,8 +218,13 @@ class GeCompute implements PspVramGuard {
   /// Takes the video memory of the core as it is now, after a state load or
   /// a reset that wrote it directly.
   void reload() {
-    _takeDisplay();
+    if (_waits || _program.fetching == null) {
+      _takeDisplay();
+    } else {
+      _prefetched = false;
+    }
     _displayed = false;
+    _vramVersion++;
     _resetRecording();
     _dirtyCount = 0;
     _dirtyMark.fillRange(0, _pages, 0);
@@ -218,14 +240,28 @@ class GeCompute implements PspVramGuard {
   bool _displayed = false, _prefetched = false;
   int _prefetchAt = 0, _prefetchWords = 0;
   int _prefetchStride = 0, _prefetchFormat = 0;
+  int _vramVersion = 0, _displayVersion = -1;
+  int _displayAt = -1, _displayWords = 0;
 
   /// the frame buffer width and format of [display]
   int displayStride = 0, displayFormat = 0;
 
+  /// On a sink that does not wait, the future that completes when the
+  /// prefetched frame buffer is ready on the host.
+  Future<void>? get computeWait => _waits ? null : _program.fetching;
+
+  /// Whether the core should pause before the next [endFrame] because the
+  /// previous frame's asynchronous display copy has not finished yet.
+  bool get waitsForCompute => !_waits && _prefetched && _program.fetching != null;
+
   /// Submits the work of the frame and starts to copy the frame buffer at
   /// [addr] of [stride] pixels in [format], at the end of a frame.
   void endFrame(int addr, int stride, int format) {
-    _takeDisplay();
+    if (_waits || _program.fetching == null) {
+      _takeDisplay();
+    } else {
+      _prefetched = false;
+    }
     _submit();
     final phys = PspMemory.physical(addr);
     if (phys < PspMemory.vramAt ||
@@ -235,18 +271,34 @@ class GeCompute implements PspVramGuard {
     final at = (phys - PspMemory.vramAt) & (PspMemory.vramSize - 1);
     final bytes = stride * 272 * (format == 3 ? 4 : 2);
     if (at & 3 != 0 || bytes == 0 || at + bytes > PspMemory.vramSize) return;
+    final words = bytes >> 2;
+    if (!_waits &&
+        _displayed &&
+        _vramVersion == _displayVersion &&
+        at == _displayAt &&
+        words == _displayWords &&
+        stride == displayStride &&
+        format == displayFormat) {
+      return;
+    }
     _program.prefetch(_vramBinding, at, bytes);
     _prefetched = true;
     _prefetchAt = at;
-    _prefetchWords = bytes >> 2;
+    _prefetchWords = words;
     _prefetchStride = stride;
     _prefetchFormat = format;
   }
 
   /// The frame buffer that was shown at the end of the frame before the
-  /// last one, in words from its start, of [displayStride] pixels a line in
-  /// [displayFormat]; null before the end of the second frame.
-  Uint32List? get display => _displayed ? _display : null;
+  /// last one (or the latest completed frame on an async sink), in words
+  /// from its start, of [displayStride] pixels a line in [displayFormat];
+  /// null before the first completed frame.
+  Uint32List? get display {
+    if (!_waits && _prefetched && _program.fetching == null) {
+      _takeDisplay();
+    }
+    return _displayed ? _display : null;
+  }
 
   void _takeDisplay() {
     if (!_prefetched) return;
@@ -256,6 +308,9 @@ class GeCompute implements PspVramGuard {
     gpuMs += clock.elapsedMicroseconds / 1000;
     _prefetched = false;
     _displayed = true;
+    _displayVersion = _vramVersion;
+    _displayAt = _prefetchAt;
+    _displayWords = _prefetchWords;
     displayStride = _prefetchStride;
     displayFormat = _prefetchFormat;
   }
@@ -731,6 +786,7 @@ class GeCompute implements PspVramGuard {
         }
       }
       _dirtyCount = 0;
+      _vramVersion++;
     }
     if (_dispatchCount != 0) {
       _program
@@ -738,6 +794,7 @@ class GeCompute implements PspVramGuard {
         ..write(_dataBinding, 0, _data, 0, _dataLength)
         ..run(_dispatches, _dispatchCount, _params, wait: false);
       submits++;
+      _vramVersion++;
     }
     gpuMs += clock.elapsedMicroseconds / 1000;
     _resetRecording();

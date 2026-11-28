@@ -527,7 +527,7 @@ class Ps2 extends Core {
         if (gs.syncRequested) break;
       }
       if (cpu.clocks >= _nextScanlineClock) {
-        if (_line + 1 == _vblankLine && gs.computeWait() != null) {
+        if (_line + 1 == _vblankLine && gs.vblankWait() != null) {
           return _waitForCompute(scanlines - rendered);
         }
         _nextScanlineClock += clocksInScanline;
