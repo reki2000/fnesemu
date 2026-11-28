@@ -7,6 +7,7 @@ library;
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart' show compute;
 
 /// reads [length] bytes of the archive from [offset]
 typedef ReadRange = Future<Uint8List> Function(int offset, int length);
@@ -470,20 +471,14 @@ class SevenZip {
         if (p.length < 5) {
           throw const SevenZipException('LZMA properties are missing');
         }
-        final lzma = LzmaDecoder();
         final (lc, lp, pb) = _lzmaProperties(p[0]);
-        lzma.reset(
-            literalContextBits: lc,
-            literalPositionBits: lp,
-            positionBits: pb,
-            resetDictionary: true);
-        final out = lzma.decode(InputMemoryStream(packed), start + length);
-        return Uint8List.sublistView(out, start, start + length);
+        return compute(_decodeLzmaTask, (packed, lc, lp, pb, start, length));
       case '21':
         if (coder.properties.isEmpty) {
           throw const SevenZipException('LZMA2 properties are missing');
         }
-        return _lzma2(packed, coder.properties[0], start, length);
+        return compute(
+            _decodeLzma2Task, (packed, coder.properties[0], start, length));
       case '06f10701':
         throw const SevenZipException('encrypted archives are not supported');
       default:
@@ -572,4 +567,21 @@ class SevenZip {
     }
     return result;
   }
+}
+
+Uint8List _decodeLzmaTask((Uint8List, int, int, int, int, int) args) {
+  final (packed, lc, lp, pb, start, length) = args;
+  final lzma = LzmaDecoder()
+    ..reset(
+        literalContextBits: lc,
+        literalPositionBits: lp,
+        positionBits: pb,
+        resetDictionary: true);
+  final out = lzma.decode(InputMemoryStream(packed), start + length);
+  return Uint8List.fromList(Uint8List.sublistView(out, start, start + length));
+}
+
+Uint8List _decodeLzma2Task((Uint8List, int, int, int) args) {
+  final (packed, dictionaryProperty, start, length) = args;
+  return SevenZip._lzma2(packed, dictionaryProperty, start, length);
 }

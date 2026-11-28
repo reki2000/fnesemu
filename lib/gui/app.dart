@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:archive/archive.dart' show getCrc32;
 import 'package:cdrom_image/cdrom_image.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/app_api.dart';
@@ -308,7 +309,11 @@ class MainPageState extends State<MainPage> {
     } else if (!_stateOp) {
       // Pausing/stepping in the inspector keeps its controls accessible.
       // Explicit menu opening has already set _menuOpen before stopping.
-      if (!_controller.debugger.state.showDebugView) _menuOpen = true;
+      // A benchmark run keeps the menu closed until it completes.
+      if (!_controller.debugger.state.showDebugView &&
+          _benchmarkStatus.value == null) {
+        _menuOpen = true;
+      }
       _mPlayer.pause();
       _disableKeyHandler();
     }
