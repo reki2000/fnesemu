@@ -79,8 +79,21 @@ static void on_device_error(WGPUDevice const *device, WGPUErrorType type,
                             WGPUStringView message, void *u1, void *u2) {
   (void)device, (void)u2;
   MpcDevice *d = u1;
-  snprintf(d->error, sizeof d->error, "device error %d: %.*s", (int)type,
-           (int)message.length, message.data);
+  if (!d->error[0]) {
+    snprintf(d->error, sizeof d->error, "device error %d: %.*s", (int)type,
+             (int)message.length, message.data);
+  }
+}
+
+static void on_device_lost(WGPUDevice const *device, WGPUDeviceLostReason reason,
+                           WGPUStringView message, void *u1, void *u2) {
+  (void)device, (void)u2;
+  if (reason == WGPUDeviceLostReason_Destroyed) return;
+  MpcDevice *d = u1;
+  if (!d->error[0]) {
+    snprintf(d->error, sizeof d->error, "device lost %d: %.*s", (int)reason,
+             (int)message.length, message.data);
+  }
 }
 
 static void on_device(WGPURequestDeviceStatus status, WGPUDevice device,
@@ -114,6 +127,7 @@ static WGPUBuffer buffer(MpcDevice *d, uint64_t size, WGPUBufferUsage usage) {
 
 // Maps [b] for reading [size] bytes and waits for it.
 static int map_read(MpcDevice *d, WGPUBuffer b, uint64_t size) {
+  if (!b || d->error[0]) return 1;
   int done = 0;
   WGPUBufferMapCallbackInfo cb = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
   cb.mode = WGPUCallbackMode_AllowProcessEvents;
@@ -121,9 +135,16 @@ static int map_read(MpcDevice *d, WGPUBuffer b, uint64_t size) {
   cb.userdata1 = &done;
   cb.userdata2 = d;
   wgpuBufferMapAsync(b, WGPUMapMode_Read, 0, size, cb);
-  while (!done) {
-    wgpuDevicePoll(d->device, 1, NULL);
+  int emptyPolls = 0;
+  while (!done && !d->error[0]) {
+    WGPUBool empty = wgpuDevicePoll(d->device, 1, NULL);
     wgpuInstanceProcessEvents(d->instance);
+    if (!done && empty && ++emptyPolls >= 64) {
+      if (!d->error[0]) {
+        snprintf(d->error, sizeof d->error, "map: buffer map did not complete");
+      }
+      return 1;
+    }
   }
   return d->error[0] ? 1 : 0;
 }
@@ -308,6 +329,9 @@ EXPORT MpcDevice *mpc_device_open(const char *name, uint32_t backends,
   }
   dd.uncapturedErrorCallbackInfo.callback = on_device_error;
   dd.uncapturedErrorCallbackInfo.userdata1 = d;
+  dd.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+  dd.deviceLostCallbackInfo.callback = on_device_lost;
+  dd.deviceLostCallbackInfo.userdata1 = d;
   WGPURequestDeviceCallbackInfo cb = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
   cb.mode = WGPUCallbackMode_AllowProcessEvents;
   cb.callback = on_device;
@@ -438,6 +462,7 @@ EXPORT MpcProgram *mpc_program_create(MpcDevice *d, const char *wgsl,
 // write takes effect in queue order, before the next run.
 EXPORT int32_t mpc_write(MpcProgram *p, uint32_t binding, uint64_t offset,
                          const void *source, uint64_t bytes) {
+  if (p->d->error[0]) return 2;
   if (binding >= p->bindingCount || offset + bytes > p->sizes[binding] ||
       (offset | bytes) & 3) {
     snprintf(p->d->error, sizeof p->d->error, "bad write");
@@ -496,6 +521,7 @@ static void report_profile(MpcProgram *p, const uint32_t *dispatches,
 EXPORT int32_t mpc_run(MpcProgram *p, const uint32_t *dispatches,
                        uint32_t count, const void *params, uint32_t wait) {
   MpcDevice *d = p->d;
+  if (d->error[0]) return 2;
   if (count > p->maxDispatches) {
     snprintf(d->error, sizeof d->error, "too many dispatches");
     return 1;
@@ -576,9 +602,16 @@ static void copy_to_readback(MpcProgram *p, uint32_t binding, uint64_t offset,
 // mpc_read, or unmaps it.
 static int settle_prefetch(MpcProgram *p) {
   MpcDevice *d = p->d;
-  while (!p->mapped) {
-    wgpuDevicePoll(d->device, 1, NULL);
+  int emptyPolls = 0;
+  while (!p->mapped && !d->error[0]) {
+    WGPUBool empty = wgpuDevicePoll(d->device, 1, NULL);
     wgpuInstanceProcessEvents(d->instance);
+    if (!p->mapped && empty && ++emptyPolls >= 64) {
+      if (!d->error[0]) {
+        snprintf(d->error, sizeof d->error, "map: prefetch map did not complete");
+      }
+      break;
+    }
   }
   p->prefetched = 0;
   return d->error[0] ? 2 : 0;
@@ -600,6 +633,7 @@ static int check_range(MpcProgram *p, uint32_t binding, uint64_t offset,
 EXPORT int32_t mpc_prefetch(MpcProgram *p, uint32_t binding, uint64_t offset,
                             uint64_t bytes) {
   MpcDevice *d = p->d;
+  if (d->error[0]) return 2;
   if (check_range(p, binding, offset, bytes)) return 1;
   if (p->prefetched) {
     if (settle_prefetch(p)) return 2;
@@ -607,6 +641,10 @@ EXPORT int32_t mpc_prefetch(MpcProgram *p, uint32_t binding, uint64_t offset,
   }
   if (!bytes) return 0;
   reserve_readback(p, bytes);
+  if (!p->readback) {
+    if (!d->error[0]) snprintf(d->error, sizeof d->error, "no readback buffer");
+    return 2;
+  }
   copy_to_readback(p, binding, offset, bytes);
   p->prefetched = 1;
   p->mapped = 0;
@@ -628,14 +666,19 @@ EXPORT int32_t mpc_prefetch(MpcProgram *p, uint32_t binding, uint64_t offset,
 EXPORT int32_t mpc_read(MpcProgram *p, uint32_t binding, uint64_t offset,
                         void *target, uint64_t bytes) {
   MpcDevice *d = p->d;
+  if (d->error[0]) return 2;
   if (check_range(p, binding, offset, bytes)) return 1;
   if (p->prefetched) {
     const int same = p->prefetchBinding == binding &&
                      p->prefetchOffset == offset && p->prefetchBytes == bytes;
     if (settle_prefetch(p)) return 2;
     if (same) {
-      memcpy(target, wgpuBufferGetConstMappedRange(p->readback, 0, bytes),
-             bytes);
+      const void *src = wgpuBufferGetConstMappedRange(p->readback, 0, bytes);
+      if (!src) {
+        if (!d->error[0]) snprintf(d->error, sizeof d->error, "unmapped buffer");
+        return 2;
+      }
+      memcpy(target, src, bytes);
       wgpuBufferUnmap(p->readback);
       return 0;
     }
@@ -643,9 +686,18 @@ EXPORT int32_t mpc_read(MpcProgram *p, uint32_t binding, uint64_t offset,
   }
   if (!bytes) return 0;
   reserve_readback(p, bytes);
+  if (!p->readback) {
+    if (!d->error[0]) snprintf(d->error, sizeof d->error, "no readback buffer");
+    return 2;
+  }
   copy_to_readback(p, binding, offset, bytes);
   if (map_read(d, p->readback, bytes)) return 2;
-  memcpy(target, wgpuBufferGetConstMappedRange(p->readback, 0, bytes), bytes);
+  const void *src = wgpuBufferGetConstMappedRange(p->readback, 0, bytes);
+  if (!src) {
+    if (!d->error[0]) snprintf(d->error, sizeof d->error, "unmapped buffer");
+    return 2;
+  }
+  memcpy(target, src, bytes);
   wgpuBufferUnmap(p->readback);
   return 0;
 }
