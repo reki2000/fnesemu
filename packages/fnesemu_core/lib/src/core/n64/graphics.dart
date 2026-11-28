@@ -207,7 +207,7 @@ class N64Graphics {
     // A draw can be followed by a RDRAM read in the same display list.
     if (sink == null || !sink.waits || Endian.host != Endian.little) return;
     try {
-      _compute = N64RdpCompute(sink, bus, _replayCopyPixel);
+      _compute = N64RdpCompute(sink, bus);
       if (_depthExposed) _compute!.exposeDepth();
     } on Exception {
       // Keep the software renderer available when the program cannot compile.
@@ -1839,40 +1839,6 @@ class N64Graphics {
       return null;
     }
     return r.toInt().shl24 | g.toInt().shl16 | b.toInt().shl8 | a.toInt();
-  }
-
-  int _replayCopyPixel(Uint8List? memory, int offset, bool odd, int format,
-      int size, int palette, bool iaPalette, int at, int bytes, bool blend,
-      N64RdpCombiner? combiner, int x, int y,
-      [Float64List? values, int shadeAt = 0, int? rgbaWord]) {
-    var color = _whiteColor;
-    if (memory != null) {
-      _readTexel(memory, offset, odd, format, size, palette, iaPalette);
-      color = _tex;
-    } else if (rgbaWord != null) {
-      if (size == 3) {
-        _texture32(rgbaWord);
-      } else {
-        _texture16(rgbaWord);
-      }
-      color = _tex;
-    }
-    if (combiner != null) {
-      final planes = combiner.shadePlanes;
-      var shade = _whiteColor;
-      if (values != null) {
-        shade = _shade..set(values[shadeAt], values[shadeAt + 1],
-            values[shadeAt + 2], values[shadeAt + 3]);
-      } else if (planes != null) {
-        double value(N64RdpPlane p) =>
-            (p.origin + x * p.dx + y * p.dy) * math.pow(2, p.exponent).toDouble();
-        shade = _shade..set(value(planes[0]), value(planes[1]),
-            value(planes[2]), value(planes[3]));
-      }
-      color = _runCombiner(shade, color, Rgba.fromWord(combiner.primitive),
-          Rgba.fromWord(combiner.environment), combiner.plan, combiner.cycles);
-    }
-    return color.a < 1 ? 0 : _packPixel(at, bytes, color, blend);
   }
 
   void rdp(int w0, int w1) {

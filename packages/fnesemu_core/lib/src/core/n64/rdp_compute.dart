@@ -23,13 +23,12 @@ class N64RdpRect {
     return offset < width * pixelBytes || offset + size > pitch;
   }
 
-  void writeFill(N64Bus bus, int color, {bool Function(int, int)? colorCommitted}) {
+  void writeFill(N64Bus bus, int color) {
     final ram = bus.ramData, limit = bus.ram.length;
     for (var row = 0; row < height; row++) {
       var at = start + row * stride * pixelBytes;
       for (var col = 0; col < width; col++, at += pixelBytes) {
         if (at + pixelBytes > limit) break;
-        if (colorCommitted?.call(x + col, y + row) ?? false) continue;
         if (pixelBytes == 4) {
           ram.setUint32(at & 0x7fffff, color);
         } else {
@@ -65,18 +64,6 @@ class N64RdpTextureAxis {
 
   final double low, scale;
   final int limit, mode, mask;
-
-  int coordinate(double value) {
-    var coord = (value * scale - low).floor();
-    if ((mode & 2) != 0) coord = coord.clamp(0, limit);
-    if (mask != 0) {
-      final period = 1 << mask;
-      final mirror = (mode & 1) != 0 && (coord & period) != 0;
-      coord &= period - 1;
-      if (mirror) coord = period - 1 - coord;
-    }
-    return coord;
-  }
 }
 
 /// Coverage rules of the software rasterizer.
@@ -95,34 +82,6 @@ abstract final class N64RdpCoverage {
     }
     return wa >= 0 && wb >= 0 && wc >= 0;
   }
-}
-
-typedef N64CopyPixel = int Function(
-    Uint8List? tmem,
-    int offset,
-    bool odd,
-    int format,
-    int size,
-    int palette,
-    bool iaPalette,
-    int at,
-    int bytes,
-    bool blend,
-    N64RdpCombiner? combiner,
-    int x,
-    int y,
-    Float64List? values,
-    int shadeAt, [int? rgbaWord]);
-
-class _DepthCheckpoint {
-  _DepthCheckpoint(this.depth, this.epoch, this.rects, this.params,
-      this.input, this.combiners, this.clear);
-
-  final Float64List depth;
-  final int epoch, clear;
-  final List<N64RdpRect> rects;
-  final Uint32List params, input;
-  final List<N64RdpCombiner?> combiners;
 }
 
 /// Submits RDP draws together and applies their results in command order.
@@ -151,7 +110,7 @@ class N64RdpCompute {
   static const _packedColor = 1 << 15, _residentDepthFlag = 1 << 16;
   static const _cacheColorFlag = 1 << 29, _readCachedColorFlag = 1 << 30;
 
-  N64RdpCompute(ComputeSink sink, this.bus, this.replayPixel)
+  N64RdpCompute(ComputeSink sink, this.bus)
       : _program = sink.program(
             n64RdpComputeShader,
             ['drawBatch', 'drawTiles', 'drawAliasedBackground'],
@@ -172,15 +131,13 @@ class N64RdpCompute {
             maxDispatches: _maxBackgroundDispatches);
 
   final N64Bus bus;
-  final N64CopyPixel replayPixel;
   final ComputeProgram _program;
   final _rects = <N64RdpRect>[];
-  var _combiners = List<N64RdpCombiner?>.filled(_maxDraws, null);
   Uint32List _input = Uint32List(0);
   Int32List _signedInput = Int32List(0);
   Uint8List _inputBytes = Uint8List(0);
   Float32List _floatInput = Float32List(0);
-  var _params = Uint32List(_tableWords);
+  final _params = Uint32List(_tableWords);
   final _tiles = Uint32List(_tileHeader + _maxTiles * _tileWords);
   Int32List _tileSlots = Int32List(0);
   final _dispatch = Uint32List.fromList([0, 0, 1, 1]);
@@ -191,7 +148,8 @@ class N64RdpCompute {
   int _depthOutputWords = 0;
   bool _depthNeeded = false;
   Float64List? _residentDepth;
-  _DepthCheckpoint? _depthCheckpoint;
+  Float64List? _deferredDepth;
+  int _deferredDepthEpoch = 0, _deferredDepthFirst = 0, _deferredDepthLast = 0;
   Uint32List _depthReadback = Uint32List(0);
   bool _deferredDepthOutput = false;
   int _residentDepthEpoch = 0;
@@ -231,12 +189,10 @@ class N64RdpCompute {
   int _start = 0, _end = 0;
   int _pendingTiles = 0, _pendingWords = 0;
   Uint8List? _pendingColorTiles;
-  final _committedColorTiles = <int>{};
   int _pendingColorCount = 0;
   int _projectedTmemVersion = -1, _projectedTmemBase = 0;
   bool enabled = true;
   bool _destinationNeeded = false, _orderedColor = false;
-  bool _mixedTargets = false;
 
   bool overlaps(int at, int size) {
     if (at + size <= _start || at >= _end) return false;
@@ -256,17 +212,18 @@ class N64RdpCompute {
       Float64List? depth,
       N64RdpCombiner? combiner,
       int extraInputWords = 0}) {
+    if (rect.width <= 0 ||
+        rect.height <= 0 ||
+        rect.x < 0 ||
+        rect.y < 0 ||
+        rect.x + rect.width > rect.stride ||
+        rect.x + rect.width > maxExtent ||
+        rect.y + rect.height > maxExtent) {
+      return -1;
+    }
     if (_pendingWords != 0) flush();
     if ((_depth != null && depth != null && !identical(_depth, depth)) ||
-        (_rects.isNotEmpty &&
-            (_destinationNeeded ||
-                blend ||
-                _depth != null ||
-                depth != null ||
-                _orderedColor ||
-                mode == 5 ||
-                combiner != null) &&
-            (_mixedTargets || !_sameTarget(_rects.first, rect)))) {
+        (_rects.isNotEmpty && !_sameTarget(_rects.first, rect))) {
       flush();
     }
     // A workgroup writes words belonging to one rectangle.
@@ -291,11 +248,9 @@ class N64RdpCompute {
     } else {
       if (rect.start < _start) _start = rect.start;
       if (rect.end > _end) _end = rect.end;
-      _mixedTargets |= !_sameTarget(_rects.first, rect);
     }
     _rects.add(rect);
     _orderedColor |= mode == 5;
-    _combiners[draw] = combiner;
     _destinationNeeded |= blend;
     _depth ??= depth;
     final p = draw * _paramWords;
@@ -367,9 +322,7 @@ class N64RdpCompute {
   }
 
   void clearDepth(Float64List depth) {
-    if (_pendingWords != 0 ||
-        (_depth != null && !identical(_depth, depth)) ||
-        (_depth == null && _mixedTargets)) {
+    if (_pendingWords != 0 || (_depth != null && !identical(_depth, depth))) {
       flush();
     }
     _depth = depth;
@@ -645,10 +598,8 @@ class N64RdpCompute {
     _input[index] = offset & 4095;
   }
 
-  // Draws on the same pixel grid can resolve into one color per pixel.
-  // Targets that alias with a different stride or format stay in command order.
+  // Draws on the same pixel grid resolve into one color per pixel.
   int _binTiles() {
-    if (_mixedTargets) return 0;
     if (_rects.length < 2 &&
         !_destinationNeeded &&
         _depth == null &&
@@ -658,11 +609,6 @@ class N64RdpCompute {
     final first = _rects.first;
     var minX = first.x, minY = first.y, maxX = minX, maxY = minY;
     for (final rect in _rects) {
-      if (rect.x < 0 ||
-          rect.y < 0 ||
-          rect.x + rect.width > rect.stride) {
-        return 0;
-      }
       minX = math.min(minX, rect.x);
       minY = math.min(minY, rect.y);
       maxX = math.max(maxX, rect.x + rect.width - 1);
@@ -673,7 +619,6 @@ class N64RdpCompute {
     final cols = maxX ~/ _tileSide - tileX + 1;
     final rows = maxY ~/ _tileSide - tileY + 1;
     final slots = cols * rows;
-    if (slots > 4 * _maxTiles) return 0;
     if (_tileSlots.length < slots) _tileSlots = Int32List(slots);
     _tileSlots.fillRange(0, slots, -1);
     var count = 0;
@@ -689,7 +634,6 @@ class N64RdpCompute {
           final i = (y - tileY) * cols + x - tileX;
           var slot = _tileSlots[i];
           if (slot < 0) {
-            if (count == _maxTiles) return 0;
             slot = _tileHeader + count++ * _tileWords;
             _tileSlots[i] = slot;
             _tiles[slot] = x * _tileSide;
@@ -708,7 +652,7 @@ class N64RdpCompute {
     final count = _rects.length;
     if (count == 0) {
       if (_depthClear != 0) {
-        if (identical(_depthCheckpoint?.depth, _depth)) _depthCheckpoint = null;
+        if (identical(_deferredDepth, _depth)) _deferredDepth = null;
         if (identical(_residentDepth, _depth)) _residentDepth = null;
         _clearDepth();
         _depth = null;
@@ -720,16 +664,13 @@ class N64RdpCompute {
     final pending = _pendingWords != 0;
     if (pending && defer) return;
     final tileCount = pending ? _pendingTiles : _binTiles();
-    final useGpu = tileCount != 0 ||
-        (!_destinationNeeded && _depth == null && !_orderedColor);
     final colorWords = _rects.first.pixelBytes == 2 ? 1 : 2;
     if (!pending) {
       final depth = _depth;
       final clearsPlane = _depthClearedAtStart && depth != null;
-      final checkpoint = _depthCheckpoint;
-      if (checkpoint != null && depth != null) {
-        if (clearsPlane && identical(depth, checkpoint.depth)) {
-          _depthCheckpoint = null;
+      if (_deferredDepth != null && depth != null) {
+        if (clearsPlane && identical(depth, _deferredDepth)) {
+          _deferredDepth = null;
         } else {
           syncDepth();
         }
@@ -749,7 +690,7 @@ class N64RdpCompute {
         _pendingWords = 0;
         bus.unwatchRdram();
       }
-      if (useGpu && enabled) {
+      if (enabled) {
         if (!pending) {
           _runBatch(count, tileCount, endStream);
           if (defer && words != 0) {
@@ -773,17 +714,24 @@ class N64RdpCompute {
         }
       }
     } on Exception {
-      // No output has reached RDRAM yet. Replay the entire batch in order.
       enabled = false;
     }
     try {
-      if (enabled && useGpu && tileCount != 0) {
+      if (!enabled) return;
+      if (tileCount != 0) {
         if (_deferredDepthOutput) {
-          _depthCheckpoint = _DepthCheckpoint(_depth!, _residentDepthEpoch,
-              List.of(_rects), Uint32List.fromList(Uint32List.sublistView(
-                  _params, 0, count * _paramWords)),
-              Uint32List.fromList(Uint32List.sublistView(_input, 0, _inputUsed)),
-              _combiners.sublist(0, count), _depthClear);
+          var first = _depth!.length, last = 0;
+          for (var i = 0; i < count; i++) {
+            if ((_params[i * _paramWords + 15] & 2) == 0) continue;
+            final r = _rects[i];
+            final start = r.y * r.stride + r.x;
+            first = math.min(first, start);
+            last = math.max(last, start + (r.height - 1) * r.stride + r.width);
+          }
+          _deferredDepth = _depth;
+          _deferredDepthEpoch = _residentDepthEpoch;
+          _deferredDepthFirst = first;
+          _deferredDepthLast = last;
         } else if (_depthClear != 0) {
           _clearDepth();
         }
@@ -805,30 +753,18 @@ class N64RdpCompute {
           _clearDepth();
           clear = nextClear;
         }
-        if (enabled && useGpu) {
-          if (mode == 0) {
-            _storeFill(rect, bytes, _params[p + 8] * 4, _params[p] * 4);
-          } else {
-            _storeMasked(rect, pixels, _params[p + 8]);
-          }
-        } else if (mode == 0) {
-          rect.writeFill(bus, _params[p + 4], colorCommitted:
-              _committedColorTiles.isEmpty ? null : _colorCommitted);
-        } else if (mode == 5) {
-          _replayProjected(rect, p);
-        } else if (mode >= 2 && mode <= 4) {
-          _replayTriangle(rect, p, mode);
+        if (mode == 0) {
+          _storeFill(rect, bytes, _params[p + 8] * 4, _params[p] * 4);
         } else {
-          _replayRect(rect, p);
+          _storeMasked(rect, pixels, _params[p + 8]);
         }
       }
       if (clear != _depthClear) _clearDepth();
     } finally {
       _rects.clear();
       _projectedTmemVersion = -1;
-      _combiners.fillRange(0, count, null);
       _start = _end = _inputUsed = _outputUsed = 0;
-      _destinationNeeded = _orderedColor = _mixedTargets = false;
+      _destinationNeeded = _orderedColor = false;
       _depth = null;
       _depthOutputWords = 0;
       _deferredDepthOutput = false;
@@ -836,15 +772,9 @@ class N64RdpCompute {
       _depthClear = 0;
       _depthClearedAtStart = false;
       _pendingColorTiles = null;
-      _committedColorTiles.clear();
       _pendingColorCount = 0;
     }
   }
-
-  static int _colorTileKey(int x, int y) => (y >> 3) * 1024 + (x >> 3);
-
-  bool _colorCommitted(int x, int y) =>
-      _committedColorTiles.contains(_colorTileKey(x, y));
 
   void _readRdramRange(int start, int size) {
     final done = _pendingColorTiles!;
@@ -894,70 +824,27 @@ class N64RdpCompute {
   }
 
   void syncDepth() {
-    final checkpoint = _depthCheckpoint;
-    if (checkpoint == null) return;
-    _depthCheckpoint = null;
-    var first = checkpoint.depth.length, last = 0;
-    for (var i = 0; i < checkpoint.rects.length; i++) {
-      if ((checkpoint.params[i * _paramWords + 15] & 2) == 0) continue;
-      final r = checkpoint.rects[i];
-      final start = r.y * r.stride + r.x;
-      first = math.min(first, start);
-      last = math.max(last, start + (r.height - 1) * r.stride + r.width);
+    final target = _deferredDepth;
+    if (target == null) return;
+    _deferredDepth = null;
+    final first = _deferredDepthFirst, last = _deferredDepthLast;
+    if (last <= first) {
+      target.fillRange(0, target.length, double.infinity);
+      return;
     }
     final words = (last - first) * 3;
     if (_depthReadback.length < words) _depthReadback = Uint32List(words);
     try {
       _program.read(4, first * 12, Uint32List.sublistView(_depthReadback, 0, words));
-      checkpoint.depth.fillRange(0, checkpoint.depth.length, double.infinity);
-      final depth = Uint32List.sublistView(checkpoint.depth);
+      target.fillRange(0, target.length, double.infinity);
+      final depth = Uint32List.sublistView(target);
       for (var i = first * 2, at = 0; at < words; i += 2, at += 3) {
-        if (_depthReadback[at + 2] != checkpoint.epoch) continue;
+        if (_depthReadback[at + 2] != _deferredDepthEpoch) continue;
         depth[i] = _depthReadback[at];
         depth[i + 1] = _depthReadback[at + 1];
       }
     } on Exception {
-      _restoreDepth(checkpoint);
       enabled = false;
-    }
-  }
-
-  void _restoreDepth(_DepthCheckpoint checkpoint) {
-    final params = _params, input = _input, combiners = _combiners, depth = _depth;
-    final signed = _signedInput, floats = _floatInput, bytes = _inputBytes;
-    try {
-      _params = checkpoint.params;
-      _input = checkpoint.input;
-      _combiners = checkpoint.combiners;
-      _depth = checkpoint.depth;
-      _signedInput = Int32List.view(_input.buffer);
-      _floatInput = Float32List.view(_input.buffer);
-      _inputBytes = Uint8List.view(_input.buffer);
-      var clear = 0;
-      for (var i = 0; i < checkpoint.rects.length; i++) {
-        final p = i * _paramWords;
-        final flags = _params[p + 15];
-        if (flags >> 3 != clear) {
-          _clearDepth();
-          clear = flags >> 3;
-        }
-        if ((flags & 2) == 0) continue;
-        final mode = _params[p + 11], rect = checkpoint.rects[i];
-        if (mode == 5) {
-          _replayProjected(rect, p, depthOnly: true);
-        } else {
-          _replayTriangle(rect, p, mode, depthOnly: true);
-        }
-      }
-      if (clear != checkpoint.clear) _clearDepth();
-    } finally {
-      _params = params;
-      _input = input;
-      _combiners = combiners;
-      _depth = depth;
-      _signedInput = signed;
-      _floatInput = floats;
-      _inputBytes = bytes;
     }
   }
 
@@ -1140,7 +1027,6 @@ class N64RdpCompute {
       if (committed != null) {
         committed[i] = 1;
         _pendingColorCount--;
-        _committedColorTiles.add(_colorTileKey(x, y));
       }
     }
   }
@@ -1171,217 +1057,6 @@ class N64RdpCompute {
           ram.setUint32(at, pixel);
         } else {
           ram.setUint16(at, pixel);
-        }
-      }
-    }
-  }
-
-  int _textureCoord(int base, int x, int y, int reciprocal) {
-    final q = _signedInput;
-    final value = q[base] * x + q[base + 1] * y + q[base + 2];
-    final shift = q[base + 3];
-    final n = shift >= 0 ? value << shift : value;
-    final d = shift >= 0 ? reciprocal : reciprocal << -shift;
-    final fixed = n ~/ d - (n < 0 && n.remainder(d) != 0 ? 1 : 0);
-    var coord = (fixed - q[base + 4]) >> 2;
-    final flags = q[base + 6], mask = flags >> 2;
-    if ((flags & 2) != 0) coord = coord.clamp(0, q[base + 5]);
-    if (mask != 0) {
-      final period = 1 << mask;
-      final mirror = (flags & 1) != 0 && (coord & period) != 0;
-      coord &= period - 1;
-      if (mirror) coord = period - 1 - coord;
-    }
-    return coord;
-  }
-
-  void _replayRect(N64RdpRect rect, int p) {
-    final base = _params[p + 9], flags = _params[p + 7];
-    final mode = _params[p + 11];
-    final memory = mode != 1 ? null :
-        Uint8List.sublistView(_inputBytes, base * 4, (base + _tmemWords) * 4);
-    final image = mode != 7 ? null : ByteData.sublistView(
-        _inputBytes, base * 4, _params[p + 10] * 4);
-    final sBase = image == null ? base + _tmemWords : _params[p + 10];
-    final tBase = image == null ? _params[p + 10] : sBase + rect.width;
-    final texelSize = _params[p + 5];
-    final swapAxes = (flags & 2) != 0;
-    final bytes = rect.pixelBytes, limit = bus.ram.length;
-    final combiner = _combiners[p ~/ _paramWords];
-    for (var y = 0; y < rect.height; y++) {
-      var at = rect.start + y * rect.stride * bytes;
-      for (var x = 0; x < rect.width; x++, at += bytes) {
-        if (at + bytes > limit) break;
-        if (_colorCommitted(rect.x + x, rect.y + y)) continue;
-        final textured = memory != null || image != null;
-        final s = textured ? _input[sBase + (swapAxes ? y : x)] : 0;
-        final t = textured ? _input[tBase + (swapAxes ? x : y)] : 0;
-        final rgba = image == null ? null :
-            texelSize == 3 ? image.getUint32(s + t) : image.getUint16(s + t);
-        final color = replayPixel(
-            memory,
-            ((s & 4095) + t) & 4095,
-            (s & 4096) != 0,
-            _params[p + 4],
-            texelSize,
-            _params[p + 6],
-            (flags & 1) != 0,
-            at,
-            bytes,
-            (flags & 4) != 0,
-            combiner,
-            x,
-            y,
-            null,
-            0,
-            rgba);
-        if (color != 0) bus.ramWrite(at, color, bytes);
-      }
-    }
-  }
-
-  void _replayProjected(N64RdpRect rect, int p, {bool depthOnly = false}) {
-    final flags = _params[p + 7], depthFlags = _params[p + 15] & 7;
-    final texStart = _params[p + 9] * 4;
-    final tmem = (flags & 8) == 0
-        ? Uint8List.sublistView(_inputBytes, texStart, texStart + _tmemBytes)
-        : null;
-    final combiner = _combiners[p ~/ _paramWords];
-    final base = _params[p + 10], values = _floatInput;
-    final ax = values[base], ay = values[base + 1];
-    final bx = values[base + 10], by = values[base + 11];
-    final cx = values[base + 20], cy = values[base + 21];
-    double edge(double x, double y, double ux, double uy, double vx, double vy) =>
-        (x - ux) * (vy - uy) - (y - uy) * (vx - ux);
-    final area = edge(cx, cy, ax, ay, bx, by);
-    if (area == 0) return;
-    final za = values[base + 2] - values[base + 22];
-    final zb = values[base + 12] - values[base + 22];
-    final tolerance = 1 +
-        ((za * (cy - by) + zb * (ay - cy)) / area).abs() +
-        ((za * (bx - cx) + zb * (cx - ax)) / area).abs();
-    final sFlags = _input[base + 36], tFlags = _input[base + 37];
-    final sAxis = N64RdpTextureAxis(values[base + 30], values[base + 32],
-        _input[base + 34], sFlags & 3, sFlags >> 2);
-    final tAxis = N64RdpTextureAxis(values[base + 31], values[base + 33],
-        _input[base + 35], tFlags & 3, tFlags >> 2);
-    final size = _params[p + 5], bytes = rect.pixelBytes;
-    final rgba = Float64List(4);
-    for (var y = 0; y < rect.height; y++) {
-      var index = (rect.y + y) * rect.stride + rect.x;
-      var at = rect.address + index * bytes;
-      for (var x = 0; x < rect.width; x++, index++, at += bytes) {
-        final keepColor = depthOnly || _colorCommitted(rect.x + x, rect.y + y);
-        final px = x + 0.5, py = y + 0.5;
-        final wa = edge(px, py, bx, by, cx, cy) / area;
-        final wb = edge(px, py, cx, cy, ax, ay) / area;
-        if (wa < 0 || wb < 0 || edge(px, py, ax, ay, bx, by) / area < 0) continue;
-        double interpolate(int channel) {
-          final c = values[base + 20 + channel];
-          return c + wa * (values[base + channel] - c) +
-              wb * (values[base + 10 + channel] - c);
-        }
-        final z = interpolate(2);
-        if ((depthFlags & 1) != 0) {
-          final old = _depth![index];
-          if ((depthFlags & 4) != 0 ? (z - old).abs() > tolerance : z > old) {
-            continue;
-          }
-        }
-        var offset = 0, odd = false;
-        if (tmem != null) {
-          final q = interpolate(3);
-          if (q == 0) continue;
-          final tx = sAxis.coordinate(interpolate(4) / q);
-          final ty = tAxis.coordinate(interpolate(5) / q);
-          offset = (_input[base + 38] + ty * _input[base + 39] +
-              tx * (4 << size) ~/ 8) & 4095;
-          odd = tx.isOdd;
-        }
-        for (var channel = 0; channel < 4; channel++) {
-          rgba[channel] = interpolate(6 + channel);
-        }
-        final color = replayPixel(tmem, offset, odd, _params[p + 4], size,
-            _params[p + 6], (flags & 1) != 0, at, bytes, !keepColor && (flags & 4) != 0,
-            combiner, x, y, rgba, 0);
-        if (color == 0) continue;
-        if (!keepColor) bus.ramWrite(at, color, bytes);
-        if ((depthFlags & 2) != 0) _depth![index] = z;
-      }
-    }
-  }
-
-  void _replayTriangle(N64RdpRect rect, int p, int mode, {bool depthOnly = false}) {
-    final size = rect.pixelBytes;
-    final ram = bus.ramData, limit = bus.ram.length;
-    final edge = _signedInput;
-    final base = _params[p + 10], depthFlags = _params[p + 15] & 7;
-    final scale =
-        depthFlags == 0 ? 0.0 : math.pow(2, edge[base + 12]).toDouble();
-    final depth = _depth;
-    final tmemStart = _params[p + 9] * 4;
-    final tmem = mode == 3
-        ? Uint8List.sublistView(_inputBytes, tmemStart, tmemStart + _tmemBytes)
-        : null;
-    final format = _params[p + 4], texSize = _params[p + 5];
-    final palette = _params[p + 6], flags = _params[p + 7];
-    final combiner = _combiners[p ~/ _paramWords];
-    for (var y = 0; y < rect.height; y++) {
-      var at = rect.start + y * rect.stride * size;
-      final a = edge[base + 1] * y + edge[base + 2],
-          b = edge[base + 4] * y + edge[base + 5],
-          c = edge[base + 7] * y + edge[base + 8];
-      for (var x = 0; x < rect.width; x++, at += size) {
-        if (at + size > limit) break;
-        final keepColor = depthOnly || _colorCommitted(rect.x + x, rect.y + y);
-        if (edge[base] * x + a < 0 ||
-            edge[base + 3] * x + b < 0 ||
-            edge[base + 6] * x + c < 0) {
-          continue;
-        }
-        final index = (rect.y + y) * rect.stride + rect.x + x;
-        final z = depthFlags == 0
-            ? 0.0
-            : (edge[base + 9] * x + edge[base + 10] * y + edge[base + 11]) *
-                scale;
-        if ((depthFlags & 1) != 0 && z > depth![index]) continue;
-        var color = format;
-        if (tmem != null) {
-          final q = edge[base + 29] * x + edge[base + 30] * y + edge[base + 31];
-          final s = _textureCoord(base + 13, x, y, q);
-          final t = _textureCoord(base + 20, x, y, q);
-          final offset = (edge[base + 27] +
-                  t * edge[base + 28] +
-                  s * (4 << texSize) ~/ 8) &
-              4095;
-          color = replayPixel(
-              tmem,
-              offset,
-              s.isOdd,
-              format,
-              texSize,
-              palette,
-              (flags & 1) != 0,
-              at,
-              size,
-              !keepColor && (flags & 4) != 0,
-              combiner,
-              x,
-              y,
-              null,
-              0);
-          if (color == 0) continue;
-        } else if (mode == 4) {
-          color = replayPixel(null, 0, false, 0, 0, 0, false, at, size,
-              !keepColor && (flags & 4) != 0, combiner, x, y, null, 0);
-          if (color == 0) continue;
-        }
-        if ((depthFlags & 2) != 0) depth![index] = z;
-        if (keepColor) continue;
-        if (size == 4) {
-          ram.setUint32(at, color);
-        } else {
-          ram.setUint16(at, color);
         }
       }
     }
