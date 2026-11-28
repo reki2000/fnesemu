@@ -65,7 +65,10 @@ class _BenchmarkRun {
     } else {
       Uint8List? rom;
       if (scene.rom case final name?) {
-        (rom, _) = unpackRom(await archive.read(name), name);
+        final bytes = await archive.read(name);
+        (rom, _) = isZip(name)
+            ? await compute(_unpackRomTask, (bytes, name))
+            : unpackRom(bytes, name);
       }
       await drive.insert();
       await _controller.init(system.id, rom: rom, bios: bios, drive: drive);
@@ -179,3 +182,6 @@ class _BenchmarkRun {
     ];
   }
 }
+
+(Uint8List, String) _unpackRomTask((Uint8List, String) args) =>
+    unpackRom(args.$1, args.$2);

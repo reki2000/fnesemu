@@ -49,7 +49,7 @@ abstract class BenchArchive {
     if (isZip(file.name)) {
       final bytes = await file.read(0, length);
       await file.close();
-      return _ZipArchive(ZipDecoder().decodeBytes(bytes, verify: true));
+      return _ZipArchive(await compute(_decodeZipArchive, bytes));
     }
     await file.close();
     throw FormatException('not a zip or 7z archive: ${file.name}');
@@ -81,23 +81,28 @@ class _SevenZipArchive implements BenchArchive {
   Future<void> close() => _file.close();
 }
 
+Map<String, Uint8List> _decodeZipArchive(Uint8List bytes) {
+  final archive = ZipDecoder().decodeBytes(bytes, verify: true);
+  return {
+    for (final f in archive)
+      if (f.isFile) f.name: Uint8List.fromList(f.content as List<int>),
+  };
+}
+
 class _ZipArchive implements BenchArchive {
-  final Archive _archive;
-  _ZipArchive(this._archive);
+  final Map<String, Uint8List> _files;
+  _ZipArchive(this._files);
 
   @override
-  List<String> get names => [
-        for (final f in _archive)
-          if (f.isFile) f.name
-      ];
+  List<String> get names => _files.keys.toList();
 
   @override
   Future<Uint8List> read(String name) async {
-    final file = _archive.findFile(name);
-    if (file == null || !file.isFile) {
+    final content = _files[name];
+    if (content == null) {
       throw FormatException('$name is not in the archive');
     }
-    return Uint8List.fromList(file.content as List<int>);
+    return content;
   }
 
   @override
