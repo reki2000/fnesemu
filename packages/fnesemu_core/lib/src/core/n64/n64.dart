@@ -240,7 +240,8 @@ class N64 extends Core {
       if (graphics.waitsForCompute &&
           (graphics.hasPendingStream ||
               graphics.waitRequested ||
-              bus.scanline == scanlinesInFrame - 1)) {
+              (bus.scanline == scanlinesInFrame - 1 &&
+                  graphics.overlapsVideoOutput))) {
         _updateResult(line);
         return _result..linesLeft = scanlines;
       }
@@ -275,7 +276,9 @@ class N64 extends Core {
     }
     bus.tick(cpu.clocks - before);
     var line = false;
-    if (bus.scanline == scanlinesInFrame - 1 && graphics.waitsForCompute) {
+    if (bus.scanline == scanlinesInFrame - 1 &&
+        graphics.waitsForCompute &&
+        graphics.overlapsVideoOutput) {
       return false;
     }
     if (cpu.clocks >= _nextLine) {

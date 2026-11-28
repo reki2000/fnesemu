@@ -867,6 +867,37 @@ class N64Bus {
     }
   }
 
+  /// Returns the RDRAM byte range (start, size) currently scanned out by VI,
+  /// or null when video output is inactive.
+  (int, int)? videoOutputRange() {
+    final interlaced = vi[0] & 0x40 != 0;
+    final mode = vi[0].mask2;
+    final stride = vi[2].mask12;
+    final hStart = vi[9].shr16.mask10;
+    final hEnd = vi[9].mask10;
+    final vStart = vi[10].shr16.mask10;
+    final vEnd = vi[10].mask10;
+    final width = (hEnd - hStart) * vi[12].mask12 ~/ 1024;
+    final height = interlaced
+        ? (vEnd - vStart) ~/ 2
+        : (vEnd - vStart) * vi[13].mask12 ~/ 2048;
+    if (mode < 2 ||
+        stride == 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        width > 640 ||
+        height > 576) {
+      return null;
+    }
+    final origin = vi[1].mask24;
+    final size = mode == 2 ? 2 : 4;
+    final lastSourceY = interlaced
+        ? ((height - 1) * vi[13].mask12 + (vi[13] >> 16 & 0xfff)) ~/ 1024
+        : height - 1;
+    final sourceWidth = width < stride ? width : stride;
+    return (origin, (lastSourceY * stride + sourceWidth) * size);
+  }
+
   /// VI raw scanout, with alternating fields but without video filtering.
   ImageBuffer image() => vi[0] & 0x40 != 0 && _fields.image != null
       ? _fields.image!

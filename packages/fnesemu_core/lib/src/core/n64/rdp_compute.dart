@@ -93,7 +93,7 @@ class N64RdpCompute {
   static const _paramWords = 16;
   static const _tileSide = 8;
   static const _tileHeader = 3;
-  static const _tileWords = 3 + (_maxDraws + 31) ~/ 32;
+  static const _tileWords = 4 + (_maxDraws + 31) ~/ 32;
   static const _tilePixels = _tileSide * _tileSide;
   static const _maxTiles = _outputWords ~/ _tilePixels;
   static const _jobOffset = _maxDraws * _paramWords;
@@ -192,16 +192,19 @@ class N64RdpCompute {
   int _pendingTiles = 0, _pendingWords = 0;
   Uint8List? _pendingColorTiles;
   int _pendingColorCount = 0;
-  int _projectedTmemVersion = -1, _projectedTmemBase = 0;
+  int _tmemVersion = -1, _tmemBase = 0;
   bool enabled = true;
   bool _destinationNeeded = false, _orderedColor = false;
   bool _waitRequested = false;
+  bool _pendingDepthSync = false;
 
   bool get waits => _waits;
-  bool get hasPending => _pendingWords != 0;
+  bool get hasPending => _pendingWords != 0 || _pendingDepthSync;
+  bool get hasPendingDepthSync => _pendingDepthSync;
   Future<void>? get computeWait => _waits ? null : _program.fetching;
   bool get waitsForCompute =>
-      !_waits && _pendingWords != 0 && _program.fetching != null;
+      !_waits && (_pendingWords != 0 || _pendingDepthSync) &&
+      _program.fetching != null;
   bool get waitRequested => _waitRequested && waitsForCompute;
 
   bool overlaps(int at, int size) {
@@ -465,21 +468,31 @@ class N64RdpCompute {
     }
   }
 
-  int copy(N64RdpRect rect, Uint8List tmem, int format, int size, int palette,
-      bool iaPalette, bool flip, bool blend, N64RdpCombiner? combiner) {
+  int _writeTmem(Uint8List tmem, int tmemVersion) {
+    if (_tmemVersion != tmemVersion) {
+      _tmemVersion = tmemVersion;
+      _tmemBase = _inputUsed;
+      _inputBytes.setRange(_inputUsed * 4, _inputUsed * 4 + _tmemBytes, tmem);
+      _inputUsed += _tmemWords;
+    }
+    return _tmemBase;
+  }
+
+  int copy(N64RdpRect rect, Uint8List tmem, int tmemVersion, int format,
+      int size, int palette, bool iaPalette, bool flip, bool blend,
+      N64RdpCombiner? combiner) {
     final p = _reserve(rect, 1, rect.width, blend: blend, combiner: combiner);
     if (p < 0) return -1;
-    final base = _inputUsed;
-    final sLength = flip ? rect.height : rect.width;
-    _inputBytes.setRange(base * 4, base * 4 + _tmemBytes, tmem);
+    final tmemBase = _writeTmem(tmem, tmemVersion);
+    final stBase = _inputUsed;
     _params[p + 4] = format;
     _params[p + 5] = size;
     _params[p + 6] = palette;
     _params[p + 7] = (iaPalette ? 1 : 0) | (flip ? 2 : 0) | (blend ? 4 : 0);
-    _params[p + 9] = base;
-    _params[p + 10] = base + _tmemWords + sLength;
-    _inputUsed += _tmemWords + rect.width + rect.height;
-    return base + _tmemWords;
+    _params[p + 9] = tmemBase;
+    _params[p + 10] = stBase;
+    _inputUsed += rect.width + rect.height;
+    return stBase;
   }
 
   int _triangle(N64RdpRect rect, int mode, Int32List edges, N64RdpPlane? plane,
@@ -542,6 +555,7 @@ class N64RdpCompute {
       bool depthTest,
       bool depthWrite,
       Uint8List tmem,
+      int tmemVersion,
       int format,
       int size,
       int palette,
@@ -556,13 +570,12 @@ class N64RdpCompute {
     // texture axes, TMEM layout, reciprocal plane, and packed TMEM.
     _signedInput.setRange(_inputUsed, _inputUsed + texture.length, texture);
     _inputUsed += texture.length;
-    _inputBytes.setRange(_inputUsed * 4, _inputUsed * 4 + _tmemBytes, tmem);
+    final tmemBase = _writeTmem(tmem, tmemVersion);
     _params[p + 4] = format;
     _params[p + 5] = size;
     _params[p + 6] = palette;
     _params[p + 7] = (iaPalette ? 1 : 0) | (blend ? 4 : 0);
-    _params[p + 9] = _inputUsed;
-    _inputUsed += _tmemWords;
+    _params[p + 9] = tmemBase;
     return true;
   }
 
@@ -575,13 +588,7 @@ class N64RdpCompute {
         depth: depth, blend: blend, combiner: combiner, extraInputWords: 40);
     if (p < 0) return false;
     if (tmem != null) {
-      if (_projectedTmemVersion != tmemVersion) {
-        _projectedTmemVersion = tmemVersion;
-        _projectedTmemBase = _inputUsed;
-        _inputBytes.setRange(_inputUsed * 4, _inputUsed * 4 + _tmemBytes, tmem);
-        _inputUsed += _tmemWords;
-      }
-      _params[p + 9] = _projectedTmemBase;
+      _params[p + 9] = _writeTmem(tmem, tmemVersion);
     }
     _params[p + 4] = format;
     _params[p + 5] = size;
@@ -660,8 +667,8 @@ class N64RdpCompute {
             _tiles[slot + 1] = y * _tileSide;
             _tiles.fillRange(slot + 2, slot + _tileWords, 0);
           }
-          _tiles[slot + 2] |= 1 << group;
-          _tiles[slot + 3 + group] |= flag;
+          _tiles[slot + 2 + (group >> 5)] |= 1 << (group & 31);
+          _tiles[slot + 4 + group] |= flag;
         }
       }
     }
@@ -701,7 +708,7 @@ class N64RdpCompute {
           syncDepth();
         }
       }
-      _deferredDepthOutput = _waits && defer && tileCount != 0 && clearsPlane &&
+      _deferredDepthOutput = tileCount != 0 && clearsPlane &&
           _allowResidentDepth && depth.length <= _depthCapacity &&
           _rects.first.stride < 4096 && _residentDepthEpoch < 0xffffffff &&
           _depthOutputWords != 0;
@@ -720,7 +727,7 @@ class N64RdpCompute {
         if (!pending) {
           _runBatch(count, tileCount, endStream);
           if ((defer || !_waits) && words != 0) {
-            if (_deferredDepthOutput) {
+            if (_waits && _deferredDepthOutput) {
               _pendingColorTiles = Uint8List(tileCount);
               _pendingColorCount = tileCount;
             } else {
@@ -728,7 +735,9 @@ class N64RdpCompute {
             }
             if (defer || _program.fetching != null) {
               bus.watchRdram(_start, math.min(_end, bus.ram.length), flush,
-                  settleRange: _deferredDepthOutput ? _readRdramRange : null);
+                  settleRange: _waits && _deferredDepthOutput
+                      ? _readRdramRange
+                      : null);
               _pendingTiles = tileCount;
               _pendingWords = words;
               return;
@@ -790,7 +799,7 @@ class N64RdpCompute {
       if (clear != _depthClear) _clearDepth();
     } finally {
       _rects.clear();
-      _projectedTmemVersion = -1;
+      _tmemVersion = -1;
       _start = _end = _inputUsed = _outputUsed = 0;
       _destinationNeeded = _orderedColor = false;
       _depth = null;
@@ -855,13 +864,27 @@ class N64RdpCompute {
   void syncDepth() {
     final target = _deferredDepth;
     if (target == null) return;
-    _deferredDepth = null;
     final first = _deferredDepthFirst, last = _deferredDepthLast;
     if (last <= first) {
+      _deferredDepth = null;
+      _pendingDepthSync = false;
       target.fillRange(0, target.length, double.infinity);
       return;
     }
     final words = (last - first) * 3;
+    if (!_waits) {
+      if (!_pendingDepthSync) {
+        _program.prefetch(4, first * 12, words * 4);
+        if (_program.fetching != null) {
+          _pendingDepthSync = true;
+          return;
+        }
+      } else if (_program.fetching != null) {
+        return;
+      }
+      _pendingDepthSync = false;
+    }
+    _deferredDepth = null;
     if (_depthReadback.length < words) _depthReadback = Uint32List(words);
     try {
       _program.read(4, first * 12, Uint32List.sublistView(_depthReadback, 0, words));

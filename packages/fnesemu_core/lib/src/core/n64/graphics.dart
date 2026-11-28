@@ -186,9 +186,23 @@ class N64Graphics {
   bool get waitRequested => _compute?.waitRequested ?? false;
   bool get hasPendingStream => _pendingStream != null;
 
+  bool get overlapsVideoOutput {
+    final compute = _compute;
+    if (compute == null || !compute.hasPending) return false;
+    final range = bus.videoOutputRange();
+    if (range == null) return false;
+    return compute.overlaps(range.$1, range.$2);
+  }
+
   void settleIfReady() {
     final compute = _compute;
-    if (compute != null && compute.hasPending && !compute.waitsForCompute) {
+    if (compute == null || !compute.hasPending || compute.waitsForCompute) {
+      return;
+    }
+    if (compute.hasPendingDepthSync) {
+      compute.syncDepth();
+      if (!compute.enabled) computeSink = null;
+    } else {
       _flushRectangles();
     }
   }
@@ -1352,8 +1366,8 @@ class N64Graphics {
       }
       if (!compute.texturedTriangle(rect, edges, plane,
           plane == null ? null : depth, depthTest, depthWrite, tmem,
-          tile.format, tile.size, tile.palette, otherHigh.shr14.mask2 == 3,
-          otherLow.bit14, texture, combiner)) {
+          _tmemVersion, tile.format, tile.size, tile.palette,
+          otherHigh.shr14.mask2 == 3, otherLow.bit14, texture, combiner)) {
         return false;
       }
     } else if (otherHigh.shr20.mask2 != 2 &&
@@ -1883,8 +1897,9 @@ class N64Graphics {
     final copy = _textureUsesCopyColor();
     final combiner = copy ? null : _computeCombiner(null);
     if (!copy && combiner == null) return false;
-    final base = compute.copy(rect, tmem, tile.format, tile.size, tile.palette,
-        otherHigh.shr14.mask2 == 3, flip, otherLow.bit14, combiner);
+    final base = compute.copy(rect, tmem, _tmemVersion, tile.format, tile.size,
+        tile.palette, otherHigh.shr14.mask2 == 3, flip, otherLow.bit14,
+        combiner);
     if (base < 0) return false;
     // Reuse the software coordinate rules before the GPU fetches TMEM.
     final sLength = flip ? rows : cols, tLength = flip ? cols : rows;
