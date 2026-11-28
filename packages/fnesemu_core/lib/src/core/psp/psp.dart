@@ -234,8 +234,8 @@ class Psp extends Core {
   GeCompute? _gpu;
   ComputeSink? _computeSink;
 
-  /// Rasterizes on [sink] when it waits for the GPU by itself. On a sink
-  /// that does not, the graphics engine draws in software.
+  /// Rasterizes on [sink] when one is attached; otherwise the graphics
+  /// engine draws in software.
   @override
   set computeSink(ComputeSink? sink) {
     if (identical(sink, _computeSink)) return;
@@ -243,7 +243,7 @@ class Psp extends Core {
     _gpu?.detach();
     _gpu = null;
     _kernel?.ge.compute = null;
-    if (sink == null || !sink.waits) return;
+    if (sink == null) return;
     try {
       // blocks compiled from video memory would map its pages
       _jit?.reset();
@@ -255,6 +255,24 @@ class Psp extends Core {
     } catch (e) {
       _log.warn('no compute GE on ${sink.name}: $e');
     }
+  }
+
+  @override
+  Future<void>? computeWait() => _gpu?.computeWait;
+
+  @override
+  ExecResult runFrame(int scanlines) {
+    var remaining = scanlines;
+    var last = ExecResult(cpu.clocks, false, false);
+    while (remaining > 0) {
+      if (_line + 1 >= scanlinesInFrame && (_gpu?.waitsForCompute ?? false)) {
+        return last..linesLeft = remaining;
+      }
+      last = exec(false);
+      remaining--;
+      if (last.stopped) break;
+    }
+    return last..linesLeft = 0;
   }
 
   Allegrex _createCpu() => Allegrex(mem,

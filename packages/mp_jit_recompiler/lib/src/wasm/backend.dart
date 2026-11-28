@@ -23,19 +23,36 @@ abstract interface class WasmEnv {
 
   /// Whether blocks call the import after the helpers at their entry.
   bool get profileBlocks;
+
+  /// Whether the host supports Wasm fixed-width SIMD (v128).
+  bool get simd;
+
+  /// Whether the host supports Wasm tail calls (`return_call_indirect`).
+  bool get tailCalls;
+
   int slotFor(int pc, int tag);
 }
 
 /// Emits baseline Wasm with i32 and i64 locals for SSA values. Big-endian
-/// accesses reverse bytes around little-endian linear-memory operations. A block returns the
-/// next table index, or zero to leave the dispatcher. Chaining uses a loop
-/// rather than recursive calls, so guest loops cannot grow the host stack.
+/// accesses reverse bytes around little-endian linear-memory operations. When
+/// [WasmEnv.tailCalls] is enabled, blocks chain directly via
+/// `return_call_indirect` and return the exit reason on exit; otherwise a
+/// block returns the next table index (or zero to leave the dispatcher loop),
+/// so guest loops never grow the host stack.
 abstract final class WasmBackend {
   static const dynEntries = DynTable.entries;
   static int dynIndex(int pc, int tag) => DynTable.index(pc, tag);
 
-  static Uint8List dispatcher(int ctx) {
+  static Uint8List dispatcher(int ctx, {bool tailCalls = false}) {
     final c = _Code();
+    if (tailCalls) {
+      c.get(0);
+      c.op(0x13);
+      c.u(0);
+      c.u(0); // return_call_indirect () -> i32
+      c.op(0x0b);
+      return _module(c, 2, const [], const []);
+    }
     c.op(0x03, 0x40); // loop
     c.get(0);
     c.op(0x11);
@@ -51,11 +68,18 @@ abstract final class WasmBackend {
     c.op(0x0b);
     c.i32(0);
     c.op(0x0b);
-    return _module(c, 2, const [], 0);
+    return _module(c, 2, const [], const []);
   }
 
   static Uint8List compile(IrBlock block, WasmEnv env) {
     final c = _Code();
+    final importMap = <int, int>{};
+    final importIds = <int>[];
+    int importIndex(int id) => importMap.putIfAbsent(id, () {
+      final index = importIds.length;
+      importIds.add(id);
+      return index;
+    });
     final insts = block.insts;
     final fused = irFusedCompareConsumers(block);
     bool wide(int v) => insts[v].type == IrType.i64;
@@ -264,7 +288,7 @@ abstract final class WasmBackend {
         () => pcLocal == null ? c.i32(pc) : c.get(pcLocal),
       );
       ctxStore(JitCtx.exitTag, () => c.i32(tag));
-      c.i32(0);
+      c.i32(env.tailCalls ? reason : 0);
       c.op(0x0f);
     }
 
@@ -276,7 +300,13 @@ abstract final class WasmBackend {
       exit(JitReason.miss, pc, tag);
       c.op(0x0b);
       c.get(page);
-      c.op(0x0f);
+      if (env.tailCalls) {
+        c.op(0x13);
+        c.u(0);
+        c.u(0); // return_call_indirect () -> i32
+      } else {
+        c.op(0x0f);
+      }
     };
 
     void sideExit(IrExit e) => exit(
@@ -587,33 +617,84 @@ abstract final class WasmBackend {
     c.op(0x04, 0x40);
     exit(JitReason.budget, block.pc, block.tag);
     c.op(0x0b);
-    for (final g in block.guards) {
-      c.i32(g.addr);
-      c.set(address);
-      lookup(false);
-      c.get(page);
-      c.op(0x04, 0x40);
-      hostAddress();
-      c.load();
-      // Compare with the raw little-endian word in linear memory.
-      final v = g.value;
-      c.i32(
-        g.endian == IrEndian.big
+    if (block.guards.isNotEmpty) {
+      int guardWord(IrGuard g) {
+        final v = g.value;
+        return g.endian == IrEndian.big
             ? (v & 0xff) << 24 |
                   (v >>> 8 & 0xff) << 16 |
                   (v >>> 16 & 0xff) << 8 |
                   v >>> 24
-            : v,
-      );
-      c.op(0x47, 0x04, 0x40);
+            : v;
+      }
+
+      final pageMask = (1 << env.pageShift) - 1;
+      c.op(0x02, 0x40); // block $ok
+      c.op(0x02, 0x40); // block $fail
+      var gi = 0;
+      while (gi < block.guards.length) {
+        final pageIndex =
+            (block.guards[gi].addr & env.addrMask) >>> env.pageShift;
+        var pageEnd = gi + 1;
+        while (pageEnd < block.guards.length &&
+            ((block.guards[pageEnd].addr & env.addrMask) >>> env.pageShift) ==
+                pageIndex) {
+          pageEnd++;
+        }
+        c.i32(env.readTable + 4 * pageIndex);
+        c.load();
+        c.tee(page);
+        c.op(0x04, 0x40); // if (page != 0)
+        var k = gi;
+        while (k < pageEnd) {
+          final off = block.guards[k].addr & pageMask;
+          if (env.simd &&
+              k + 4 <= pageEnd &&
+              (block.guards[k + 1].addr & pageMask) == off + 4 &&
+              (block.guards[k + 2].addr & pageMask) == off + 8 &&
+              (block.guards[k + 3].addr & pageMask) == off + 12) {
+            c.get(page);
+            c.simd(0x00); // v128.load
+            c.u(2);
+            c.u(off);
+            c.v128([
+              guardWord(block.guards[k]),
+              guardWord(block.guards[k + 1]),
+              guardWord(block.guards[k + 2]),
+              guardWord(block.guards[k + 3]),
+            ]);
+            c.simd(0x38); // i32x4.ne
+            c.simd(0x53); // v128.any_true
+            c.op(0x0d, 1); // br_if $fail
+            k += 4;
+          } else if (k + 2 <= pageEnd &&
+              (block.guards[k + 1].addr & pageMask) == off + 4) {
+            c.get(page);
+            c.load(opcode: 0x29, align: 2, offset: off); // i64.load
+            c.i64(guardWord(block.guards[k]), guardWord(block.guards[k + 1]));
+            c.op(0x52, 0x0d, 1); // i64.ne; br_if $fail
+            k += 2;
+          } else {
+            c.get(page);
+            c.load(offset: off); // i32.load
+            c.i32(guardWord(block.guards[k]));
+            c.op(0x47, 0x0d, 1); // i32.ne; br_if $fail
+            k++;
+          }
+        }
+        c.op(0x0b); // end if
+        gi = pageEnd;
+      }
+      c.op(0x0c, 1); // br $ok
+      c.op(0x0b); // end $fail
       exit(JitReason.invalid, block.pc, block.tag);
-      c.op(0x0b, 0x0b);
+      c.op(0x0b); // end $ok
     }
     if (env.profileBlocks) {
       c.i32(0);
       c.i32(0);
       c.i32(0);
-      c.call(2 + env.helperCount);
+      c.call(importIndex(2 + env.helperCount));
       c.op(0x1a);
     }
     ctxStore(JitCtx.budget, () {
@@ -996,7 +1077,7 @@ abstract final class WasmBackend {
               c.op(0x6a);
               c.i32(4);
               c.i32(0);
-              c.call(0);
+              c.call(importIndex(0));
               c.simd(0x1c); // i32x4.replace_lane
               c.op(k);
             }
@@ -1031,7 +1112,7 @@ abstract final class WasmBackend {
             c.simd(0x1b); // i32x4.extract_lane
             c.op(k);
             c.i32(4);
-            c.call(1);
+            c.call(importIndex(1));
             c.op(0x1a);
           }
           c.op(0x0b);
@@ -1075,7 +1156,7 @@ abstract final class WasmBackend {
               }
               c.i32(size == 8 ? 4 : size);
               c.i32(0);
-              c.call(0);
+              c.call(importIndex(0));
               if (size == 8) c.op(0xad);
             }
             if (size == 8) {
@@ -1153,7 +1234,7 @@ abstract final class WasmBackend {
               c.op(0xa7);
             }
             c.i32(size == 8 ? 4 : size);
-            c.call(1);
+            c.call(importIndex(1));
             c.op(0x1a);
           }
           c.op(0x0b);
@@ -1194,7 +1275,7 @@ abstract final class WasmBackend {
           a();
           b();
           get(inst.c);
-          c.call(2 + inst.imm);
+          c.call(importIndex(2 + inst.imm));
         case IrOp.exitIf:
           emitCondition(inst.a);
           c.op(0x04, 0x40);
@@ -1254,7 +1335,13 @@ abstract final class WasmBackend {
         exit(JitReason.miss, 0, tag, pcLocal: address);
         c.op(0x0b);
         c.get(page);
-        c.op(0x0f);
+        if (env.tailCalls) {
+          c.op(0x13);
+          c.u(0);
+          c.u(0); // return_call_indirect () -> i32
+        } else {
+          c.op(0x0f);
+        }
       case IrExitTerm(:final exit):
         sideExit(exit);
     }
@@ -1264,15 +1351,16 @@ abstract final class WasmBackend {
       (locals32, 0x7f),
       (locals64, 0x7e),
       (locals128, 0x7b),
-    ], 2 + env.helperCount + (env.profileBlocks ? 1 : 0));
+    ], importIds);
   }
 
   static Uint8List _module(
     _Code code,
     int type,
     List<(int, int)> locals,
-    int imports,
+    List<int> importIds,
   ) {
+    final imports = importIds.length;
     final m = _Code()..bytes.addAll([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
     final types = _Code()..u(3);
     for (final params in [0, 3, 1]) {
@@ -1293,9 +1381,9 @@ abstract final class WasmBackend {
     im.name('table');
     im.op(1, 0x70, 0);
     im.u(0);
-    for (int i = 0; i < imports; i++) {
+    for (final id in importIds) {
       im.name('env');
-      im.name('f$i');
+      im.name('f$id');
       im.op(0);
       im.u(1);
     }

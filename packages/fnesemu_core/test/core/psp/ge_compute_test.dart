@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/compute_sink.dart';
@@ -13,29 +14,39 @@ import 'psp_test.dart' show buildProgram;
 /// A sink whose program runs nothing: it keeps the buffers, so that a test
 /// can play the GPU by writing them.
 class _Sink implements ComputeSink {
+  _Sink({this.waits = true});
+
   _Program? last;
 
   @override
   String get name => 'fake';
 
   @override
-  bool get waits => true;
+  final bool waits;
 
   @override
   ComputeProgram program(
           String wgsl, List<String> entryPoints, List<ComputeBinding> bindings,
           {required int paramStride, required int maxDispatches}) =>
-      last = _Program(bindings);
+      last = _Program(bindings, waits: waits);
 }
 
 class _Program implements ComputeProgram {
-  _Program(List<ComputeBinding> bindings)
+  _Program(List<ComputeBinding> bindings, {this.waits = true})
       : buffers = [for (final b in bindings) Uint32List(b.bytes >> 2)];
 
   final List<Uint32List> buffers;
+  final bool waits;
   int runs = 0, reads = 0;
+  Completer<void>? _pending;
 
   Uint32List get vram => buffers[0];
+
+  void settle() {
+    final c = _pending;
+    _pending = null;
+    c?.complete();
+  }
 
   @override
   void write(int binding, int byteOffset, Uint32List words,
@@ -52,13 +63,18 @@ class _Program implements ComputeProgram {
   }
 
   @override
-  void prefetch(int binding, int byteOffset, int bytes) {}
+  void prefetch(int binding, int byteOffset, int bytes) {
+    if (!waits) _pending = Completer<void>();
+  }
 
   @override
-  Future<void>? get fetching => null;
+  Future<void>? get fetching => _pending?.future;
 
   @override
   void read(int binding, int byteOffset, Uint32List target) {
+    if (!waits && _pending != null) {
+      throw StateError('read before prefetch settled');
+    }
     reads++;
     target.setRange(0, target.length, buffers[binding], byteOffset >> 2);
   }
@@ -127,6 +143,21 @@ void main() {
     expect(gpu.display![0], 0xff0000ff);
     expect(gpu.displayStride, 512);
     expect(gpu.displayFormat, 3);
+  });
+
+  test('an async sink exposes computeWait and delivers the frame after it',
+      () async {
+    final asyncSink = _Sink(waits: false);
+    final asyncGpu = GeCompute(mem, asyncSink)..attach();
+    mem.write32(fb, 0xff112233);
+    asyncGpu.endFrame(fb, 512, 3);
+    expect(asyncGpu.computeWait, isNotNull);
+    expect(asyncGpu.display, isNull);
+    asyncSink.last!.settle();
+    await asyncGpu.computeWait;
+    expect(asyncGpu.computeWait, isNull);
+    expect(asyncGpu.display![0], 0xff112233);
+    asyncGpu.detach();
   });
 
   test('a transfer into video memory runs on the GPU unless it overlaps', () {

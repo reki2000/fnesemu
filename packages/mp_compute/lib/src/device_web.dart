@@ -263,9 +263,9 @@ class ComputeDevice {
 
 /// A range of a binding on its way to the host.
 class _Fetch {
-  _Fetch(this.offset, this.bytes, this.buffer);
+  _Fetch(this.offset, this.bytes, this.size, this.buffer, this.capacity);
 
-  final int offset, bytes;
+  final int offset, bytes, size, capacity;
   final JSObject buffer;
   late final Future<void> future;
   bool settled = false;
@@ -291,6 +291,9 @@ class ComputeProgram {
 
   /// the ranges of the last prefetch of each binding
   final _fetches = <int, _Fetch>{};
+
+  /// reusable unmapped staging buffers per binding: (GPUBuffer, byte capacity)
+  final _staging = <int, (JSObject, int)>{};
   String? _error;
 
   JSObject get _queue => device._queue;
@@ -365,7 +368,17 @@ class ComputeProgram {
     _check();
     _release(binding);
     final size = (bytes + 3) & ~3;
-    final buffer = device._buffer(size, _mapRead | _copyDestination);
+    final JSObject buffer;
+    final int capacity;
+    final pooled = _staging.remove(binding);
+    if (pooled != null && pooled.$2 >= size) {
+      buffer = pooled.$1;
+      capacity = pooled.$2;
+    } else {
+      pooled?.$1.call('destroy');
+      buffer = device._buffer(size, _mapRead | _copyDestination);
+      capacity = size;
+    }
     final commands = device._device.call<JSObject>('createCommandEncoder');
     commands.call('copyBufferToBuffer', [
       _buffers[binding],
@@ -377,7 +390,8 @@ class ComputeProgram {
     _queue.call('submit', [
       [commands.call<JSObject>('finish')].toJS,
     ]);
-    final fetch = _fetches[binding] = _Fetch(byteOffset, bytes, buffer);
+    final fetch =
+        _fetches[binding] = _Fetch(byteOffset, bytes, size, buffer, capacity);
     fetch.future = buffer
         .call<JSPromise<JSAny?>>('mapAsync', [_read.toJS, 0.toJS, size.toJS])
         .toDart
@@ -423,10 +437,16 @@ class ComputeProgram {
     if (fetch.error case final error?) throw ComputeException(error);
     final range = fetch.buffer.call<JSArrayBuffer>('getMappedRange', [
       0.toJS,
-      fetch.buffer['size'],
+      fetch.size.toJS,
     ]);
-    target.setAll(0, range.toDart.asUint32List(start, target.length));
-    _release(binding);
+    target.setRange(0, target.length, range.toDart.asUint32List(start, target.length));
+    _fetches.remove(binding);
+    fetch.buffer.call('unmap');
+    final prev = _staging[binding];
+    if (prev != null) {
+      prev.$1.call('destroy');
+    }
+    _staging[binding] = (fetch.buffer, fetch.capacity);
   }
 
   void _release(int binding) {
@@ -438,6 +458,10 @@ class ComputeProgram {
     for (final binding in [..._fetches.keys]) {
       _release(binding);
     }
+    for (final (buffer, _) in _staging.values) {
+      buffer.call('destroy');
+    }
+    _staging.clear();
     for (final buffer in _buffers) {
       buffer.call('destroy');
     }

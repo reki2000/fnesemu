@@ -29,6 +29,10 @@ extension type _Instance._(JSObject _) implements JSObject {
   external JSObject get exports;
 }
 
+extension type _DispatcherExports._(JSObject _) implements JSObject {
+  external int run(int slot);
+}
+
 @JS('WebAssembly.validate')
 external bool _validate(JSUint8Array bytes);
 
@@ -43,6 +47,24 @@ final bool _simd = () {
       10, 0x19, 1, 0x17, 0, // code
       0xfd, 0x0c, for (var i = 0; i < 16; i++) 0, // v128.const
       0xfd, 0x1b, 0, // i32x4.extract_lane 0
+      0x0b,
+    ]).toJS);
+  } catch (_) {
+    return false;
+  }
+}();
+
+/// Whether the host compiles the tail-call extension of Wasm (`return_call_indirect`).
+final bool _tailCall = () {
+  try {
+    return _validate(Uint8List.fromList([
+      0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, //
+      1, 5, 1, 0x60, 0, 1, 0x7f, // type 0: () -> i32
+      3, 2, 1, 0, // function 0: type 0
+      4, 4, 1, 0x70, 0, 0, // table 0: funcref, min 0
+      10, 9, 1, 7, 0, // code section: 1 body, 7 bytes, 0 locals
+      0x41, 0, // i32.const 0
+      0x13, 0, 0, // return_call_indirect type=0 table=0
       0x0b,
     ]).toJS);
   } catch (_) {
@@ -182,13 +204,19 @@ final class _WasmRuntime extends JitRuntime
   static const _retiredVersions = 4;
   final _blocks = <(int, int), int>{};
   final _helpers = <JSFunction>[];
-  late final JSFunction _readFn, _writeFn, _enter;
+  late final JSObject _env, _imports;
+  late final JSFunction _readFn, _writeFn;
+  late final _DispatcherExports _dispatcher;
   late final Uint32List _ctx, _reads, _writes, _slotWords, _dynWords;
 
   @override
   late final int ctxOffset, readTable, writeTable, slots, dyn;
   @override
   int get helperCount => _helpers.length;
+  @override
+  bool get simd => _simd;
+  @override
+  bool get tailCalls => _tailCall;
 
   JSFunction? _profileFn;
 
@@ -203,6 +231,7 @@ final class _WasmRuntime extends JitRuntime
       beginProfileBlock();
       return 0;
     }).toJS;
+    _env['f${_helpers.length + 2}'] = _profileFn;
   }
 
   _WasmRuntime(
@@ -230,26 +259,20 @@ final class _WasmRuntime extends JitRuntime
               (size == 4 ? 0xffffffff : (1 << (size * 8)) - 1));
       return 0;
     }).toJS;
-    _enter = _instantiate(WasmBackend.dispatcher(ctxOffset), helpers: false);
+    _env = JSObject()
+      ..['memory'] = _linear.memory
+      ..['table'] = _table
+      ..['f0'] = _readFn
+      ..['f1'] = _writeFn;
+    _imports = JSObject()..['env'] = _env;
+    _dispatcher = _Instance(
+      _Module(WasmBackend.dispatcher(ctxOffset, tailCalls: _tailCall).toJS),
+      _imports,
+    ).exports as _DispatcherExports;
   }
 
-  JSFunction _instantiate(Uint8List bytes, {bool helpers = true}) {
-    final env = JSObject();
-    env['memory'] = _linear.memory;
-    env['table'] = _table;
-    if (helpers) {
-      env['f0'] = _readFn;
-      env['f1'] = _writeFn;
-      for (int i = 0; i < _helpers.length; i++) {
-        env['f${i + 2}'] = _helpers[i];
-      }
-      if (_profileFn case final profile?) {
-        env['f${_helpers.length + 2}'] = profile;
-      }
-    }
-    final imports = JSObject()..['env'] = env;
-    return _Instance(_Module(bytes.toJS), imports).exports['run'] as JSFunction;
-  }
+  JSFunction _instantiate(Uint8List bytes) =>
+      _Instance(_Module(bytes.toJS), _imports).exports['run'] as JSFunction;
 
   int _allocate(int size) {
     _checkAlive();
@@ -327,9 +350,14 @@ final class _WasmRuntime extends JitRuntime
   @override
   int addHelper(JitHelper helper) {
     _checkAlive();
-    _helpers.add(((int a, int b, int c) =>
+    final fn = ((int a, int b, int c) =>
         helper(a.toUnsigned(32), b.toUnsigned(32), c.toUnsigned(32))
-            .toSigned(32)).toJS);
+            .toSigned(32)).toJS;
+    _helpers.add(fn);
+    _env['f${_helpers.length + 1}'] = fn;
+    if (_profileFn case final profile?) {
+      _env['f${_helpers.length + 2}'] = profile;
+    }
     return _helpers.length - 1;
   }
 
@@ -429,7 +457,7 @@ final class _WasmRuntime extends JitRuntime
     nativeEntries++;
     return enterCompiled(
         pc,
-        () => (_enter.callAsFunction(null, slot.toJS) as JSNumber).toDartInt,
+        () => _dispatcher.run(slot),
         _refreshExitTarget,
         profiled: _profileFn != null);
   }

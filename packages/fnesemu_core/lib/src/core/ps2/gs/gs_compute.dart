@@ -190,7 +190,7 @@ class GsCompute implements GsResidentSink {
 
   /// Copies the memory back into the Gs and leaves the work to it.
   void detach() {
-    sync();
+    if (_waits) sync();
     if (identical(gs.residentSink, this)) gs.residentSink = null;
     _program.dispose();
   }
@@ -200,7 +200,9 @@ class GsCompute implements GsResidentSink {
   /// [requestSync] fetched; when that has not come, the Gs keeps its memory
   /// as it was.
   void sync() {
-    gs.showPicture();
+    if (_waits || _program.fetching == null) {
+      gs.showPicture();
+    }
     _dropPrefetch();
     finish();
     if (!_waits) {
@@ -248,6 +250,7 @@ class GsCompute implements GsResidentSink {
   /// completes when they are on the host; null when [sync] can read them.
   Future<void>? requestSync() {
     if (_waits) return null;
+    _dropPrefetch();
     // a submit of work after the last fetch clears [_fetched]
     finish();
     if (!_fetched) {
@@ -259,10 +262,15 @@ class GsCompute implements GsResidentSink {
     return _program.fetching;
   }
 
-  /// Whether [vblank] only starts to copy the local memory, and the Gs
-  /// shows its picture at the next one. A sink that does not wait reads
-  /// the memory at each vblank instead, after the core has stopped for it.
-  bool get defersPicture => _waits;
+  /// Whether [vblank] starts to copy the local memory and the Gs shows its
+  /// picture at the next vblank, overlapping GPU work with the next frame.
+  bool get defersPicture => true;
+
+  /// On a sink that does not wait, returns the future of the pending vblank
+  /// display copy if it has not settled yet; null when the next vblank can
+  /// read it immediately.
+  Future<void>? vblankWait() =>
+      _waits ? null : (_prefetched ? _program.fetching : null);
 
   /// whether the copy of the local memory that [vblank] started is still
   /// on the GPU
@@ -272,6 +280,10 @@ class GsCompute implements GsResidentSink {
   /// has drawn it.
   void takeMemory() {
     if (!_prefetched) return;
+    if (!_waits && _program.fetching != null) {
+      _dropPrefetch();
+      return;
+    }
     _prefetched = false;
     _readRange();
   }
@@ -283,8 +295,10 @@ class GsCompute implements GsResidentSink {
     if (!_prefetched) return;
     _prefetched = false;
     if (_fetchLast < _fetchFirst) return;
-    _program.read(_vramBinding, _fetchFirst * 8192,
-        Uint32List((_fetchLast - _fetchFirst + 1) * 2048));
+    if (_waits) {
+      _program.read(_vramBinding, _fetchFirst * 8192,
+          Uint32List((_fetchLast - _fetchFirst + 1) * 2048));
+    }
     _dirty.setRange(_fetchFirst, _fetchLast, true);
     _fetchLast = -1;
   }
@@ -1018,10 +1032,6 @@ class GsCompute implements GsResidentSink {
   /// the copy at the next one ([Gs.showPicture]).
   @override
   void vblank(int field) {
-    if (!_waits) {
-      sync();
-      return;
-    }
     _close(materialize: true);
     _submit(wait: false);
     _dropPrefetch();
