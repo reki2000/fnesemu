@@ -157,10 +157,17 @@ class N64Bus {
   // SP DMA addresses written last
   final _spNext = Uint32List(2);
   int audioCycles = 0;
+  bool taskPending = false;
   void Function()? onTask;
   void Function(int, int)? onDp;
   void Function(AudioBuffer)? onAudio;
   bool get interruptPending => (mi[2] & mi[3]) != 0;
+
+  void completeTask() {
+    taskPending = false;
+    spRegs[4] |= 0x203; // HALT, BROKE, SIG2: task complete.
+    if (spRegs[4].bit6) interrupt(1);
+  }
 
   List<List<int>> get _registerFiles =>
       [vi, pi, ai, ri, rdram, si, spRegs, dp, mi, _spNext];
@@ -223,6 +230,7 @@ class N64Bus {
     scanline = s.int64();
     spPc = s.int64();
     audioCycles = s.int64();
+    taskPending = false;
   }
 
   void interrupt(int mask) => mi[2] |= mask;
@@ -530,9 +538,9 @@ class N64Bus {
           }
           spRegs[4] = status;
           if (!status.bit0 && onTask != null) {
+            taskPending = false;
             onTask!();
-            spRegs[4] |= 0x203; // HALT, BROKE, SIG2: task complete.
-            if (spRegs[4].bit6) interrupt(1);
+            if (!taskPending) completeTask();
           }
           return;
         }
@@ -816,6 +824,7 @@ class N64Bus {
   ];
 
   void reset() {
+    taskPending = false;
     _flashActive = false;
     _flashMode = _flashPage = 0;
     _flashStatusHigh = _flashStatusLow = 0;
@@ -856,6 +865,37 @@ class N64Bus {
       _viField = 0;
       _fields.reset();
     }
+  }
+
+  /// Returns the RDRAM byte range (start, size) currently scanned out by VI,
+  /// or null when video output is inactive.
+  (int, int)? videoOutputRange() {
+    final interlaced = vi[0] & 0x40 != 0;
+    final mode = vi[0].mask2;
+    final stride = vi[2].mask12;
+    final hStart = vi[9].shr16.mask10;
+    final hEnd = vi[9].mask10;
+    final vStart = vi[10].shr16.mask10;
+    final vEnd = vi[10].mask10;
+    final width = (hEnd - hStart) * vi[12].mask12 ~/ 1024;
+    final height = interlaced
+        ? (vEnd - vStart) ~/ 2
+        : (vEnd - vStart) * vi[13].mask12 ~/ 2048;
+    if (mode < 2 ||
+        stride == 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        width > 640 ||
+        height > 576) {
+      return null;
+    }
+    final origin = vi[1].mask24;
+    final size = mode == 2 ? 2 : 4;
+    final lastSourceY = interlaced
+        ? ((height - 1) * vi[13].mask12 + (vi[13] >> 16 & 0xfff)) ~/ 1024
+        : height - 1;
+    final sourceWidth = width < stride ? width : stride;
+    return (origin, (lastSourceY * stride + sourceWidth) * size);
   }
 
   /// VI raw scanout, with alternating fields but without video filtering.

@@ -1,4 +1,4 @@
-const n64RdpMaxDraws = 1024;
+const n64RdpMaxDraws = 2016;
 const n64RdpDepthCapacity = 640 * 576;
 const n64RdpTileSeedOffset = 4 * 1024 * 1024;
 
@@ -8,7 +8,7 @@ const drawLimit = ${n64RdpMaxDraws}u;
 const residentDepthPixels = ${n64RdpDepthCapacity}u;
 const tileSeedOffset = ${n64RdpTileSeedOffset}u;
 ''' r'''
-const tileWords = 3u + (drawLimit + 31u) / 32u;
+const tileWords = 4u + (drawLimit + 31u) / 32u;
 
 struct Params {
   rect: vec4<u32>, // Row words, height, destination pixel bytes, parity or combiner offset plus one.
@@ -102,8 +102,9 @@ fn texel(params: Params, s: u32, t: u32) -> vec4<f32> {
 
 fn copyTexel(params: Params, x: u32, y: u32) -> vec4<f32> {
   let flip = (params.texture.w & 2u) != 0u;
-  let s = input[params.offsets.y + tmemWords + select(x, y, flip)];
-  let t = input[params.offsets.z + select(y, x, flip)];
+  let sLength = select(params.bounds.z, params.rect.y, flip);
+  let s = input[params.offsets.z + select(x, y, flip)];
+  let t = input[params.offsets.z + sLength + select(y, x, flip)];
   return texel(params, s, t);
 }
 
@@ -490,16 +491,19 @@ fn tilePixel(params: Params, x: u32, y: u32, dst: u32) -> vec2<u32> {
 
 fn resolveOverwrite(tile: u32, x: u32, y: u32) -> vec2<u32> {
   // Find the latest covered draw when the batch has no destination reads.
-  var groups = tiles[tile + 2u];
-  while (groups != 0u) {
-    let word = firstLeadingBit(groups);
-    groups &= ~(1u << word);
-    var mask = tiles[tile + 3u + word];
-    while (mask != 0u) {
-      let bit = firstLeadingBit(mask);
-      mask &= ~(1u << bit);
-      let result = tilePixel(draws.params[word * 32u + bit], x, y, 0u);
-      if (result.y != 0u) { return result; }
+  for (var half = 1i; half >= 0i; half--) {
+    var groups = tiles[tile + 2u + u32(half)];
+    let baseWord = u32(half) * 32u;
+    while (groups != 0u) {
+      let word = baseWord + firstLeadingBit(groups);
+      groups &= ~(1u << (word - baseWord));
+      var mask = tiles[tile + 4u + word];
+      while (mask != 0u) {
+        let bit = firstLeadingBit(mask);
+        mask &= ~(1u << bit);
+        let result = tilePixel(draws.params[word * 32u + bit], x, y, 0u);
+        if (result.y != 0u) { return result; }
+      }
     }
   }
   return vec2<u32>(0u);
@@ -556,45 +560,48 @@ fn resolveOrdered(tile: u32, x: u32, y: u32, dst: u32, depth: vec2<u32>,
                   lastClear: u32) -> TilePixel {
   var result = TilePixel(dst, 0u, depth);
   var clear = 0u;
-  var groups = tiles[tile + 2u];
-  while (groups != 0u) {
-    let word = firstTrailingBit(groups);
-    groups &= groups - 1u;
-    var mask = tiles[tile + 3u + word];
-    while (mask != 0u) {
-      let bit = firstTrailingBit(mask);
-      mask &= mask - 1u;
-      let params = draws.params[word * 32u + bit];
-      let nextClear = params.bounds.w >> 3u;
-      if (nextClear != clear) {
-        result.depth = clearedDepth;
-        result.writes &= ~2u;
-        clear = nextClear;
+  for (var half = 0u; half < 2u; half++) {
+    var groups = tiles[tile + 2u + half];
+    let baseWord = half * 32u;
+    while (groups != 0u) {
+      let word = baseWord + firstTrailingBit(groups);
+      groups &= groups - 1u;
+      var mask = tiles[tile + 4u + word];
+      while (mask != 0u) {
+        let bit = firstTrailingBit(mask);
+        mask &= mask - 1u;
+        let params = draws.params[word * 32u + bit];
+        let nextClear = params.bounds.w >> 3u;
+        if (nextClear != clear) {
+          result.depth = clearedDepth;
+          result.writes &= ~2u;
+          clear = nextClear;
+        }
+        let flags = params.bounds.w & 7u;
+        if (params.offsets.w == 5u) {
+          result = shadeProjected(params, x, y, result, flags);
+          continue;
+        }
+        var z = vec2<u32>(0u);
+        if (flags != 0u) {
+          if (x < params.bounds.x || y < params.bounds.y) { continue; }
+          let dx = i32(x - params.bounds.x);
+          let dy = i32(y - params.bounds.y);
+          if (u32(dx) >= params.bounds.z || u32(dy) >= params.rect.y) { continue; }
+          if (!triangleCovered(params.offsets.z, dx, dy)) { continue; }
+          let base = params.offsets.z + 9u;
+          z = depthBits(edge(base, dx, dy), bitcast<i32>(input[base + 3u]));
+          if ((flags & 1u) != 0u && greaterDepth(z, result.depth)) { continue; }
+        }
+        let pixel = tilePixel(params, x, y, result.color);
+        if (pixel.y == 0u) { continue; }
+        if ((flags & 2u) != 0u) {
+          result.depth = z;
+          result.writes |= 2u;
+        }
+        result.color = pixel.x;
+        result.writes |= 1u;
       }
-      let flags = params.bounds.w & 7u;
-      if (params.offsets.w == 5u) {
-        result = shadeProjected(params, x, y, result, flags);
-        continue;
-      }
-      var z = vec2<u32>(0u);
-      if (flags != 0u) {
-        if (x < params.bounds.x || y < params.bounds.y) { continue; }
-        let dx = i32(x - params.bounds.x);
-        let dy = i32(y - params.bounds.y);
-        if (u32(dx) >= params.bounds.z || u32(dy) >= params.rect.y) { continue; }
-        if (!triangleCovered(params.offsets.z, dx, dy)) { continue; }
-        let base = params.offsets.z + 9u;
-        z = depthBits(edge(base, dx, dy), bitcast<i32>(input[base + 3u]));
-        if ((flags & 1u) != 0u && greaterDepth(z, result.depth)) { continue; }
-      }
-      let pixel = tilePixel(params, x, y, result.color);
-      if (pixel.y == 0u) { continue; }
-      if ((flags & 2u) != 0u) {
-        result.depth = z;
-        result.writes |= 2u;
-      }
-      result.color = pixel.x;
-      result.writes |= 1u;
     }
   }
   // The final clear can follow the last draw that touched this tile.
