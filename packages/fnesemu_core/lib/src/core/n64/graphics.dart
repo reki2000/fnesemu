@@ -1982,12 +1982,14 @@ class N64Graphics {
         tile.bottom = w1.mask12 / 4;
       case 0xf3:
         _tmemVersion++;
-        final tile = tiles[w1.shr24.mask3], count = w1.shr12.mask12 + 1;
+        final tile = tiles[w1.shr24.mask3],
+            uls = w0.shr12.mask12,
+            ult = w0.mask12,
+            lrs = w1.shr12.mask12;
+        final count = lrs >= uls ? lrs - uls + 1 : 0;
         final bytes = (count * (4 << textureSize) + 7) ~/ 8;
-        final start = textureImage +
-            ((w0.mask12 ~/ 4 * textureWidth + w0.shr12.mask12 ~/ 4) *
-                    (4 << textureSize)) ~/
-                8;
+        final start =
+            textureImage + ((ult * textureWidth + uls) * (4 << textureSize)) ~/ 8;
         for (var i = 0; i < bytes; i++) {
           tmem[(tile.tmem * 8 + i).mask12] = u(start + i, 1);
         }
